@@ -1411,9 +1411,15 @@ function loadMedia(url) {
   appendPlaybackDebugEntry("Forwarding media to player", mediaUrl);
 
   if (window.anyTogetherSyncBridge?.loadMedia) {
-    const loaded = window.anyTogetherSyncBridge.loadMedia(mediaUrl);
-    appendPlaybackDebugEntry(loaded ? "Player bridge accepted media" : "Player bridge rejected media", mediaUrl, !loaded);
-    return loaded;
+    try {
+      const loaded = window.anyTogetherSyncBridge.loadMedia(mediaUrl);
+      appendPlaybackDebugEntry(loaded ? "Player bridge accepted media" : "Player bridge rejected media", mediaUrl, !loaded);
+      if (loaded) {
+        return true;
+      }
+    } catch (error) {
+      appendPlaybackDebugEntry("Player bridge failed", error?.message || String(error), true);
+    }
   }
 
   const mediaUrlInput = document.getElementById("mediaUrl");

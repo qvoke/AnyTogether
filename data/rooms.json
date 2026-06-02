@@ -1,0 +1,602 @@
+{
+  "rooms": {
+    "CC9683": {
+      "code": "CC9683",
+      "title": "TestRoom",
+      "ownerId": "ffd5ca6e-ccf3-4775-9a76-32043e4c444e",
+      "createdAt": 1780409216659,
+      "sessionStartedAt": 1780409216659,
+      "chat": [],
+      "playlist": [],
+      "currentMedia": null,
+      "currentPlayback": {
+        "state": "paused",
+        "time": 0,
+        "updatedAt": 1780409216659
+      },
+      "lastUpdatedAt": 1780409216659
+    },
+    "TEST01": {
+      "code": "TEST01",
+      "title": "Room TEST01",
+      "ownerId": null,
+      "createdAt": 1780409235936,
+      "sessionStartedAt": 1780409235936,
+      "chat": [],
+      "playlist": [],
+      "currentMedia": null,
+      "currentPlayback": {
+        "state": "paused",
+        "time": 0,
+        "updatedAt": 1780409235936
+      },
+      "lastUpdatedAt": 1780409235936
+    },
+    "0085D0": {
+      "code": "0085D0",
+      "title": "Room 0085D0",
+      "ownerId": null,
+      "createdAt": 1780424658235,
+      "sessionStartedAt": 1780424658235,
+      "chat": [],
+      "playlist": [],
+      "currentMedia": null,
+      "currentPlayback": {
+        "state": "paused",
+        "time": 0,
+        "updatedAt": 1780424658235
+      },
+      "lastUpdatedAt": 1780424658235
+    },
+    "B66203": {
+      "code": "B66203",
+      "title": "Room B66203",
+      "ownerId": null,
+      "createdAt": 1780426532956,
+      "sessionStartedAt": 1780426532956,
+      "chat": [],
+      "playlist": [],
+      "currentMedia": {
+        "mediaUrl": "https://stream.voidboost.cc/75b7fecbd7cfb9c9ca8eab1a88777db1:2026060317:OW4wOUtObjk4OW5WVE5oTEJOZWxSUUIrSW42SW1VVXp4U0RKY1dXZDYrTXVBaXBtN0NPR2VEMUVZVDhjNVdGYU5GaEE3M0lIWTlzRkYwaXBIN0FRalE9PQ==/5/9/1/3/8/0/t0yvx.mp4:hls:manifest.m3u8",
+        "pageUrl": "https://rezka.ag/ua/series/thriller/9364-mister-robot-2015.html",
+        "title": "Пан Робот (2015)",
+        "seriesContext": {
+          "currentEpisodeId": 1,
+          "currentEpisodeIndex": 0,
+          "currentPageUrl": "https://rezka.ag/ua/series/thriller/9364-mister-robot-2015.html",
+          "currentSeasonId": 1,
+          "episodes": [
+            {
+              "episodeId": 1,
+              "seasonId": 1,
+              "title": "Серія 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 1,
+              "title": "Серія 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 1,
+              "title": "Серія 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 1,
+              "title": "Серія 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 1,
+              "title": "Серія 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 1,
+              "title": "Серія 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 1,
+              "title": "Серія 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 1,
+              "title": "Серія 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 1,
+              "title": "Серія 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 1,
+              "title": "Серія 10"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 2,
+              "title": "Серія 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 2,
+              "title": "Серія 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 2,
+              "title": "Серія 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 2,
+              "title": "Серія 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 2,
+              "title": "Серія 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 2,
+              "title": "Серія 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 2,
+              "title": "Серія 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 2,
+              "title": "Серія 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 2,
+              "title": "Серія 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 2,
+              "title": "Серія 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 2,
+              "title": "Серія 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 2,
+              "title": "Серія 12"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 3,
+              "title": "Серія 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 3,
+              "title": "Серія 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 3,
+              "title": "Серія 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 3,
+              "title": "Серія 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 3,
+              "title": "Серія 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 3,
+              "title": "Серія 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 3,
+              "title": "Серія 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 3,
+              "title": "Серія 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 3,
+              "title": "Серія 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 3,
+              "title": "Серія 10"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 4,
+              "title": "Серія 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 4,
+              "title": "Серія 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 4,
+              "title": "Серія 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 4,
+              "title": "Серія 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 4,
+              "title": "Серія 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 4,
+              "title": "Серія 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 4,
+              "title": "Серія 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 4,
+              "title": "Серія 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 4,
+              "title": "Серія 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 4,
+              "title": "Серія 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 4,
+              "title": "Серія 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 4,
+              "title": "Серія 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 4,
+              "title": "Серія 13"
+            }
+          ],
+          "resolver": {
+            "favs": "3ed7137a-41bd-4190-a253-1ddf8ac00280",
+            "itemId": 9364,
+            "origin": "https://rezka.ag",
+            "pageUrl": "https://rezka.ag/ua/series/thriller/9364-mister-robot-2015.html",
+            "provider": "rezka",
+            "translatorId": 56
+          },
+          "seasons": [
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 1,
+                  "title": "Серія 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 1,
+                  "title": "Серія 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 1,
+                  "title": "Серія 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 1,
+                  "title": "Серія 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 1,
+                  "title": "Серія 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 1,
+                  "title": "Серія 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 1,
+                  "title": "Серія 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 1,
+                  "title": "Серія 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 1,
+                  "title": "Серія 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 1,
+                  "title": "Серія 10"
+                }
+              ],
+              "seasonId": 1,
+              "title": "Сезон 1"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 2,
+                  "title": "Серія 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 2,
+                  "title": "Серія 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 2,
+                  "title": "Серія 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 2,
+                  "title": "Серія 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 2,
+                  "title": "Серія 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 2,
+                  "title": "Серія 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 2,
+                  "title": "Серія 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 2,
+                  "title": "Серія 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 2,
+                  "title": "Серія 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 2,
+                  "title": "Серія 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 2,
+                  "title": "Серія 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 2,
+                  "title": "Серія 12"
+                }
+              ],
+              "seasonId": 2,
+              "title": "Сезон 2"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 3,
+                  "title": "Серія 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 3,
+                  "title": "Серія 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 3,
+                  "title": "Серія 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 3,
+                  "title": "Серія 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 3,
+                  "title": "Серія 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 3,
+                  "title": "Серія 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 3,
+                  "title": "Серія 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 3,
+                  "title": "Серія 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 3,
+                  "title": "Серія 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 3,
+                  "title": "Серія 10"
+                }
+              ],
+              "seasonId": 3,
+              "title": "Сезон 3"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 4,
+                  "title": "Серія 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 4,
+                  "title": "Серія 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 4,
+                  "title": "Серія 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 4,
+                  "title": "Серія 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 4,
+                  "title": "Серія 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 4,
+                  "title": "Серія 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 4,
+                  "title": "Серія 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 4,
+                  "title": "Серія 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 4,
+                  "title": "Серія 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 4,
+                  "title": "Серія 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 4,
+                  "title": "Серія 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 4,
+                  "title": "Серія 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 4,
+                  "title": "Серія 13"
+                }
+              ],
+              "seasonId": 4,
+              "title": "Сезон 4"
+            }
+          ],
+          "selectedTranslatorId": 56,
+          "selectedTranslatorTitle": "Російський дубляж",
+          "title": "Пан Робот (2015)",
+          "translators": [
+            {
+              "title": "Російський дубляж",
+              "translatorId": 56
+            },
+            {
+              "title": "TVShows (російська)",
+              "translatorId": 232
+            },
+            {
+              "title": "яск'єр (Jaskier) (російська)",
+              "translatorId": 32
+            },
+            {
+              "title": "HDrezka в Кубі (Kubik³) (російська)",
+              "translatorId": 6
+            },
+            {
+              "title": "лостфільм (LostFilm) (рос.)",
+              "translatorId": 1
+            },
+            {
+              "title": "ньюстудіо (NewStudio) (рос.)",
+              "translatorId": 3
+            },
+            {
+              "title": "Багатоголосий закадровий",
+              "translatorId": 359
+            },
+            {
+              "title": "Оригінал (+субтитри)",
+              "translatorId": 238
+            }
+          ]
+        },
+        "updatedAt": 1780426627747
+      },
+      "currentPlayback": {
+        "state": "paused",
+        "time": 738.318966,
+        "updatedAt": 1780426627747
+      },
+      "lastUpdatedAt": 1780426627747
+    }
+  }
+}

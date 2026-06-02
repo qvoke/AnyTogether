@@ -12,7 +12,7 @@ const elements = {
   memberList: document.getElementById("memberList"),
   mediaUrl: document.getElementById("mediaUrl"),
   playbackState: document.getElementById("playbackState"),
-  player: document.getElementById("player") || document.getElementById("video"),
+  player: document.getElementById("player"),
   revisionLabel: document.getElementById("revisionLabel"),
   roleSelect: document.getElementById("roleSelect"),
   roomInput: document.getElementById("roomInput"),
@@ -103,8 +103,7 @@ function logEvent(title, detail = "") {
   heading.textContent = title;
 
   const time = document.createElement("time");
-  const timestamp = new Date();
-  time.textContent = timestamp.toLocaleTimeString();
+  time.textContent = new Date().toLocaleTimeString();
 
   entry.append(heading);
 
@@ -117,13 +116,6 @@ function logEvent(title, detail = "") {
 
   entry.append(time);
   elements.eventLog.prepend(entry);
-  window.dispatchEvent(new CustomEvent("anytogether:sync-log", {
-    detail: {
-      title,
-      detail: detailText,
-      timestamp: timestamp.toISOString()
-    }
-  }));
 }
 
 function setConnectionLabel(label) {
@@ -573,9 +565,6 @@ function attachHlsListeners(hls) {
 
   hls.on(window.Hls.Events.ERROR, handleHlsError);
   hls.on(window.Hls.Events.STALL_RESOLVED, handleHlsStallResolved);
-  hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-    logEvent("HLS manifest parsed", state.currentMediaUrl || "unknown source");
-  });
 }
 
 function loadSource(url, options = {}) {
@@ -611,11 +600,7 @@ function loadSource(url, options = {}) {
   state.programmaticPauseEvents = 0;
   clearPendingSeekCommitTimer();
 
-  const isHls = isHlsSource(nextUrl);
-  const canUseHlsJs = isHls && window.Hls?.isSupported?.();
-  const canUseNativeHls = isHls && elements.player.canPlayType("application/vnd.apple.mpegurl");
-
-  if (canUseHlsJs) {
+  if (isHlsSource(nextUrl) && window.Hls) {
     const hls = new window.Hls({
       lowLatencyMode: true
     });
@@ -625,12 +610,10 @@ function loadSource(url, options = {}) {
     hls.attachMedia(elements.player);
     state.hls = hls;
   } else {
-    if (isHls && !canUseNativeHls) {
-      logEvent("HLS fallback selected", "hls.js is unavailable or unsupported in this browser.");
-    }
-
     elements.player.src = nextUrl;
-    elements.player.load();
+    if (forceReload) {
+      elements.player.load();
+    }
   }
 
   logEvent("Media source loaded", {
@@ -1124,7 +1107,7 @@ function requestPluginSearch() {
 function loadManualMedia() {
   const url = elements.mediaUrl.value.trim();
   if (!url) {
-    return false;
+    return;
   }
 
   const wasPaused = elements.player.paused;
@@ -1155,44 +1138,7 @@ function loadManualMedia() {
     sourceUrl: url,
     currentTime: currentTime.toFixed(2)
   });
-  return true;
 }
-
-function connectBridgeRoom(room, role, name) {
-  const nextRoom = String(room || "").trim() || "lobby";
-  const nextRole = String(role || "").trim().toLowerCase() === "host" ? "host" : "guest";
-  const nextName = String(name || "").trim() || "Guest";
-  const shouldReconnect =
-    !state.connection ||
-    state.connection.readyState === WebSocket.CLOSED ||
-    state.connection.readyState === WebSocket.CLOSING ||
-    state.room !== nextRoom ||
-    state.role !== nextRole ||
-    elements.displayName.value.trim() !== nextName;
-
-  elements.roomInput.value = nextRoom;
-  elements.roleSelect.value = nextRole;
-  elements.displayName.value = nextName;
-
-  if (shouldReconnect) {
-    connectRoom();
-  }
-}
-
-function loadBridgeMedia(url) {
-  const mediaUrl = String(url || "").trim();
-  if (!mediaUrl) {
-    return false;
-  }
-
-  elements.mediaUrl.value = mediaUrl;
-  return loadManualMedia();
-}
-
-window.anyTogetherSyncBridge = {
-  connectRoom: connectBridgeRoom,
-  loadMedia: loadBridgeMedia
-};
 
 function handlePluginMessage(event) {
   if (event.source !== window || !event.data || event.data.source !== "anytogether-plugin") {
@@ -1251,42 +1197,13 @@ function handleWaitingLikeEvent() {
   scheduleStallRecovery("waiting");
 }
 
-function getMediaErrorMessage(error) {
-  const code = Number(error?.code);
-  const messages = {
-    1: "Media loading aborted.",
-    2: "Network error while loading media.",
-    3: "Media decoding failed.",
-    4: "Media source is not supported."
-  };
-
-  return messages[code] || "Unknown media error.";
-}
-
 elements.connectButton.addEventListener("click", connectRoom);
-if (elements.searchButton) {
-  elements.searchButton.addEventListener("click", requestPluginSearch);
-}
+elements.searchButton.addEventListener("click", requestPluginSearch);
 elements.loadMediaButton.addEventListener("click", loadManualMedia);
 elements.seekButton.addEventListener("click", () => {
   elements.player.currentTime = Math.max(0, Number(elements.seekInput.value) || 0);
 });
 elements.syncButton.addEventListener("click", () => sendMessage({ type: "request-sync" }));
-elements.player.addEventListener("loadedmetadata", () => {
-  logEvent("Media metadata loaded", {
-    duration: Number.isFinite(elements.player.duration) ? elements.player.duration.toFixed(2) : "unknown",
-    sourceUrl: state.currentMediaUrl || "unknown"
-  });
-});
-elements.player.addEventListener("canplay", () => {
-  logEvent("Media can play", state.currentMediaUrl || "unknown source");
-});
-elements.player.addEventListener("error", () => {
-  logEvent("Media element error", {
-    message: getMediaErrorMessage(elements.player.error),
-    sourceUrl: state.currentMediaUrl || elements.player.currentSrc || "unknown"
-  });
-});
 
 elements.player.addEventListener("play", () => {
   const isProgrammaticPlay = consumeProgrammaticPlaybackEvent(false);
