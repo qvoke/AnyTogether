@@ -1,0 +1,13 @@
+{
+  "name": "watchtogether-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "ws": "node server/ws-server.mjs",
+    "dev": "node server/ws-server.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
