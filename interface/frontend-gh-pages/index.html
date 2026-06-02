@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AnyTogether - Watch in sync</title>
+  <meta name="description" content="Create a room, drop a stream and watch it together - synchronised playback, live chat and a shared playlist." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.plyr.io/3.8.4/plyr.css" />
+  <style>
+    :root {
+      --bg-0: #070b16;
+      --bg-1: #0b1224;
+      --bg-2: #111a30;
+      --surface: rgba(20, 30, 54, 0.72);
+      --surface-2: rgba(30, 42, 72, 0.6);
+      --border: rgba(120, 150, 210, 0.16);
+      --border-strong: rgba(130, 165, 230, 0.32);
+      --text: #e8eefb;
+      --muted: #90a4c2;
+      --accent: #6c8cff;
+      --accent-2: #9b6bff;
+      --accent-soft: rgba(108, 140, 255, 0.16);
+      --danger: #f87171;
+      --ok: #4ade80;
+      --radius: 16px;
+      --shadow: 0 24px 60px -28px rgba(0, 0, 0, 0.85);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      min-height: 100%;
+    }
+
+    html {
+      background: var(--bg-0);
+    }
+
+    body {
+      font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 600px at 12% -10%, rgba(108, 140, 255, 0.18), transparent 60%),
+        radial-gradient(1000px 520px at 100% 0%, rgba(155, 107, 255, 0.16), transparent 55%),
+        linear-gradient(180deg, var(--bg-1), var(--bg-0));
+      background-attachment: fixed;
+      min-height: 100vh;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: inherit; text-decoration: none; }
+
+    .hidden { display: none !important; }
+    .is-hidden { display: none !important; }
+
+    /* ---------- Topbar ---------- */
+    .topbar {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 11px clamp(16px, 4vw, 40px);
+      background: rgba(8, 12, 24, 0.76);
+      backdrop-filter: blur(18px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      font-size: 1.1rem;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-mark {
+      width: 32px;
+      height: 32px;
+      border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      display: grid;
+      place-items: center;
+      font-size: 0.95rem;
+      box-shadow: 0 6px 18px -6px rgba(108, 140, 255, 0.7);
+    }
+    .brand b { color: var(--accent); }
+
+    .nav {
+      display: flex;
+      gap: 4px;
+      margin-left: 4px;
+      align-items: center;
+    }
+    .nav a {
+      padding: 7px 13px;
+      border-radius: 10px;
+      color: var(--muted);
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: background 0.15s, color 0.15s;
+    }
+    .nav a:hover { color: var(--text); background: var(--surface-2); }
+
+    .last-room-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      background: var(--accent-soft);
+      border: 1px solid var(--border-strong);
+      color: var(--accent);
+      font-weight: 700;
+      font-size: 0.82rem;
+      padding: 6px 13px;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .last-room-btn:hover:not(:disabled) { background: rgba(108, 140, 255, 0.24); border-color: var(--border-strong); }
+
+    .topbar-spacer { flex: 1; }
+
+    .topbar-tools {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .code-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--border-strong);
+      background: var(--accent-soft);
+      color: var(--text);
+      border-radius: 999px;
+      padding: 6px 13px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      font-size: 0.88rem;
+    }
+    .code-chip small { color: var(--muted); font-weight: 600; letter-spacing: 0; }
+
+    .topbar-user {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #topbarNickDisplay {
+      font-weight: 600;
+      font-size: 0.92rem;
+      color: var(--text);
+    }
+
+    .user-avatar {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 0.82rem;
+      color: #fff;
+      flex-shrink: 0;
+      box-shadow: 0 4px 12px -4px rgba(108, 140, 255, 0.7);
+      user-select: none;
+    }
+
+    .icon-btn {
+      width: 34px;
+      height: 34px;
+      padding: 0;
+      border-radius: 9px;
+      display: grid;
+      place-items: center;
+      background: rgba(248, 113, 113, 0.08);
+      border: 1px solid rgba(248, 113, 113, 0.25);
+      color: var(--danger);
+      cursor: pointer;
+      transition: background 0.15s;
+      flex-shrink: 0;
+    }
+    .icon-btn:hover:not(:disabled) { background: rgba(248, 113, 113, 0.18); }
+    .icon-btn svg { width: 17px; height: 17px; }
+    .help-btn {
+      background: rgba(108, 140, 255, 0.12);
+      border-color: rgba(108, 140, 255, 0.28);
+      color: var(--accent);
+    }
+    .help-btn:hover:not(:disabled) { background: rgba(108, 140, 255, 0.2); }
+
+    /* ---------- Buttons & inputs ---------- */
+    button {
+      font-family: inherit;
+      cursor: pointer;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-2);
+      color: var(--text);
+      font-weight: 600;
+      font-size: 0.92rem;
+      padding: 10px 16px;
+      border-radius: 11px;
+      transition: transform 0.08s ease, background 0.15s, border-color 0.15s, opacity 0.15s;
+    }
+    button:hover:not(:disabled) { background: rgba(48, 64, 104, 0.7); border-color: var(--border-strong); }
+    button:active:not(:disabled) { transform: translateY(1px); }
+    button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+    button.primary {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border: none;
+      color: #fff;
+      box-shadow: 0 10px 24px -12px rgba(108, 140, 255, 0.8);
+    }
+    button.primary:hover:not(:disabled) { filter: brightness(1.06); background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+
+    button.ghost { background: transparent; }
+    button.danger { color: var(--danger); border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.08); }
+    button.danger:hover:not(:disabled) { background: rgba(248, 113, 113, 0.16); }
+    button.link { background: none; border: none; color: var(--accent); padding: 4px 6px; font-weight: 600; font-size: 0.86rem; }
+    button.link:hover:not(:disabled) { background: none; text-decoration: underline; }
+
+    input[type="text"], input[type="email"], input[type="password"] {
+      width: 100%;
+      background: rgba(8, 13, 26, 0.6);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      color: var(--text);
+      font: inherit;
+      padding: 11px 14px;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    input::placeholder { color: rgba(144, 164, 194, 0.65); }
+    input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+
+    /* ---------- Layout ---------- */
+    main {
+      width: min(1760px, 100%);
+      margin: 0 auto;
+      padding: clamp(16px, 2vw, 28px) 10px 64px;
+    }
+    body[data-view="home"] main {
+      width: min(1240px, 100%);
+      padding: clamp(18px, 4vw, 44px) clamp(56px, 6vw, 96px) 64px;
+    }
+    body[data-view="rooms"] main {
+      width: min(1280px, 100%);
+      padding: clamp(18px, 4vw, 40px) clamp(24px, 4vw, 40px) 64px;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+      padding: clamp(16px, 2.5vw, 22px);
+    }
+
+    .section-title {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--muted);
+      font-weight: 700;
+      margin: 0 0 12px;
+    }
+
+    .status {
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding: 6px 2px;
+    }
+    .hint { color: var(--muted); font-size: 0.86rem; min-height: 1.2em; margin-top: 4px; }
+
+    /* ---------- Home / Join ---------- */
+    .hero {
+      text-align: center;
+      margin-bottom: 24px;
+    }
+    .hero .eyebrow {
+      display: inline-block;
+      color: var(--accent);
+      font-weight: 700;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-size: 0.72rem;
+      padding: 5px 13px;
+      border: 1px solid var(--border-strong);
+      border-radius: 999px;
+      background: var(--accent-soft);
+      margin-bottom: 16px;
+    }
+    .hero h1 {
+      font-size: clamp(1.9rem, 5vw, 3rem);
+      line-height: 1.07;
+      letter-spacing: -0.03em;
+      margin: 0 0 12px;
+      background: linear-gradient(120deg, #fff 20%, #b9c8ff 60%, #c9b3ff);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .hero p { color: var(--muted); font-size: 1rem; max-width: 540px; margin: 0 auto; }
+
+    /* Guest identity card */
+    .guest-identity-card {
+      margin-bottom: 16px;
+    }
+    .guest-identity-inner {
+      display: flex;
+      align-items: flex-end;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .guest-identity-inner .field { flex: 1; min-width: 160px; }
+    .guest-auth-btns { display: flex; gap: 8px; }
+    .guest-auth-btns button { white-space: nowrap; }
+
+    .home-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 14px;
+    }
+    .stack { display: flex; flex-direction: column; gap: 11px; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .row > button { flex: 1; }
+
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 20px;
+    }
+    .feature { padding: 16px 18px; }
+    .feature .ico {
+      width: 38px; height: 38px; border-radius: 10px;
+      display: grid; place-items: center; font-size: 1.1rem; margin-bottom: 10px;
+      background: var(--accent-soft); border: 1px solid var(--border);
+    }
+    .feature h3 { margin: 0 0 5px; font-size: 0.97rem; }
+    .feature p { margin: 0; color: var(--muted); font-size: 0.88rem; }
+
+    /* ---------- Dashboard ---------- */
+    .dash-header {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+    .dash-header .meta { flex: 1; min-width: 200px; }
+    .dash-header h2 { margin: 0; font-size: 1.35rem; letter-spacing: -0.01em; }
+    .room-title-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .room-code-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      font-weight: 700;
+      font-size: 0.86rem;
+      letter-spacing: 0.04em;
+    }
+    .room-code-chip .code-text {
+      transition: filter 0.15s ease, opacity 0.15s ease;
+    }
+    .room-code-chip.is-blurred .code-text {
+      filter: blur(4px);
+      opacity: 0.65;
+    }
+    .room-code-toggle {
+      padding: 6px 10px;
+      font-size: 0.82rem;
+      border-radius: 999px;
+    }
+    .badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 999px; padding: 5px 13px; font-size: 0.84rem; font-weight: 600;
+    }
+    .session-clock {
+      font-variant-numeric: tabular-nums;
+      font-weight: 700; letter-spacing: 0.06em;
+      color: var(--text);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      border-radius: 11px; padding: 7px 13px;
+    }
+
+    .dash-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 2.15fr) minmax(360px, 396px);
+      gap: 14px;
+      align-items: stretch;
+    }
+    .dash-main { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+    .dash-side {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 0;
+      min-height: 0;
+      height: auto;
+      min-height: calc(100vh - 160px);
+    }
+
+    .player-shell {
+      position: relative;
+      background: #000;
+      border-radius: var(--radius);
+      overflow: hidden;
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+    }
+    video {
+      width: 100%;
+      display: block;
+      aspect-ratio: 16 / 9;
+      background: #000;
+    }
+
+    .search-bar { display: flex; gap: 10px; align-items: stretch; }
+    .search-bar input { flex: 1; }
+    .search-bar .help-btn {
+      width: 42px;
+      min-width: 42px;
+      padding: 0;
+    }
+    .section-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .section-row .section-title {
+      margin-bottom: 0;
+    }
+
+    .media-controls {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      padding: 2px 0 0;
+    }
+    .media-controls.hidden { display: none; }
+    .media-title-row {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-wrap: nowrap;
+    }
+    .media-title {
+      flex: 1 1 auto;
+      min-width: 0;
+      font-size: 1.08rem;
+      font-weight: 700;
+      line-height: 1.2;
+      margin: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .media-subtitle {
+      flex: 0 0 auto;
+      color: var(--muted);
+      font-size: 0.88rem;
+      margin: 0;
+      white-space: nowrap;
+    }
+    .media-pickers {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .media-picker {
+      position: relative;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(10, 17, 34, 0.72);
+    }
+    .media-picker > summary {
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 10px;
+      padding: 11px 14px;
+      cursor: pointer;
+      user-select: none;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .media-picker > summary::-webkit-details-marker { display: none; }
+    .media-picker > summary::after {
+      content: "v";
+      color: var(--muted);
+      font-size: 0.8rem;
+      transition: transform 0.15s ease;
+      margin-left: auto;
+    }
+    .media-picker[open] > summary::after { transform: rotate(180deg); }
+    .picker-value {
+      color: var(--muted);
+      font-weight: 600;
+      flex: 1 1 auto;
+      min-width: 0;
+      max-width: none;
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .picker-menu {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      padding: 0 12px 12px;
+    }
+    .picker-menu.is-hidden { display: none; }
+
+    /* chips for season / translator / quality */
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip-button {
+      padding: 7px 13px;
+      border-radius: 999px;
+      font-size: 0.84rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+    }
+    .chip-button.is-selected {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border: none; color: #fff;
+      box-shadow: 0 6px 16px -8px rgba(108, 140, 255, 0.9);
+    }
+
+    .series-group { margin-bottom: 14px; }
+    .series-group:last-child { margin-bottom: 0; }
+    .series-group h4 {
+      margin: 0 0 9px; font-size: 0.72rem; text-transform: uppercase;
+      letter-spacing: 0.1em; color: var(--muted); font-weight: 700;
+    }
+    #seriesTitle { font-size: 1.1rem; font-weight: 700; margin-bottom: 2px; }
+    #seriesMeta { color: var(--muted); font-size: 0.86rem; margin-bottom: 14px; }
+
+    .episodes-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+      gap: 7px;
+    }
+    .series-episode-button {
+      padding: 8px 10px; font-size: 0.82rem; border-radius: 10px;
+      background: var(--surface-2); border: 1px solid var(--border);
+    }
+    .series-episode-button.is-selected {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border: none; color: #fff;
+    }
+
+    /* participants */
+    #participantsList {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+    .participant-item {
+      width: 132px;
+      padding: 12px 10px 11px;
+      border-radius: 12px;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      position: relative;
+    }
+    .participant-avatar-wrap {
+      position: relative;
+      display: grid;
+      place-items: center;
+      margin-bottom: 9px;
+    }
+    .participant-avatar {
+      width: 44px;
+      height: 44px;
+      font-size: 0.8rem;
+    }
+    .participant-name {
+      font-weight: 600;
+      font-size: 0.88rem;
+      line-height: 1.2;
+      word-break: break-word;
+    }
+    .participant-name-row {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-width: 0;
+      width: 100%;
+    }
+    .host-badge {
+      display: inline-grid;
+      place-items: center;
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      background: rgba(108, 140, 255, 0.18);
+      border: 1px solid var(--border-strong);
+      color: var(--accent);
+      font-size: 0.7rem;
+      line-height: 1;
+      flex: 0 0 auto;
+    }
+    .pill {
+      font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em;
+      font-weight: 700; padding: 3px 9px; border-radius: 999px;
+      background: var(--accent-soft); border: 1px solid var(--border-strong); color: var(--accent);
+    }
+    .participants-placeholder {
+      width: 100%;
+    }
+
+    /* chat */
+    .chat-card {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+      height: auto;
+    }
+    .dash-side > .chat-card {
+      flex: 1 1 0;
+    }
+    .chat-messages {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 9px;
+      overflow-y: auto;
+      padding-right: 4px;
+      margin-bottom: 11px;
+    }
+    .chat-item {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 11px; padding: 9px 12px;
+    }
+    .chat-top { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 3px; }
+    .chat-author { font-weight: 600; font-size: 0.86rem; color: var(--accent); }
+    .chat-meta { color: var(--muted); font-size: 0.72rem; }
+    .chat-body { font-size: 0.9rem; word-break: break-word; }
+    .chat-form { display: flex; gap: 8px; align-items: stretch; }
+    .chat-form input {
+      flex: 1;
+      height: 44px;
+    }
+    .chat-form button {
+      height: 44px;
+    }
+
+    /* playlist */
+    .playlist-actions { display: flex; gap: 8px; margin-bottom: 12px; }
+    .playlist-actions button { flex: 1; }
+    .playlist-item {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: 11px; padding: 11px; margin-bottom: 7px;
+    }
+    .playlist-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .playlist-name { font-weight: 600; font-size: 0.9rem; word-break: break-word; }
+    .playlist-top button { padding: 6px 12px; font-size: 0.82rem; }
+    .playlist-meta { color: var(--muted); font-size: 0.76rem; margin-top: 5px; }
+
+    /* ---------- Rooms page ---------- */
+    .rooms-header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 14px; margin-bottom: 20px;
+    }
+    .rooms-header h2 { margin: 0; font-size: 1.45rem; letter-spacing: -0.01em; }
+    .rooms-toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    .rooms-toolbar input { width: 150px; }
+    .signed-in-bar { display: flex; align-items: center; gap: 12px; }
+    #signedInName { color: var(--muted); font-size: 0.88rem; }
+
+    .rooms-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 14px;
+    }
+    .room-card {
+      background: var(--surface-2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px;
+      display: flex; flex-direction: column; gap: 12px;
+      transition: transform 0.12s, border-color 0.15s;
+      will-change: transform;
+    }
+    .room-card:hover { transform: translateY(-3px); border-color: var(--border-strong); }
+    .room-card-top { display: flex; justify-content: space-between; gap: 10px; }
+    .room-card-title { font-weight: 700; font-size: 1rem; }
+    .room-card-meta { color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
+    .room-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .room-card-actions button { flex: 1; padding: 7px 10px; font-size: 0.82rem; }
+
+    /* auth gate */
+    .auth-wrap {
+      max-width: 420px; margin: 0 auto;
+    }
+    .auth-wrap h2 { margin: 0 0 5px; font-size: 1.5rem; letter-spacing: -0.02em; text-align: center; }
+    .auth-sub { text-align: center; color: var(--muted); margin: 0 0 20px; font-size: 0.94rem; }
+    .auth-form { display: flex; flex-direction: column; gap: 13px; }
+    .auth-row { display: flex; align-items: center; justify-content: space-between; }
+    .divider {
+      display: flex; align-items: center; gap: 12px;
+      color: var(--muted); font-size: 0.8rem; margin: 18px 0 14px;
+    }
+    .divider::before, .divider::after {
+      content: ""; flex: 1; height: 1px; background: var(--border);
+    }
+    .oauth-row { display: flex; gap: 10px; }
+    .oauth-row button { flex: 1; }
+    #authStatus { text-align: center; font-size: 0.86rem; }
+
+    @media (max-width: 860px) {
+      .dash-grid { grid-template-columns: 1fr; }
+      .home-grid { grid-template-columns: 1fr; }
+      .features { grid-template-columns: 1fr; }
+    .media-pickers { grid-template-columns: 1fr; }
+    .chat-card { height: 320px; }
+    .dash-side {
+      height: auto;
+      min-height: 0;
+    }
+      main {
+        padding-left: 12px;
+        padding-right: 12px;
+      }
+      body[data-view="home"] main {
+        padding-left: 20px;
+        padding-right: 20px;
+      }
+    }
+    @media (max-width: 560px) {
+      .nav { display: none; }
+    }
+
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-thumb { background: rgba(108, 140, 255, 0.3); border-radius: 999px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" id="homeLink" href="./">
+      <span class="brand-mark">&gt;</span>
+      <span>Any<b>Together</b></span>
+    </a>
+    <nav class="nav">
+      <a id="roomsLink" href="./?page=rooms">Rooms</a>
+    </nav>
+    <button id="lastRoomButton" class="last-room-btn hidden" title="Return to last room">
+      Last room &gt;
+    </button>
+
+    <span class="topbar-spacer"></span>
+
+    <div class="topbar-tools">
+      <button id="topbarRoomCodeButton" class="code-chip hidden" title="Open active room">
+        <small>Room</small> <span id="topbarRoomCodeValue">--</span>
+      </button>
+      <div id="topbarUser" class="topbar-user">
+        <span id="topbarNickDisplay">Guest</span>
+        <div id="topbarAvatar" class="user-avatar">G</div>
+      </div>
+      <button id="signOutButton" class="icon-btn hidden" title="Sign out">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+          <polyline points="16 17 21 12 16 7"/>
+          <line x1="21" y1="12" x2="9" y2="12"/>
+        </svg>
+      </button>
+      <!-- hidden but keeps its event listener for reconnect -->
+      <button id="reconnectButton" class="hidden">R</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ========================= HOME / JOIN ========================= -->
+    <section id="joinView">
+      <div class="hero">
+        <span class="eyebrow">Watch in perfect sync</span>
+        <h1>Press play together,<br />wherever you are.</h1>
+        <p>Spin up a room, share the code, and AnyTogether keeps everyone's video, chat and playlist locked in step.</p>
+      </div>
+
+      <!-- Guest identity: visible when not signed in -->
+      <div id="guestIdentityCard" class="card guest-identity-card">
+        <div class="guest-identity-inner">
+          <div class="field">
+            <label for="nicknameInput">Your nickname</label>
+            <input id="nicknameInput" type="text" maxlength="40" placeholder="e.g. Alex" autocomplete="nickname" />
+          </div>
+          <div class="guest-auth-btns">
+            <button id="homeSignInButton" class="ghost">Sign in</button>
+            <button id="homeSignUpButton" class="primary">Sign up</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="home-grid">
+        <div class="card stack">
+          <h3 class="section-title">Start a new room</h3>
+          <p class="status" style="margin:0;font-size:0.86rem">You'll become the host and can search, queue media and control playback for everyone.</p>
+          <button id="createRoomButton" class="primary">Create a room</button>
+          <button id="createdRoomCodeButton" class="code-chip hidden" title="Copy room code">
+            <small>Code</small> <span id="createdRoomCodeValue">--</span>
+          </button>
+          <p id="createHint" class="hint"></p>
+        </div>
+
+        <div class="card stack">
+          <h3 class="section-title">Join with a code</h3>
+          <div class="field">
+            <label for="roomCodeInput">Room code</label>
+            <input id="roomCodeInput" type="text" placeholder="e.g. AB12CD" autocomplete="off" />
+          </div>
+          <button id="joinRoomButton" class="primary">Join room</button>
+          <p id="joinHint" class="hint"></p>
+        </div>
+      </div>
+
+      <div class="features">
+        <div class="card feature">
+          <div class="ico">P</div>
+          <h3>Synced playback</h3>
+          <p>Play, pause and seek are mirrored instantly across every participant in the room.</p>
+        </div>
+        <div class="card feature">
+          <div class="ico">C</div>
+          <h3>Live chat &amp; people</h3>
+          <p>See who's watching and react together in real time without leaving the player.</p>
+        </div>
+        <div class="card feature">
+          <div class="ico">T</div>
+          <h3>Series &amp; playlist</h3>
+          <p>Pick seasons, translators and quality, then queue up what to watch next.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================= DASHBOARD ========================= -->
+    <section id="dashboardView" class="hidden">
+      <div class="dash-header">
+        <div class="meta">
+          <h2 id="activeRoomTitle"></h2>
+          <div class="room-title-row">
+            <span id="sessionDuration" class="session-clock">00:00:00</span>
+            <button id="activeRoomCodeButton" type="button" class="code-chip room-code-chip" title="Copy room code">
+              <span id="activeRoomCodeValue" class="code-text">--</span>
+            </button>
+            <button id="activeRoomCodeToggleButton" type="button" class="room-code-toggle ghost" title="Show or hide the room code">Hide</button>
+          </div>
+          <p id="roomStatus" class="hint" style="margin-top:5px"></p>
+        </div>
+        <button id="leaveRoomButton" class="ghost">Leave</button>
+        <button id="deleteActiveRoomButton" class="danger hidden">Delete room</button>
+      </div>
+
+      <div class="dash-grid">
+        <div class="dash-main">
+          <div class="card">
+            <div class="section-row">
+              <h3 class="section-title">Find something to watch</h3>
+              <button
+                id="searchHelpButton"
+                type="button"
+                class="icon-btn help-btn"
+                title="Searches the public web, opens likely result pages, and asks the extension to extract a playable media URL."
+                aria-label="How search works"
+              >
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M9.09 9a3 3 0 1 1 5.82 1c0 2-3 3-3 3"></path>
+                  <path d="M12 17h.01"></path>
+                </svg>
+              </button>
+            </div>
+            <div class="search-bar">
+              <input id="searchInput" type="text" placeholder="Enter the site name and movie title..." autocomplete="off" />
+              <button id="searchButton" class="primary">Search</button>
+            </div>
+            <p id="searchHint" class="hint"></p>
+          </div>
+
+          <div id="seriesPanel" class="media-controls hidden">
+            <div class="media-title-row">
+              <div id="seriesTitle" class="media-title"></div>
+              <div id="seriesMeta" class="media-subtitle"></div>
+            </div>
+            <div class="media-pickers">
+              <div class="series-group">
+                <details id="seasonPicker" class="media-picker">
+                  <summary><span>Season</span><span id="seasonPickerValue" class="picker-value"></span></summary>
+                  <div id="seasonButtons" class="chips picker-menu"></div>
+                </details>
+              </div>
+              <div class="series-group">
+                <details id="episodePicker" class="media-picker">
+                  <summary><span>Episode</span><span id="episodePickerValue" class="picker-value"></span></summary>
+                  <div id="seriesEpisodes" class="chips picker-menu"></div>
+                </details>
+              </div>
+              <div class="series-group">
+                <details id="translatorPicker" class="media-picker">
+                  <summary><span>Voice</span><span id="translatorPickerValue" class="picker-value"></span></summary>
+                  <div id="translatorButtons" class="chips picker-menu"></div>
+                </details>
+              </div>
+            </div>
+          </div>
+
+          <div class="player-shell">
+            <video id="video" controls playsinline></video>
+          </div>
+
+          <div class="card">
+            <h3 class="section-title">Participants</h3>
+            <div id="participantsList"></div>
+          </div>
+        </div>
+
+        <div class="dash-side">
+          <div class="card">
+            <h3 class="section-title">Playlist</h3>
+            <div class="playlist-actions">
+              <button id="addToPlaylistButton" class="ghost">Add current</button>
+              <button id="suggestButton" class="ghost">Suggest</button>
+            </div>
+            <div id="playlistList"></div>
+          </div>
+
+          <div class="card chat-card">
+            <h3 class="section-title">Chat</h3>
+            <div id="chatMessages" class="chat-messages"></div>
+            <form id="chatForm" class="chat-form">
+              <input id="chatInput" type="text" placeholder="Write a message..." autocomplete="off" />
+              <button id="chatSendButton" type="submit" class="primary">Send</button>
+            </form>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ========================= ROOMS ========================= -->
+    <section id="roomsView" class="hidden">
+      <!-- Auth gate (shown when signed out) -->
+      <div id="roomsAuthGate" class="card auth-wrap">
+        <h2 id="authTitle">Sign in to AnyTogether</h2>
+        <p class="auth-sub">Keep your rooms in one place and pick up right where you left off.</p>
+
+        <form id="authForm" class="auth-form">
+          <div id="authNameField" class="field hidden">
+            <label for="authNameInput">Display name</label>
+            <input id="authNameInput" type="text" placeholder="Your name" autocomplete="name" />
+          </div>
+          <div class="field">
+            <label for="authIdentifierInput">Email or name</label>
+            <input id="authIdentifierInput" type="text" placeholder="Enter your email or name" autocomplete="username" />
+          </div>
+          <div id="authEmailField" class="field hidden">
+            <label for="authEmailInput">Email</label>
+            <input id="authEmailInput" type="email" placeholder="you@example.com" autocomplete="email" />
+          </div>
+          <div class="field">
+            <label for="authPasswordInput">Password</label>
+            <input id="authPasswordInput" type="password" placeholder="Your password" autocomplete="current-password" />
+          </div>
+          <div class="auth-row">
+            <button id="forgotPasswordButton" type="button" class="link">Forgot password?</button>
+            <button id="authToggleButton" type="button" class="link">No account? Sign up</button>
+          </div>
+          <button id="authSubmitButton" type="submit" class="primary">Sign in</button>
+        </form>
+
+        <div id="authStatus" class="hint hidden"></div>
+
+        <div class="divider"><span id="authPrompt">Or sign in with</span></div>
+        <div class="oauth-row">
+          <button id="googleSignInButton" class="ghost">Google</button>
+          <button id="appleSignInButton" class="ghost">Apple</button>
+        </div>
+      </div>
+
+      <!-- Header (shown when signed in) -->
+      <div id="roomsHeader" class="rooms-header hidden">
+        <h2>Your rooms</h2>
+        <div class="rooms-toolbar">
+          <div id="roomsSignedInBar" class="signed-in-bar hidden">
+            <span id="signedInName">Not signed in</span>
+          </div>
+          <input id="roomsJoinInput" type="text" placeholder="Join by code" autocomplete="off" />
+          <button id="roomsJoinButton">Join</button>
+          <button id="refreshRoomsButton" class="ghost" title="Refresh">Refresh</button>
+          <button id="roomsCreateButton" class="primary">New room</button>
+        </div>
+      </div>
+
+      <div id="roomsGrid" class="rooms-grid hidden"></div>
+    </section>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
+  <script src="https://cdn.plyr.io/3.8.4/plyr.polyfilled.js"></script>
+  <script src="./src/app.js" defer></script>
+</body>
+</html>
+
+
