@@ -1,150 +1,164 @@
-const STORAGE_KEYS = {
-  users: "anyTogether.ui.users",
-  sessions: "anyTogether.ui.sessions",
-  currentToken: "anyTogether.ui.currentToken",
-  rooms: "anyTogether.ui.rooms",
-  joinedRooms: "anyTogether.ui.joinedRooms",
-  activeRoomId: "anyTogether.ui.activeRoomId",
-  nickname: "anyTogether.ui.nickname",
-  role: "anyTogether.ui.role",
-  backendBaseUrl: "anyTogether.backendUrl"
-};
-
-const params = new URLSearchParams(window.location.search);
-const requestedPage = params.get("page");
-const requestedRoom = params.get("room");
-const requestedRole = params.get("role");
-
-const backendBaseUrl = window.location.origin;
-const clientId = crypto.randomUUID();
-
-const body = document.body;
-const pageMode =
-  requestedPage === "rooms" || window.location.pathname.replace(/\/+$/, "").endsWith("/rooms")
-    ? "rooms"
-    : requestedRoom
-      ? "room"
-      : "home";
-
-const elements = {
-  homeLink: document.getElementById("homeLink"),
-  roomsLink: document.getElementById("roomsLink"),
-  lastRoomButton: document.getElementById("lastRoomButton"),
-  topbarRoomCodeButton: document.getElementById("topbarRoomCodeButton"),
-  topbarRoomCodeValue: document.getElementById("topbarRoomCodeValue"),
-  topbarUser: document.getElementById("topbarUser"),
-  topbarNickDisplay: document.getElementById("topbarNickDisplay"),
-  topbarAvatar: document.getElementById("topbarAvatar"),
-  signOutButton: document.getElementById("signOutButton"),
-  reconnectButton: document.getElementById("reconnectButton"),
-
-  joinView: document.getElementById("joinView"),
-  dashboardView: document.getElementById("dashboardView"),
-  roomsView: document.getElementById("roomsView"),
-  guestIdentityCard: document.getElementById("guestIdentityCard"),
-
-  nicknameInput: document.getElementById("nicknameInput"),
-  homeSignInButton: document.getElementById("homeSignInButton"),
-  homeSignUpButton: document.getElementById("homeSignUpButton"),
-  createRoomButton: document.getElementById("createRoomButton"),
-  createdRoomCodeButton: document.getElementById("createdRoomCodeButton"),
-  createdRoomCodeValue: document.getElementById("createdRoomCodeValue"),
-  createHint: document.getElementById("createHint"),
-  roomCodeInput: document.getElementById("roomCodeInput"),
-  joinRoomButton: document.getElementById("joinRoomButton"),
-  joinHint: document.getElementById("joinHint"),
-
-  activeRoomTitle: document.getElementById("activeRoomTitle"),
-  activeRoomCodeButton: document.getElementById("activeRoomCodeButton"),
-  activeRoomCodeValue: document.getElementById("activeRoomCodeValue"),
-  activeRoomCodeToggleButton: document.getElementById("activeRoomCodeToggleButton"),
-  roomStatus: document.getElementById("roomStatus"),
-  sessionDuration: document.getElementById("sessionDuration"),
-  leaveRoomButton: document.getElementById("leaveRoomButton"),
-  deleteActiveRoomButton: document.getElementById("deleteActiveRoomButton"),
-  searchInput: document.getElementById("searchInput"),
-  searchButton: document.getElementById("searchButton"),
-  searchHelpButton: document.getElementById("searchHelpButton"),
-  searchHint: document.getElementById("searchHint"),
-  participantsList: document.getElementById("participantsList"),
-  chatMessages: document.getElementById("chatMessages"),
-  chatForm: document.getElementById("chatForm"),
-  chatInput: document.getElementById("chatInput"),
-  chatSendButton: document.getElementById("chatSendButton"),
-  addToPlaylistButton: document.getElementById("addToPlaylistButton"),
-  suggestButton: document.getElementById("suggestButton"),
-  playlistList: document.getElementById("playlistList"),
-
-  seriesPanel: document.getElementById("seriesPanel"),
-  seriesTitleEl: document.getElementById("seriesTitle"),
-  seriesMetaEl: document.getElementById("seriesMeta"),
-  seasonPicker: document.getElementById("seasonPicker"),
-  seasonPickerValue: document.getElementById("seasonPickerValue"),
-  seasonButtonsEl: document.getElementById("seasonButtons"),
-  episodePicker: document.getElementById("episodePicker"),
-  episodePickerValue: document.getElementById("episodePickerValue"),
-  seriesEpisodesEl: document.getElementById("seriesEpisodes"),
-  translatorPicker: document.getElementById("translatorPicker"),
-  translatorPickerValue: document.getElementById("translatorPickerValue"),
-  translatorButtonsEl: document.getElementById("translatorButtons"),
-
-  roomsAuthGate: document.getElementById("roomsAuthGate"),
-  authTitle: document.getElementById("authTitle"),
-  authPrompt: document.getElementById("authPrompt"),
-  authForm: document.getElementById("authForm"),
-  authNameField: document.getElementById("authNameField"),
-  authEmailField: document.getElementById("authEmailField"),
-  authNameInput: document.getElementById("authNameInput"),
-  authIdentifierInput: document.getElementById("authIdentifierInput"),
-  authEmailInput: document.getElementById("authEmailInput"),
-  authPasswordInput: document.getElementById("authPasswordInput"),
-  forgotPasswordButton: document.getElementById("forgotPasswordButton"),
-  authToggleButton: document.getElementById("authToggleButton"),
-  authSubmitButton: document.getElementById("authSubmitButton"),
-  authStatus: document.getElementById("authStatus"),
-  googleSignInButton: document.getElementById("googleSignInButton"),
-  appleSignInButton: document.getElementById("appleSignInButton"),
-  roomsHeader: document.getElementById("roomsHeader"),
-  roomsSignedInBar: document.getElementById("roomsSignedInBar"),
-  signedInName: document.getElementById("signedInName"),
-  roomsJoinInput: document.getElementById("roomsJoinInput"),
-  roomsJoinButton: document.getElementById("roomsJoinButton"),
-  refreshRoomsButton: document.getElementById("refreshRoomsButton"),
-  roomsCreateButton: document.getElementById("roomsCreateButton"),
-  roomsGrid: document.getElementById("roomsGrid")
-};
-
 const EXTENSION_SEARCH_REQUEST = "WT_SEARCH_REQUEST";
-const EXTENSION_RESOLVE_REQUEST = "WT_RESOLVE_REQUEST";
+const EXTENSION_RESOLVE_REQUEST = "WT_RESOLVE_PAGE_URL";
 const PAGE_EVENT_MEDIA_FOUND = "WT_MEDIA_FOUND";
 const PAGE_EVENT_EXTENSION_STATUS = "WT_EXTENSION_STATUS";
 const PAGE_EVENT_EXTENSION_ERROR = "WT_EXTENSION_ERROR";
 
-const state = {
-  authMode: new URLSearchParams(window.location.search).get("auth") === "signup" ? "signup" : "signin",
-  currentToken: loadStoredValue(STORAGE_KEYS.currentToken),
-  currentUser: null,
-  joinedRooms: loadJson(STORAGE_KEYS.joinedRooms, []),
-  activeRoomId: normalizeRoomCode(requestedRoom || loadStoredValue(STORAGE_KEYS.activeRoomId)),
-  roomStates: new Map(),
-  roomsDirectory: [],
-  loadingRooms: false,
-  connected: false,
-  ws: null
+const STORAGE_KEYS = {
+  joinedRooms: "watchTogether.joinedRooms",
+  activeRoomId: "watchTogether.activeRoomId",
+  nickname: "watchTogether.nickname",
+  role: "watchTogether.role",
+  authToken: "watchTogether.authToken",
+  backendBaseUrl: "watchTogether.backendBaseUrl"
 };
 
+const DEFAULT_BACKEND_BASE_URL = window.location.origin;
+
+const requestedRole = new URLSearchParams(window.location.search).get("role");
+const queryRoom = normalizeRoomCode(new URLSearchParams(window.location.search).get("room"));
+const requestedPage = new URLSearchParams(window.location.search).get("page");
+const requestedAuthMode = new URLSearchParams(window.location.search).get("auth");
+const pageMode =
+  requestedPage === "rooms" || window.location.pathname.replace(/\/+$/, "").endsWith("/rooms")
+    ? "rooms"
+    : "home";
+document.body.dataset.view = pageMode === "rooms" ? "rooms" : queryRoom ? "room" : "home";
+const clientId = crypto.randomUUID();
 let currentRole = "guest";
-let roomCodeHidden = false;
+const backendBaseUrl = resolveBackendBaseUrl(
+  new URLSearchParams(window.location.search).get("api") ||
+    loadStoredValue(STORAGE_KEYS.backendBaseUrl) ||
+    window.WATCH_TOGETHER_API_BASE_URL ||
+    DEFAULT_BACKEND_BASE_URL
+);
+
+const joinView = document.getElementById("joinView");
+const dashboardView = document.getElementById("dashboardView");
+const roomsView = document.getElementById("roomsView");
+const roomsHeader = document.getElementById("roomsHeader");
+const roomsAuthGate = document.getElementById("roomsAuthGate");
+const authPrompt = document.getElementById("authPrompt");
+const authTitle = document.getElementById("authTitle");
+
+const homeLink = document.getElementById("homeLink");
+const roomsLink = document.getElementById("roomsLink");
+const topbarRoomCodeButton = document.getElementById("topbarRoomCodeButton");
+const topbarRoomCodeValue = document.getElementById("topbarRoomCodeValue");
+
+const nicknameInput = document.getElementById("nicknameInput");
+const roomCodeInput = document.getElementById("roomCodeInput");
+const createRoomButton = document.getElementById("createRoomButton");
+const createdRoomCodeButton = document.getElementById("createdRoomCodeButton");
+const createdRoomCodeValue = document.getElementById("createdRoomCodeValue");
+const homeSignInButton = document.getElementById("homeSignInButton");
+const homeSignUpButton = document.getElementById("homeSignUpButton");
+const joinRoomButton = document.getElementById("joinRoomButton");
+const createHint = document.getElementById("createHint");
+const joinHint = document.getElementById("joinHint");
+
+const roomsSignedInBar = document.getElementById("roomsSignedInBar");
+const signedInName = document.getElementById("signedInName");
+const signOutButton = document.getElementById("signOutButton");
+const authForm = document.getElementById("authForm");
+const authStatus = document.getElementById("authStatus");
+const authSubmitButton = document.getElementById("authSubmitButton");
+const authToggleButton = document.getElementById("authToggleButton");
+const authNameField = document.getElementById("authNameField");
+const authEmailField = document.getElementById("authEmailField");
+const authNameInput = document.getElementById("authNameInput");
+const authIdentifierInput = document.getElementById("authIdentifierInput");
+const authEmailInput = document.getElementById("authEmailInput");
+const authPasswordInput = document.getElementById("authPasswordInput");
+const authIdentifierField = authIdentifierInput?.closest(".field");
+const googleSignInButton = document.getElementById("googleSignInButton");
+const appleSignInButton = document.getElementById("appleSignInButton");
+const forgotPasswordButton = document.getElementById("forgotPasswordButton");
+
+const activeRoomTitle = document.getElementById("activeRoomTitle");
+const activeRoomCodeButton = document.getElementById("activeRoomCodeButton");
+const activeRoomCodeValue = document.getElementById("activeRoomCodeValue");
+const activeRoomCodeToggleButton = document.getElementById("activeRoomCodeToggleButton");
+const deleteActiveRoomButton = document.getElementById("deleteActiveRoomButton");
+const leaveRoomButton = document.getElementById("leaveRoomButton");
+const sessionDuration = document.getElementById("sessionDuration");
+const roomStatus = document.getElementById("roomStatus");
+const currentMediaBadge = document.getElementById("currentMediaBadge");
+
+const reconnectButton = document.getElementById("reconnectButton");
+const searchInput = document.getElementById("searchInput");
+const searchButton = document.getElementById("searchButton");
+const searchHelpButton = document.getElementById("searchHelpButton");
+const searchHint = document.getElementById("searchHint");
+const playbackDebugLog = document.getElementById("playbackDebugLog");
+const clearPlaybackDebugButton = document.getElementById("clearPlaybackDebugButton");
+
+const seriesPanel = document.getElementById("seriesPanel");
+const seriesTitleEl = document.getElementById("seriesTitle");
+const seriesMetaEl = document.getElementById("seriesMeta");
+const seasonPicker = document.getElementById("seasonPicker");
+const seasonPickerValue = document.getElementById("seasonPickerValue");
+const episodePicker = document.getElementById("episodePicker");
+const episodePickerValue = document.getElementById("episodePickerValue");
+const translatorPicker = document.getElementById("translatorPicker");
+const translatorPickerValue = document.getElementById("translatorPickerValue");
+const seasonButtonsEl = document.getElementById("seasonButtons");
+const translatorButtonsEl = document.getElementById("translatorButtons");
+const seriesEpisodesEl = document.getElementById("seriesEpisodes");
+
+const participantsList = document.getElementById("participantsList");
+const chatMessages = document.getElementById("chatMessages");
+const chatForm = document.getElementById("chatForm");
+const chatInput = document.getElementById("chatInput");
+const chatSendButton = document.getElementById("chatSendButton");
+const addToPlaylistButton = document.getElementById("addToPlaylistButton");
+const suggestButton = document.getElementById("suggestButton");
+const playlistList = document.getElementById("playlistList");
+
+const roomsGrid = document.getElementById("roomsGrid");
+const refreshRoomsButton = document.getElementById("refreshRoomsButton");
+const roomsCreateButton = document.getElementById("roomsCreateButton");
+const roomsJoinInput = document.getElementById("roomsJoinInput");
+const roomsJoinButton = document.getElementById("roomsJoinButton");
+
+const topbarUser = document.getElementById("topbarUser");
+const topbarNickDisplay = document.getElementById("topbarNickDisplay");
+const topbarAvatar = document.getElementById("topbarAvatar");
+const lastRoomButton = document.getElementById("lastRoomButton");
+const guestIdentityCard = document.getElementById("guestIdentityCard");
+
+const state = {
+  ws: null,
+  connected: false,
+  authToken: loadStoredValue(STORAGE_KEYS.authToken) || null,
+  currentUser: null,
+  authMode: requestedAuthMode === "signup" ? "signup" : "signin",
+  joinedRooms: loadJoinedRooms(),
+  activeRoomId: queryRoom || loadStoredValue(STORAGE_KEYS.activeRoomId) || null,
+  roomsDirectory: [],
+  roomStates: new Map(),
+  loadingRooms: false,
+  authLoading: false
+};
+
+let loadedMediaKey = null;
 let pendingSearchStatusTimer = null;
+let roomCodeHidden = false;
 const pendingRoomJoins = new Set();
 
-function loadJson(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
+nicknameInput.value = loadStoredValue(STORAGE_KEYS.nickname) || "Guest";
+authIdentifierInput.value = "";
+authPasswordInput.value = "";
+authNameInput.value = "";
+authEmailInput.value = "";
+
+if (queryRoom && !state.joinedRooms.includes(queryRoom)) {
+  state.joinedRooms.unshift(queryRoom);
+}
+
+state.joinedRooms = uniqueRoomCodes(state.joinedRooms);
+if (state.activeRoomId && !state.joinedRooms.includes(state.activeRoomId)) {
+  state.activeRoomId = state.joinedRooms[0] || null;
 }
 
 function loadStoredValue(key) {
@@ -155,27 +169,154 @@ function loadStoredValue(key) {
   }
 }
 
-function saveJson(key, value) {
+function resolveBackendBaseUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return `${window.location.origin}/`;
+
   try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {}
+    const url = new URL(raw, window.location.href);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return `${window.location.origin}/`;
+    }
+
+    url.hash = "";
+    url.search = "";
+    if (!url.pathname.endsWith("/")) {
+      url.pathname = `${url.pathname}/`;
+    }
+    return url.href;
+  } catch {
+    return `${window.location.origin}/`;
+  }
+}
+
+function resolveBackendUrl(path) {
+  return new URL(String(path || "").replace(/^\/+/, ""), backendBaseUrl).href;
+}
+
+function resolveBackendWsUrl(path = "/ws") {
+  const url = new URL(String(path || "").replace(/^\/+/, ""), backendBaseUrl);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.href;
+}
+
+function resolvePageUrl(path) {
+  return new URL(String(path || ""), getSiteBaseUrl()).href;
+}
+
+function getSiteBaseUrl() {
+  const pathname = window.location.pathname || "/";
+  const basePath = pathname.endsWith("/") ? pathname : pathname.replace(/[^/]*$/, "");
+  return `${window.location.origin}${basePath || "/"}`;
 }
 
 function storeValue(key, value) {
   try {
     if (value == null) {
       localStorage.removeItem(key);
-      return;
+    } else {
+      localStorage.setItem(key, value);
     }
-    localStorage.setItem(key, String(value));
   } catch {}
 }
 
-function normalizeRoomCode(roomCode) {
-  const normalized = String(roomCode || "")
+function getAuthToken() {
+  return state.authToken || loadStoredValue(STORAGE_KEYS.authToken) || null;
+}
+
+function storeAuthToken(token) {
+  state.authToken = token || null;
+  storeValue(STORAGE_KEYS.authToken, state.authToken);
+}
+
+function getAuthHeaders(contentType = false) {
+  const headers = {};
+  const token = getAuthToken();
+
+  if (contentType) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return headers;
+}
+
+async function apiRequest(path, options = {}) {
+  const headers = {
+    ...(options.headers || {})
+  };
+
+  if (options.json) {
+    headers["Content-Type"] = "application/json";
+  }
+
+  const token = getAuthToken();
+  if (token && !headers.Authorization) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(resolveBackendUrl(path), {
+    ...options,
+    headers,
+    body: options.json ? JSON.stringify(options.json) : options.body
+  });
+
+  return response;
+}
+
+function loadJoinedRooms() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.joinedRooms);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.map(normalizeRoomCode).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveJoinedRooms() {
+  storeValue(STORAGE_KEYS.joinedRooms, JSON.stringify(state.joinedRooms));
+  storeValue(STORAGE_KEYS.activeRoomId, state.activeRoomId || null);
+  storeValue(STORAGE_KEYS.role, currentRole);
+}
+
+function applyLocalRoomJoin(roomId, roomSnapshot = null, setActive = true) {
+  const normalized = normalizeRoomCode(roomId);
+  if (!normalized) return null;
+
+  if (roomSnapshot) {
+    upsertRoomStateFromSnapshot(normalized, roomSnapshot);
+  } else {
+    ensureRoomState(normalized);
+  }
+
+  if (!state.joinedRooms.includes(normalized)) {
+    state.joinedRooms.push(normalized);
+    state.joinedRooms = uniqueRoomCodes(state.joinedRooms);
+  }
+
+  if (setActive) {
+    state.activeRoomId = normalized;
+  }
+
+  saveJoinedRooms();
+  renderAll();
+  return state.roomStates.get(normalized) || null;
+}
+
+function uniqueRoomCodes(list) {
+  return [...new Set(list.map(normalizeRoomCode).filter(Boolean))];
+}
+
+function normalizeRoomCode(value) {
+  const normalized = String(value || "")
     .trim()
     .toUpperCase()
     .replace(/[^A-Z0-9-]/g, "");
+
   return normalized || null;
 }
 
@@ -184,240 +325,91 @@ function normalizeNickname(value) {
   return nickname || "Guest";
 }
 
-function normalizeRole(value) {
-  return String(value || "").trim().toLowerCase() === "host" ? "host" : "guest";
-}
-
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function getRoomsArray() {
-  return Array.from(state.roomStates.values());
-}
-
-function getRoomState(roomId) {
-  const normalized = normalizeRoomCode(roomId);
-  return normalized ? state.roomStates.get(normalized) || null : null;
-}
-
-function getActiveRoomState() {
-  return getRoomState(state.activeRoomId);
-}
-
-function getActiveUiState() {
-  const roomState = getActiveRoomState();
-  return roomState?.ui || { seasonId: null, episodeId: null, translatorId: null, qualityLabel: "Auto" };
-}
-
-function ensureRoomState(roomId) {
-  const normalized = normalizeRoomCode(roomId);
-  if (!normalized) return null;
-
-  const existing = state.roomStates.get(normalized);
-  if (existing) return existing;
-
-  const createdAt = Date.now();
-  const room = {
-    code: normalized,
-    title: `Room ${normalized}`,
-    createdAt,
-    sessionStartedAt: createdAt,
-    lastUpdatedAt: createdAt,
-    participants: [],
-    chat: [],
-    playlist: [],
-    currentMedia: null,
-    currentPlayback: { state: "paused", time: 0 },
-    ui: {
-      seasonId: null,
-      episodeId: null,
-      translatorId: null,
-      qualityLabel: "Auto"
-    }
-  };
-
-  state.roomStates.set(normalized, room);
-  return room;
-}
-
-function saveJoinedRooms() {
-  saveJson(STORAGE_KEYS.joinedRooms, uniqueRoomCodes(state.joinedRooms));
-}
-
-function uniqueRoomCodes(roomCodes) {
-  return [...new Set((Array.isArray(roomCodes) ? roomCodes : []).map(normalizeRoomCode).filter(Boolean))];
-}
-
-function getAuthToken() {
-  return state.currentToken;
-}
-
-function storeAuthToken(token) {
-  state.currentToken = token;
-  storeValue(STORAGE_KEYS.currentToken, token);
-}
-
-function getAuthHeaders() {
-  const token = getAuthToken();
-  return token ? { "Authorization": `Bearer ${token}` } : {};
-}
-
-function resolveBackendBaseUrl(endpointPath = "") {
-  const stored = localStorage.getItem(STORAGE_KEYS.backendBaseUrl);
-  const base = stored ? stored.trim() : backendBaseUrl;
-  return base.replace(/\/+$/, "") + "/" + endpointPath.replace(/^\/+/, "");
-}
-
-function resolveBackendWsUrl(wsPath = "") {
-  const base = resolveBackendBaseUrl(wsPath);
-  return base.replace(/^http:/i, "ws:").replace(/^https:/i, "wss:");
-}
-
-async function apiRequest(endpointPath, options = {}) {
-  const url = resolveBackendBaseUrl(endpointPath);
-  const headers = {
-    ...getAuthHeaders(),
-    ...options.headers
-  };
-
-  if (options.json != null) {
-    headers["Content-Type"] = "application/json";
-    options.body = JSON.stringify(options.json);
-  }
-
-  return fetch(url, {
-    ...options,
-    headers
-  });
-}
-
-function getActiveSeason() {
-  const roomState = getActiveRoomState();
-  const seriesContext = roomState?.currentMedia?.seriesContext;
-  if (!roomState || !seriesContext) return null;
-
-  const ui = getActiveUiState();
-  const seasons = Array.isArray(seriesContext.seasons) ? seriesContext.seasons : [];
-  if (seasons.length < 1) return null;
-
-  const activeSeason = seasons.find((season) => season.seasonId === ui.seasonId) || seasons[0];
-  if (activeSeason && ui.seasonId !== activeSeason.seasonId) {
-    roomState.ui.seasonId = activeSeason.seasonId;
-  }
-  return activeSeason;
-}
-
-function getTranslators() {
-  const activeSeason = getActiveSeason();
-  return Array.isArray(activeSeason?.translators) ? activeSeason.translators : [];
-}
-
-function getSelectedEpisodeForActions() {
-  const activeSeason = getActiveSeason();
-  const activeSeasonEpisodes = activeSeason?.episodes || [];
-  if (activeSeasonEpisodes.length < 1) return null;
-
-  const ui = getActiveUiState();
-  const selected = activeSeasonEpisodes.find((episode) => episode.episodeId === ui.episodeId) || activeSeasonEpisodes[0];
-  const roomState = getActiveRoomState();
-  if (selected && roomState && ui.episodeId !== selected.episodeId) {
-    roomState.ui.episodeId = selected.episodeId;
-  }
-  return selected;
-}
-
-function getSelectedTranslatorTitle() {
-  const ui = getActiveUiState();
-  const translators = getTranslators();
-  const selected = translators.find((translator) => translator.translatorId === ui.translatorId) || translators[0];
-  return selected?.title || "";
-}
-
-function formatRelativeTime(timestamp) {
-  const diff = Date.now() - Number(timestamp);
-  if (Number.isNaN(diff) || diff < 0) return "just now";
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 45) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 45) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 22) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
-
-function formatDuration(ms) {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const hrs = Math.floor(totalSeconds / 3600);
-  const mins = Math.floor((totalSeconds % 3600) / 60);
-  const secs = totalSeconds % 60;
-  return [
-    String(hrs).padStart(2, "0"),
-    String(mins).padStart(2, "0"),
-    String(secs).padStart(2, "0")
-  ].join(":");
-}
-
-function formatClock(timestamp) {
-  const date = timestamp ? new Date(Number(timestamp)) : new Date();
-  if (Number.isNaN(date.getTime())) return "00:00";
-  return [
-    String(date.getHours()).padStart(2, "0"),
-    String(date.getMinutes()).padStart(2, "0")
-  ].join(":");
+function normalizeRole(value) {
+  return String(value || "").trim().toLowerCase() === "host" ? "host" : "guest";
 }
 
 function promoteToHost() {
   currentRole = "host";
   storeValue(STORAGE_KEYS.role, currentRole);
-  const roleSelect = document.getElementById("roleSelect");
-  if (roleSelect) {
-    roleSelect.value = "host";
-  }
 }
 
 function applyRoleChange(role) {
-  const normalized = normalizeRole(role);
-  currentRole = normalized;
-  storeValue(STORAGE_KEYS.role, normalized);
-  const roleSelect = document.getElementById("roleSelect");
-  if (roleSelect) {
-    roleSelect.value = normalized;
-  }
+  const nextRole = normalizeRole(role);
+  if (nextRole === currentRole) return;
+
+  currentRole = nextRole;
+  storeValue(STORAGE_KEYS.role, currentRole);
   updateSearchControls();
-  renderParticipants();
+  renderRoomsDirectory();
+}
+
+function setHint(element, message, isError = false) {
+  if (!element) return;
+  element.textContent = message;
+  element.style.color = isError ? "#f87171" : "#90a4c2";
 }
 
 function setJoinHint(message, isError = false) {
-  if (!elements.joinHint) return;
-  elements.joinHint.textContent = message;
-  elements.joinHint.className = isError ? "hint error" : "hint";
+  setHint(joinHint, message, isError);
 }
 
 function setCreateHint(message, isError = false) {
-  if (!elements.createHint) return;
-  elements.createHint.textContent = message;
-  elements.createHint.className = isError ? "hint error" : "hint";
-}
-
-function setSearchHint(message, isError = false) {
-  if (!elements.searchHint) return;
-  elements.searchHint.textContent = message;
-  elements.searchHint.className = isError ? "hint error" : "hint";
+  setHint(createHint, message, isError);
 }
 
 function setRoomStatus(message, isError = false) {
-  if (!elements.roomStatus) return;
-  elements.roomStatus.textContent = message;
-  elements.roomStatus.className = isError ? "hint error" : "hint";
+  setHint(roomStatus, message, isError);
 }
 
-function setAuthStatus(message, isError = false) {
-  if (!elements.authStatus) return;
-  elements.authStatus.textContent = message;
-  elements.authStatus.className = isError ? "hint error" : "hint";
-  elements.authStatus.classList.remove("hidden");
+function setSearchHint(message, isError = false) {
+  setHint(searchHint, message, isError);
+}
+
+function formatDebugDetail(detail) {
+  if (detail === null || detail === undefined || detail === "") return "";
+  if (typeof detail === "string") return detail;
+
+  if (typeof detail !== "object") {
+    return String(detail);
+  }
+
+  return Object.entries(detail)
+    .filter(([, value]) => value !== null && value !== undefined && value !== "")
+    .map(([key, value]) => `${key}: ${typeof value === "object" ? JSON.stringify(value) : String(value)}`)
+    .join(" | ");
+}
+
+function appendPlaybackDebugEntry(title, detail = "", isError = false) {
+  if (!playbackDebugLog) return;
+
+  const entry = document.createElement("article");
+  entry.className = isError ? "playback-debug-entry is-error" : "playback-debug-entry";
+
+  const heading = document.createElement("strong");
+  heading.textContent = title;
+  entry.appendChild(heading);
+
+  const detailText = formatDebugDetail(detail);
+  if (detailText) {
+    const body = document.createElement("div");
+    body.textContent = detailText;
+    entry.appendChild(body);
+  }
+
+  const time = document.createElement("time");
+  time.textContent = new Date().toLocaleTimeString();
+  entry.appendChild(time);
+
+  playbackDebugLog.prepend(entry);
+
+  while (playbackDebugLog.children.length > 40) {
+    playbackDebugLog.lastElementChild?.remove();
+  }
 }
 
 function clearPendingSearchStatusTimer() {
@@ -430,180 +422,14 @@ function clearPendingSearchStatusTimer() {
 function armPendingSearchStatusTimer(query) {
   clearPendingSearchStatusTimer();
   pendingSearchStatusTimer = setTimeout(() => {
-    setSearchHint(`Extension did not reply for search: "${query}". Ensure extension is installed and running.`, true);
-  }, 10000);
-}
-
-function resolvePageUrl(relativePath) {
-  const url = new URL(relativePath, window.location.href);
-  return url.pathname + url.search;
-}
-
-function updateActiveRoomCodeControls() {
-  if (!state.activeRoomId || !elements.activeRoomCodeValue) return;
-  elements.activeRoomCodeValue.textContent = state.activeRoomId;
-  elements.activeRoomCodeButton.classList.toggle("is-blurred", roomCodeHidden);
-  if (elements.activeRoomCodeToggleButton) {
-    elements.activeRoomCodeToggleButton.textContent = roomCodeHidden ? "Show" : "Hide";
-  }
-}
-
-function updateTopbarRoomBadges() {
-  if (!state.activeRoomId) {
-    elements.topbarRoomCodeButton.classList.add("hidden");
-    return;
-  }
-
-  elements.topbarRoomCodeValue.textContent = state.activeRoomId;
-  elements.topbarRoomCodeButton.classList.remove("hidden");
-}
-
-function updateActiveRoomHeader() {
-  if (!elements.activeRoomTitle) return;
-  const roomState = getActiveRoomState();
-  elements.activeRoomTitle.textContent = roomState ? roomState.title : "";
-}
-
-function updateCurrentMediaBadge() {
-  const roomState = getActiveRoomState();
-  const currentMediaLabel = document.getElementById("currentMediaLabel");
-  if (currentMediaLabel && roomState?.currentMedia?.mediaUrl) {
-    currentMediaLabel.textContent = roomState.currentMedia.title || roomState.currentMedia.mediaUrl;
-  }
-}
-
-function renderTopbarUser() {
-  const nickname = normalizeNickname(elements.nicknameInput.value);
-  if (elements.topbarNickDisplay) {
-    elements.topbarNickDisplay.textContent = nickname;
-  }
-
-  if (elements.topbarAvatar) {
-    const pieces = nickname.split(/\s+/).filter(Boolean);
-    const initials = pieces.length > 0 ? pieces.slice(0, 2).map(p => p.charAt(0)).join("").toUpperCase() : "G";
-    elements.topbarAvatar.textContent = initials;
-  }
-
-  if (elements.signOutButton) {
-    elements.signOutButton.classList.toggle("hidden", !isAuthenticated());
-  }
-}
-
-function updateLastRoomButton() {
-  if (!elements.lastRoomButton) return;
-  const storedLast = loadStoredValue(STORAGE_KEYS.activeRoomId) || state.joinedRooms[0];
-  if (storedLast && pageMode === "home") {
-    elements.lastRoomButton.setAttribute("data-room", storedLast);
-    elements.lastRoomButton.classList.remove("hidden");
-  } else {
-    elements.lastRoomButton.classList.add("hidden");
-  }
-}
-
-function updateGuestIdentityCard() {
-  if (!elements.guestIdentityCard) return;
-  elements.guestIdentityCard.classList.toggle("hidden", isAuthenticated());
-}
-
-function sanitizeRoomUi(roomState) {
-  if (!roomState.ui) {
-    roomState.ui = { seasonId: null, episodeId: null, translatorId: null, qualityLabel: "Auto" };
-  }
-
-  const seriesContext = roomState.currentMedia?.seriesContext;
-  if (!seriesContext) {
-    roomState.ui.seasonId = null;
-    roomState.ui.episodeId = null;
-    roomState.ui.translatorId = null;
-    return;
-  }
-
-  const seasons = Array.isArray(seriesContext.seasons) ? seriesContext.seasons : [];
-  if (seasons.length < 1) return;
-
-  const currentSeason = seasons.find((season) => season.seasonId === roomState.ui.seasonId) || seasons[0];
-  roomState.ui.seasonId = currentSeason.seasonId;
-
-  const episodes = Array.isArray(currentSeason.episodes) ? currentSeason.episodes : [];
-  if (episodes.length > 0) {
-    const currentEpisode = episodes.find((episode) => episode.episodeId === roomState.ui.episodeId) || episodes[0];
-    roomState.ui.episodeId = currentEpisode.episodeId;
-  }
-
-  const translators = Array.isArray(currentSeason.translators) ? currentSeason.translators : [];
-  if (translators.length > 0) {
-    const currentTranslator = translators.find((translator) => translator.translatorId === roomState.ui.translatorId) || translators[0];
-    roomState.ui.translatorId = currentTranslator.translatorId;
-  }
-}
-
-function upsertRoomStateFromSnapshot(roomId, snapshot) {
-  const normalized = normalizeRoomCode(roomId);
-  const existing = ensureRoomState(normalized);
-  const previousMediaUrl = existing.currentMedia?.mediaUrl || "";
-
-  existing.title = snapshot.title || existing.title || `Room ${normalized}`;
-  existing.createdAt = snapshot.createdAt || existing.createdAt;
-  existing.sessionStartedAt = snapshot.sessionStartedAt || existing.sessionStartedAt;
-  existing.lastUpdatedAt = snapshot.lastUpdatedAt || existing.lastUpdatedAt;
-  existing.participants = Array.isArray(snapshot.participants) ? snapshot.participants : existing.participants;
-  existing.chat = Array.isArray(snapshot.chat) ? snapshot.chat : existing.chat;
-  existing.playlist = Array.isArray(snapshot.playlist) ? snapshot.playlist : existing.playlist;
-
-  if (snapshot.currentMedia && typeof snapshot.currentMedia === "object") {
-    existing.currentMedia = {
-      mediaUrl: snapshot.currentMedia.mediaUrl || "",
-      pageUrl: snapshot.currentMedia.pageUrl || null,
-      title: snapshot.currentMedia.title || snapshot.currentMedia.seriesContext?.title || null,
-      seriesContext: snapshot.currentMedia.seriesContext || null
-    };
-  } else {
-    existing.currentMedia = null;
-  }
-
-  if (snapshot.currentPlayback && typeof snapshot.currentPlayback === "object") {
-    existing.currentPlayback = {
-      state: snapshot.currentPlayback.state === "playing" ? "playing" : "paused",
-      time: Number.isFinite(snapshot.currentPlayback.time) ? snapshot.currentPlayback.time : 0,
-      updatedAt: snapshot.currentPlayback.updatedAt || Date.now()
-    };
-  }
-
-  sanitizeRoomUi(existing);
-  state.roomStates.set(normalized, existing);
-
-  return {
-    roomState: existing,
-    previousMediaUrl
-  };
-}
-
-function applyLocalRoomJoin(roomId, roomSnapshot = null, setActive = true) {
-  const normalized = normalizeRoomCode(roomId);
-  if (!normalized) return;
-
-  if (!state.joinedRooms.includes(normalized)) {
-    state.joinedRooms.unshift(normalized);
-  }
-  state.joinedRooms = uniqueRoomCodes(state.joinedRooms);
-  saveJoinedRooms();
-
-  if (roomSnapshot) {
-    upsertRoomStateFromSnapshot(normalized, roomSnapshot);
-  } else {
-    ensureRoomState(normalized);
-  }
-
-  if (setActive) {
-    state.activeRoomId = normalized;
-    storeValue(STORAGE_KEYS.activeRoomId, normalized);
-  }
-
-  refreshActiveRoom();
+    pendingSearchStatusTimer = null;
+    setSearchHint(`Waiting for the extension to process "${query}"...`, true);
+  }, 2500);
 }
 
 function sendWs(payload) {
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    setRoomStatus("WebSocket is not connected", true);
     return false;
   }
 
@@ -611,593 +437,403 @@ function sendWs(payload) {
   return true;
 }
 
-function ensureVisibility() {
-  if (pageMode === "home") {
-    elements.joinView.classList.remove("hidden");
-    elements.dashboardView.classList.add("hidden");
-    elements.roomsView.classList.add("hidden");
-    body.dataset.view = "home";
-  } else if (pageMode === "room") {
-    elements.joinView.classList.add("hidden");
-    elements.dashboardView.classList.remove("hidden");
-    elements.roomsView.classList.add("hidden");
-    body.dataset.view = "room";
-  } else if (pageMode === "rooms") {
-    elements.joinView.classList.add("hidden");
-    elements.dashboardView.classList.add("hidden");
-    elements.roomsView.classList.remove("hidden");
-    body.dataset.view = "rooms";
+function getJoinedRoomIds() {
+  return state.joinedRooms.slice();
+}
+
+function getRoomState(roomId) {
+  return state.roomStates.get(roomId) || null;
+}
+
+function ensureRoomState(roomId) {
+  const existing = state.roomStates.get(roomId);
+  if (existing) return existing;
+
+  const fallback = {
+    code: roomId,
+    title: `Room ${roomId}`,
+    createdAt: Date.now(),
+    sessionStartedAt: Date.now(),
+    memberCount: 0,
+    participants: [],
+    chat: [],
+    playlist: [],
+    currentMedia: null,
+    currentPlayback: { state: "paused", time: 0, updatedAt: Date.now() },
+    ui: {
+      seasonId: null,
+      translatorId: null,
+      qualityLabel: null
+    }
+  };
+
+  state.roomStates.set(roomId, fallback);
+  return fallback;
+}
+
+function upsertRoomStateFromSnapshot(roomId, snapshot) {
+  const existing = state.roomStates.get(roomId) || ensureRoomState(roomId);
+  const previousMediaUrl = existing.currentMedia?.mediaUrl || null;
+  const previousPlayback = existing.currentPlayback || { state: "paused", time: 0 };
+
+  existing.code = snapshot.code || roomId;
+  existing.title = snapshot.title || existing.title || `Room ${roomId}`;
+  existing.createdAt = Number.isFinite(snapshot.createdAt) ? snapshot.createdAt : existing.createdAt;
+  existing.sessionStartedAt = Number.isFinite(snapshot.sessionStartedAt)
+    ? snapshot.sessionStartedAt
+    : existing.sessionStartedAt;
+  existing.memberCount = Number.isFinite(snapshot.memberCount) ? snapshot.memberCount : existing.memberCount;
+  existing.participants = Array.isArray(snapshot.participants) ? snapshot.participants : existing.participants;
+  existing.chat = Array.isArray(snapshot.chat) ? snapshot.chat : existing.chat;
+  existing.playlist = Array.isArray(snapshot.playlist) ? snapshot.playlist : existing.playlist;
+  existing.currentMedia = snapshot.currentMedia || null;
+  existing.currentPlayback = snapshot.currentPlayback || existing.currentPlayback || { state: "paused", time: 0 };
+  existing.lastUpdatedAt = Number.isFinite(snapshot.lastUpdatedAt) ? snapshot.lastUpdatedAt : Date.now();
+  sanitizeRoomUi(existing);
+  state.roomStates.set(roomId, existing);
+
+  return {
+    roomState: existing,
+    previousMediaUrl,
+    previousPlayback
+  };
+}
+
+function createDefaultUi(seriesContext) {
+  const seasons = Array.isArray(seriesContext?.seasons) ? seriesContext.seasons : [];
+  const translators = Array.isArray(seriesContext?.translators) ? seriesContext.translators : [];
+  const qualities = Array.isArray(seriesContext?.availableQualities) ? seriesContext.availableQualities : [];
+
+  return {
+    seasonId:
+      seriesContext?.currentSeasonId ??
+      seasons[0]?.seasonId ??
+      null,
+    episodeId:
+      seriesContext?.currentEpisodeId ??
+      null,
+    translatorId:
+      seriesContext?.selectedTranslatorId ??
+      translators[0]?.translatorId ??
+      null,
+    qualityLabel:
+      seriesContext?.selectedQualityLabel ??
+      qualities[0]?.label ??
+      null
+  };
+}
+
+function sanitizeRoomUi(roomState) {
+  const seriesContext = roomState?.currentMedia?.seriesContext || null;
+  const seasons = Array.isArray(seriesContext?.seasons) ? seriesContext.seasons : [];
+  const translators = Array.isArray(seriesContext?.translators) ? seriesContext.translators : [];
+  const qualities = Array.isArray(seriesContext?.availableQualities) ? seriesContext.availableQualities : [];
+
+  if (!roomState.ui) {
+    roomState.ui = createDefaultUi(seriesContext);
+    return;
   }
+
+  if (!seasons.some((season) => season.seasonId === Number(roomState.ui.seasonId))) {
+    roomState.ui.seasonId = createDefaultUi(seriesContext).seasonId;
+  }
+
+  const activeSeasonId = Number(roomState.ui.seasonId);
+  const activeSeason = seasons.find((season) => season.seasonId === activeSeasonId) || seasons[0] || null;
+  const activeSeasonEpisodes = Array.isArray(activeSeason?.episodes) ? activeSeason.episodes : [];
+
+  if (
+    !activeSeasonEpisodes.some((episode) => episode.episodeId === Number(roomState.ui.episodeId))
+  ) {
+    roomState.ui.episodeId = activeSeasonEpisodes[0]?.episodeId ?? createDefaultUi(seriesContext).episodeId;
+  }
+
+  if (!translators.some((translator) => translator.translatorId === Number(roomState.ui.translatorId))) {
+    roomState.ui.translatorId = createDefaultUi(seriesContext).translatorId;
+  }
+
+  if (!qualities.some((quality) => quality.label === roomState.ui.qualityLabel)) {
+    roomState.ui.qualityLabel = createDefaultUi(seriesContext).qualityLabel;
+  }
+}
+
+function getActiveRoomState() {
+  if (!state.activeRoomId) return null;
+  return ensureRoomState(state.activeRoomId);
+}
+
+function getActiveSeriesContext() {
+  return getActiveRoomState()?.currentMedia?.seriesContext || null;
+}
+
+function getActiveUiState() {
+  return getActiveRoomState()?.ui || createDefaultUi(getActiveSeriesContext());
+}
+
+function formatDuration(durationMs) {
+  const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
+  const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
+  const minutes = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
+  const seconds = String(totalSeconds % 60).padStart(2, "0");
+  return `${hours}:${minutes}:${seconds}`;
+}
+
+function formatClock(timestamp) {
+  if (!Number.isFinite(timestamp)) return "";
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
+
+function formatRelativeTime(timestamp) {
+  if (!Number.isFinite(timestamp)) return "Unknown";
+
+  const delta = Date.now() - timestamp;
+  if (delta < 0) return "Just now";
+  if (delta < 60 * 1000) return `${Math.max(1, Math.floor(delta / 1000))}s ago`;
+  if (delta < 60 * 60 * 1000) return `${Math.floor(delta / (60 * 1000))}m ago`;
+  if (delta < 24 * 60 * 60 * 1000) return `${Math.floor(delta / (60 * 60 * 1000))}h ago`;
+  return `${Math.floor(delta / (24 * 60 * 60 * 1000))}d ago`;
+}
+
+function updateTopbarRoomBadges() {
+  topbarRoomCodeButton.classList.add("hidden");
 }
 
 function updateSessionCounter() {
   const roomState = getActiveRoomState();
-  if (pageMode !== "room" || !roomState || !elements.sessionDuration) return;
-  const sessionStarted = roomState.sessionStartedAt || Date.now();
-  elements.sessionDuration.textContent = formatDuration(Date.now() - sessionStarted);
+  if (!roomState) {
+    sessionDuration.textContent = "00:00:00";
+    return;
+  }
+
+  sessionDuration.textContent = formatDuration(Date.now() - roomState.sessionStartedAt);
 }
 
-function renderRoomsAuthGate() {
-  if (!elements.roomsAuthGate) return;
-  const isAuth = isAuthenticated();
-  elements.roomsAuthGate.classList.toggle("hidden", isAuth);
-  elements.roomsHeader.classList.toggle("hidden", !isAuth);
-  elements.roomsSignedInBar.classList.toggle("hidden", !isAuth);
-  elements.roomsGrid.classList.toggle("hidden", !isAuth);
+function updateCurrentMediaBadge() {
+  if (!currentMediaBadge) return;
+  currentMediaBadge.classList.add("hidden");
+  currentMediaBadge.textContent = "";
+}
 
-  if (isAuth && state.currentUser) {
-    elements.signedInName.textContent = state.currentUser.displayName || state.currentUser.email || "Signed in";
+function updateActiveRoomCodeControls() {
+  const roomState = getActiveRoomState();
+  const roomCode = roomState?.code || "";
+
+  if (!activeRoomCodeButton || !activeRoomCodeValue || !activeRoomCodeToggleButton) return;
+
+  if (!roomState) {
+    activeRoomCodeButton.classList.add("hidden");
+    activeRoomCodeToggleButton.classList.add("hidden");
+    activeRoomCodeValue.textContent = "--";
+    activeRoomCodeButton.classList.remove("is-blurred");
+    roomCodeHidden = false;
+    return;
   }
+
+  activeRoomCodeButton.classList.remove("hidden");
+  activeRoomCodeToggleButton.classList.remove("hidden");
+  activeRoomCodeValue.textContent = roomCode;
+  activeRoomCodeButton.classList.toggle("is-blurred", roomCodeHidden);
+  activeRoomCodeToggleButton.textContent = roomCodeHidden ? "Show" : "Hide";
+}
+
+function updateActiveRoomHeader() {
+  const roomState = getActiveRoomState();
+
+  if (!roomState) {
+    activeRoomTitle.textContent = "No room selected";
+    roomStatus.textContent = "Join a room to unlock the dashboard.";
+    roomStatus.classList.remove("hidden");
+    updateActiveRoomCodeControls();
+    return;
+  }
+
+  activeRoomTitle.textContent = roomState.title || `Room ${roomState.code}`;
+  roomStatus.textContent = "";
+  roomStatus.classList.add("hidden");
+  updateActiveRoomCodeControls();
+}
+
+function renderTopbarUser() {
+  const signedIn = isAuthenticated();
+  const nick = state.currentUser?.displayName || normalizeNickname(nicknameInput.value);
+  if (topbarUser) topbarUser.classList.toggle("hidden", !signedIn);
+  if (topbarNickDisplay) topbarNickDisplay.textContent = nick;
+  if (topbarAvatar) topbarAvatar.textContent = nick.charAt(0).toUpperCase();
+  const signOutBtn = document.getElementById("signOutButton");
+  if (signOutBtn) signOutBtn.classList.toggle("hidden", !signedIn);
+}
+
+function updateLastRoomButton() {
+  if (!lastRoomButton) return;
+  const lastRoom = state.activeRoomId || state.joinedRooms[0] || loadStoredValue(STORAGE_KEYS.activeRoomId);
+  const hasRoom = Boolean(lastRoom);
+  lastRoomButton.classList.toggle("hidden", !hasRoom);
+  if (lastRoom) lastRoomButton.setAttribute("data-room", lastRoom);
+}
+
+function updateGuestIdentityCard() {
+  if (!guestIdentityCard) return;
+  guestIdentityCard.classList.toggle("hidden", isAuthenticated());
+}
+
+function ensureVisibility() {
+  if (pageMode === "rooms") {
+    joinView.classList.add("hidden");
+    dashboardView.classList.add("hidden");
+    roomsView.classList.remove("hidden");
+    roomsView.classList.add("is-visible");
+    renderRoomsAuthGate();
+    return;
+  }
+
+  roomsView.classList.add("hidden");
+
+  if (queryRoom) {
+    joinView.classList.add("hidden");
+    dashboardView.classList.remove("hidden");
+  } else {
+    joinView.classList.remove("hidden");
+    dashboardView.classList.add("hidden");
+  }
+}
+
+function isAuthenticated() {
+  return Boolean(state.currentUser && getAuthToken());
 }
 
 function setAuthMode(mode) {
   state.authMode = mode === "signup" ? "signup" : "signin";
-  elements.authTitle.textContent = state.authMode === "signup" ? "Create an account" : "Sign in to AnyTogether";
-  elements.authPrompt.textContent = state.authMode === "signup" ? "Or sign up with" : "Or sign in with";
-  elements.authSubmitButton.textContent = state.authMode === "signup" ? "Sign up" : "Sign in";
-  elements.authToggleButton.textContent = state.authMode === "signup" ? "Already have an account? Sign in" : "No account? Sign up";
-
-  elements.authNameField.classList.toggle("hidden", state.authMode === "signin");
-  elements.authEmailField.classList.toggle("hidden", state.authMode === "signin");
-}
-
-async function signUpUser({ displayName, email, password }) {
-  setAuthStatus("Signing up...");
-  try {
-    const response = await apiRequest("/api/auth/register", {
-      method: "POST",
-      json: { displayName, email, password }
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || `Signup failed with status ${response.status}`);
-    }
-
-    const data = await response.json();
-    storeAuthToken(data.token);
-    setCurrentUser(data.user, data.token);
-
-    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-      sendWs({
-        type: "auth:identify",
-        token: data.token
-      });
-    }
-
-    setAuthStatus("");
-    setAuthMode("signin");
-  } catch (error) {
-    setAuthStatus(error.message, true);
-  }
-}
-
-async function signInAccount(mode) {
-  const emailVal = elements.authEmailInput.value.trim();
-  const nameVal = elements.authNameInput.value.trim();
-  const identVal = elements.authIdentifierInput.value.trim();
-  const passVal = elements.authPasswordInput.value.trim();
-
-  if (mode === "signup") {
-    if (!nameVal || !emailVal || !passVal) {
-      setAuthStatus("Fill in all fields", true);
-      return;
-    }
-    await signUpUser({ displayName: nameVal, email: emailVal, password: passVal });
-  } else {
-    if (!identVal || !passVal) {
-      setAuthStatus("Enter your credentials", true);
-      return;
-    }
-    setAuthStatus("Signing in...");
-    try {
-      const response = await apiRequest("/api/auth/login", {
-        method: "POST",
-        json: { identifier: identVal, password: passVal }
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || "Invalid username or password");
-      }
-
-      const data = await response.json();
-      storeAuthToken(data.token);
-      setCurrentUser(data.user, data.token);
-
-      if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-        sendWs({
-          type: "auth:identify",
-          token: data.token
-        });
-      }
-
-      setAuthStatus("");
-      elements.authPasswordInput.value = "";
-      elements.authIdentifierInput.value = "";
-    } catch (error) {
-      setAuthStatus(error.message, true);
-    }
-  }
-}
-
-async function signOutAccount() {
-  try {
-    await apiRequest("/api/auth/logout", { method: "POST" });
-  } catch {}
-  storeAuthToken(null);
-  state.currentUser = null;
-  state.roomsDirectory = [];
-  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
-    sendWs({
-      type: "auth:identify",
-      token: ""
-    });
-  }
   authStatus.classList.add("hidden");
-  setAuthMode("signin");
   renderRoomsAuthGate();
-  renderRoomsDirectory();
-  renderTopbarUser();
-  updateGuestIdentityCard();
 }
 
-async function createRoom() {
-  promoteToHost();
-  syncProfile();
-  setCreateHint("Creating a room...");
+function setAuthStatus(message, isError = false) {
+  authStatus.classList.remove("hidden");
+  authStatus.textContent = message;
+  authStatus.style.color = isError ? "#f87171" : "#90a4c2";
+}
 
-  try {
-    const response = await apiRequest("/api/rooms", {
-      method: "POST",
-      json: {
-        title: `${normalizeNickname(elements.nicknameInput.value)}'s room`
-      }
-    });
+function renderAuthMode() {
+  const isSignup = state.authMode === "signup";
 
-    if (!response.ok) {
-      throw new Error(`Create room failed with ${response.status}`);
-    }
-
-    const data = await response.json();
-    const roomCode = normalizeRoomCode(data.room?.code);
-    if (!roomCode) {
-      throw new Error("Server returned an invalid room code");
-    }
-
-    applyLocalRoomJoin(roomCode, data.room || null, true);
-    elements.createdRoomCodeValue.textContent = roomCode;
-    elements.createdRoomCodeButton.classList.remove("hidden");
-    sendJoinMessage(roomCode);
-    setCreateHint(`Room created: ${roomCode}`);
-    window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(roomCode)}`);
-    if (isAuthenticated()) {
-      await fetchRoomsDirectory();
-    }
-  } catch (error) {
-    setCreateHint(error.message, true);
+  authTitle.textContent = isSignup ? "Sign up" : "Sign in to AnyTogether";
+  authPrompt.textContent = isSignup ? "Or sign up with email" : "Or sign in with email";
+  authIdentifierField?.classList.toggle("hidden", isSignup);
+  authNameField.classList.toggle("hidden", !isSignup);
+  authEmailField.classList.toggle("hidden", !isSignup);
+  authSubmitButton.textContent = isSignup ? "Sign up" : "Sign in";
+  authToggleButton.textContent = isSignup ? "Back to sign in" : "No account? Sign up";
+  authIdentifierInput.placeholder = isSignup ? "Enter your email" : "Enter your email or name";
+  authPasswordInput.autocomplete = isSignup ? "new-password" : "current-password";
+  if (!isSignup) {
+    authNameInput.value = "";
+    authEmailInput.value = "";
+  } else {
+    authIdentifierInput.value = "";
   }
 }
 
-async function handleRoomJoin(roomCode, options = {}) {
-  const normalized = normalizeRoomCode(roomCode);
-  if (!normalized) {
-    setJoinHint("Enter a room code", true);
-    return false;
+function renderRoomsAuthGate() {
+  if (pageMode !== "rooms") return;
+
+  const signedIn = isAuthenticated();
+  roomsAuthGate.classList.toggle("hidden", signedIn);
+  roomsHeader.classList.toggle("hidden", !signedIn);
+  roomsSignedInBar.classList.toggle("hidden", !signedIn);
+  if (signedIn) {
+    signedInName.textContent = state.currentUser?.displayName ? `Signed in as ${state.currentUser.displayName}` : "Signed in";
+    roomsGrid.classList.remove("hidden");
+  } else {
+    signedInName.textContent = "Not signed in";
+    roomsGrid.classList.add("hidden");
   }
 
-  syncProfile();
-  applyLocalRoomJoin(normalized, null, options.setActive !== false);
-  sendJoinMessage(normalized);
-  if (isAuthenticated()) {
-    fetchRoomsDirectory();
-  }
-
-  if (options.navigateHome) {
-    window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(normalized)}`);
-  }
-
-  return true;
+  renderAuthMode();
 }
 
-function sendJoinMessage(roomId) {
-  const normalized = normalizeRoomCode(roomId);
-  if (!normalized) return false;
-
-  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-    pendingRoomJoins.add(normalized);
-    return false;
-  }
-
-  state.ws.send(
-    JSON.stringify({
-      type: "room:join",
-      roomId: normalized,
-      nickname: normalizeNickname(elements.nicknameInput.value),
-      role: currentRole,
-      clientId
-    })
-  );
-  pendingRoomJoins.delete(normalized);
-  return true;
-}
-
-function bridgeToSyncEngine() {
-  const roomInput = document.getElementById("roomInput");
-  const displayNameInput = document.getElementById("displayName");
-  const roleSelect = document.getElementById("roleSelect");
-  const connectButton = document.getElementById("connectButton");
-
-  if (roomInput && displayNameInput && roleSelect && connectButton) {
-    let changed = false;
-    const nextRoom = state.activeRoomId || "";
-    const nextName = normalizeNickname(elements.nicknameInput.value);
-    const nextRole = currentRole || "guest";
-
-    if (roomInput.value !== nextRoom) {
-      roomInput.value = nextRoom;
-      changed = true;
-    }
-    if (displayNameInput.value !== nextName) {
-      displayNameInput.value = nextName;
-      changed = true;
-    }
-    if (roleSelect.value !== nextRole) {
-      roleSelect.value = nextRole;
-      changed = true;
-    }
-
-    if (changed && nextRoom) {
-      connectButton.click();
-    }
-  }
-}
-
-function applyRoomSnapshot(roomId, snapshot) {
-  const { roomState: existing, previousMediaUrl } = upsertRoomStateFromSnapshot(roomId, snapshot);
-
-  const activeRoomChanged = state.activeRoomId === roomId;
-  if (activeRoomChanged) {
-    refreshActiveRoom();
-  }
-
-  renderAll();
-
-  if (activeRoomChanged) {
-    bridgeToSyncEngine();
-
-    const mediaChanged = previousMediaUrl !== existing.currentMedia?.mediaUrl;
-    if (mediaChanged && existing.currentMedia?.mediaUrl) {
-      const mediaUrlInput = document.getElementById("mediaUrl");
-      const loadMediaButton = document.getElementById("loadMediaButton");
-      if (mediaUrlInput && loadMediaButton && mediaUrlInput.value !== existing.currentMedia.mediaUrl) {
-        mediaUrlInput.value = existing.currentMedia.mediaUrl;
-        loadMediaButton.click();
-      }
-    }
-  }
-}
-
-function refreshActiveRoom() {
+function getCurrentMediaPayload() {
   const roomState = getActiveRoomState();
-  if (!roomState) {
-    updateTopbarRoomBadges();
-    updateActiveRoomHeader();
-    updateCurrentMediaBadge();
-    return;
-  }
+  if (!roomState?.currentMedia?.mediaUrl) return null;
 
-  sanitizeRoomUi(roomState);
-  updateTopbarRoomBadges();
-  updateActiveRoomHeader();
-  updateCurrentMediaBadge();
-  renderSeriesPanel();
-  renderParticipants();
-  renderChat();
-  renderPlaylist();
-  updateSessionCounter();
-  updateSearchControls();
+  return {
+    mediaUrl: roomState.currentMedia.mediaUrl,
+    pageUrl: roomState.currentMedia.pageUrl || null,
+    title: roomState.currentMedia.title || roomState.currentMedia.seriesContext?.title || null,
+    seriesContext: roomState.currentMedia.seriesContext || null
+  };
 }
 
-function renderParticipants() {
-  const roomState = getActiveRoomState();
-  elements.participantsList.textContent = "";
-
-  if (!roomState?.participants?.length) {
-    const placeholder = document.createElement("div");
-    placeholder.className = "status";
-    placeholder.textContent = "No participants yet.";
-    elements.participantsList.appendChild(placeholder);
-    return;
-  }
-
-  roomState.participants.forEach((participant) => {
-    const item = document.createElement("div");
-    item.className = "participant-item";
-
-    const avatarWrap = document.createElement("div");
-    avatarWrap.className = "participant-avatar-wrap";
-
-    const avatar = document.createElement("div");
-    avatar.className = "user-avatar participant-avatar";
-    avatar.textContent = getParticipantInitials(participant);
-
-    avatarWrap.appendChild(avatar);
-
-    const nameRow = document.createElement("div");
-    nameRow.className = "participant-name-row";
-
-    const name = document.createElement("div");
-    name.className = "participant-name";
-    name.textContent = participant.nickname || "Guest";
-
-    nameRow.appendChild(name);
-
-    if (String(participant.role || "guest") === "host") {
-      const hostBadge = document.createElement("span");
-      hostBadge.className = "host-badge";
-      hostBadge.textContent = "H";
-      hostBadge.title = "Host";
-      nameRow.appendChild(hostBadge);
-    }
-
-    item.appendChild(avatarWrap);
-    item.appendChild(nameRow);
-    elements.participantsList.appendChild(item);
-  });
+function getSeasons() {
+  return Array.isArray(getActiveSeriesContext()?.seasons) ? getActiveSeriesContext().seasons : [];
 }
 
-function getParticipantInitials(participant) {
-  const source = String(participant?.nickname || participant?.displayName || "Guest").trim();
-  if (!source) return "G";
-  const pieces = source.split(/\s+/).filter(Boolean);
-  if (!pieces.length) return "G";
-  return pieces.slice(0, 2).map((piece) => piece.charAt(0)).join("").toUpperCase();
+function getTranslators() {
+  return Array.isArray(getActiveSeriesContext()?.translators) ? getActiveSeriesContext().translators : [];
 }
 
-function renderChat() {
-  const roomState = getActiveRoomState();
-  elements.chatMessages.textContent = "";
-
-  if (!roomState?.chat?.length) {
-    const placeholder = document.createElement("div");
-    placeholder.className = "status";
-    placeholder.textContent = "No chat messages yet.";
-    elements.chatMessages.appendChild(placeholder);
-    return;
-  }
-
-  roomState.chat.forEach((message) => {
-    const item = document.createElement("div");
-    item.className = "chat-item";
-
-    const top = document.createElement("div");
-    top.className = "chat-top";
-
-    const author = document.createElement("div");
-    author.className = "chat-author";
-    author.textContent = message.author?.nickname || "System";
-
-    const meta = document.createElement("div");
-    meta.className = "chat-meta";
-    meta.textContent = formatClock(message.sentAt);
-
-    top.appendChild(author);
-    top.appendChild(meta);
-
-    const body = document.createElement("div");
-    body.className = "chat-body";
-    body.textContent = message.text || "";
-
-    item.appendChild(top);
-    item.appendChild(body);
-    elements.chatMessages.appendChild(item);
-  });
-
-  elements.chatMessages.scrollTop = elements.chatMessages.scrollHeight;
+function getAvailableQualities() {
+  return Array.isArray(getActiveSeriesContext()?.availableQualities)
+    ? getActiveSeriesContext().availableQualities
+    : [];
 }
 
-function renderPlaylist() {
-  const roomState = getActiveRoomState();
-  elements.playlistList.textContent = "";
-
-  if (!roomState?.playlist?.length) {
-    const placeholder = document.createElement("div");
-    placeholder.className = "status";
-    placeholder.textContent = "Playlist is empty.";
-    elements.playlistList.appendChild(placeholder);
-    return;
-  }
-
-  roomState.playlist.forEach((item) => {
-    const card = document.createElement("div");
-    card.className = "playlist-item";
-
-    const top = document.createElement("div");
-    top.className = "playlist-top";
-
-    const title = document.createElement("div");
-    title.className = "playlist-name";
-    title.textContent = item.title || item.mediaUrl || "Playlist item";
-
-    const action = document.createElement("button");
-    action.type = "button";
-    action.textContent = "Play";
-    action.addEventListener("click", () => {
-      sendWs({
-        type: "playlist:activate",
-        roomId: roomState.code,
-        playlistItemId: item.id,
-        originId: clientId
-      });
-    });
-
-    top.appendChild(title);
-    top.appendChild(action);
-
-    const meta = document.createElement("div");
-    meta.className = "playlist-meta";
-    const addedBy = item.addedBy?.nickname || "Unknown";
-    meta.textContent = `${addedBy} - ${formatRelativeTime(item.addedAt)}`;
-
-    card.appendChild(top);
-    card.appendChild(meta);
-    elements.playlistList.appendChild(card);
-  });
+function getSelectedTranslatorTitle() {
+  const translatorId = Number(getActiveUiState()?.translatorId);
+  const translator = getTranslators().find((item) => item.translatorId === translatorId);
+  return translator?.title || getActiveSeriesContext()?.selectedTranslatorTitle || null;
 }
 
-function renderRoomsDirectory() {
-  if (pageMode === "rooms" && !isAuthenticated()) {
-    elements.roomsGrid.textContent = "";
-    return;
+function getActiveSeasonId() {
+  const seasons = getSeasons();
+  const preferredSeasonId = Number(getActiveUiState()?.seasonId);
+  if (Number.isFinite(preferredSeasonId) && seasons.some((season) => season.seasonId === preferredSeasonId)) {
+    return preferredSeasonId;
   }
 
-  elements.roomsGrid.textContent = "";
-
-  if (state.loadingRooms) {
-    const loading = document.createElement("div");
-    loading.className = "status";
-    loading.textContent = "Loading rooms...";
-    elements.roomsGrid.appendChild(loading);
-    return;
+  const currentSeasonId = Number(getActiveSeriesContext()?.currentSeasonId);
+  if (Number.isFinite(currentSeasonId) && seasons.some((season) => season.seasonId === currentSeasonId)) {
+    return currentSeasonId;
   }
 
-  if (!state.roomsDirectory.length) {
-    const empty = document.createElement("div");
-    empty.className = "status";
-    empty.textContent = "No rooms are linked to your account yet.";
-    elements.roomsGrid.appendChild(empty);
-    return;
-  }
-
-  state.roomsDirectory.forEach((room) => {
-    const card = document.createElement("div");
-    card.className = "room-card";
-
-    const top = document.createElement("div");
-    top.className = "room-card-top";
-
-    const titleBlock = document.createElement("div");
-    titleBlock.className = "card-title";
-
-    const title = document.createElement("div");
-    title.className = "room-card-title";
-    title.textContent = room.title || `Room ${room.code}`;
-
-    const meta = document.createElement("div");
-    meta.className = "room-card-meta";
-    const currentMedia = room.currentMediaTitle || "No media";
-    const memberCount = room.memberCount || 0;
-    const playlistCount = room.playlistCount || 0;
-    meta.textContent = `${memberCount} ${memberCount === 1 ? "user" : "users"} - ${playlistCount} playlist items - ${currentMedia}`;
-
-    titleBlock.appendChild(title);
-    titleBlock.appendChild(meta);
-    top.appendChild(titleBlock);
-
-    const actions = document.createElement("div");
-    actions.className = "room-card-actions";
-
-    const primaryButton = document.createElement("button");
-    primaryButton.type = "button";
-    primaryButton.textContent = "Open";
-    primaryButton.addEventListener("click", () => {
-      window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(room.code)}`);
-    });
-
-    const copyButton = document.createElement("button");
-    copyButton.type = "button";
-    copyButton.textContent = "Copy code";
-    copyButton.addEventListener("click", () => copyToClipboard(room.code));
-
-    actions.appendChild(primaryButton);
-    actions.appendChild(copyButton);
-
-    const leaveButton = document.createElement("button");
-    leaveButton.type = "button";
-    leaveButton.textContent = "Leave";
-    leaveButton.addEventListener("click", () => leaveRoom(room.code));
-    actions.appendChild(leaveButton);
-
-    const status = document.createElement("div");
-    status.className = "status";
-    status.dataset.sessionStartedAt = String(room.sessionStartedAt || Date.now());
-    status.dataset.lastUpdatedAt = String(room.lastUpdatedAt || Date.now());
-    const sessionSpan = document.createElement("span");
-    sessionSpan.className = "room-card-session";
-    sessionSpan.textContent = `Session ${formatDuration(Date.now() - room.sessionStartedAt)}`;
-    const updatedSpan = document.createElement("span");
-    updatedSpan.className = "room-card-updated";
-    updatedSpan.textContent = `Updated ${formatRelativeTime(room.lastUpdatedAt)}`;
-    status.appendChild(sessionSpan);
-    status.appendChild(document.createTextNode(" - "));
-    status.appendChild(updatedSpan);
-
-    card.appendChild(top);
-    card.appendChild(actions);
-    card.appendChild(status);
-    elements.roomsGrid.appendChild(card);
-  });
+  return seasons[0]?.seasonId ?? null;
 }
 
-function updateRoomsDirectoryClock() {
-  if (pageMode !== "rooms" || !elements.roomsGrid || elements.roomsGrid.classList.contains("hidden")) return;
-
-  elements.roomsGrid.querySelectorAll(".status[data-session-started-at]").forEach((status) => {
-    const startedAt = Number(status.dataset.sessionStartedAt);
-    const updatedAt = Number(status.dataset.lastUpdatedAt);
-    const sessionSpan = status.querySelector(".room-card-session");
-    const updatedSpan = status.querySelector(".room-card-updated");
-
-    if (sessionSpan && Number.isFinite(startedAt)) {
-      sessionSpan.textContent = `Session ${formatDuration(Date.now() - startedAt)}`;
-    }
-    if (updatedSpan && Number.isFinite(updatedAt)) {
-      updatedSpan.textContent = `Updated ${formatRelativeTime(updatedAt)}`;
-    }
-  });
+function getActiveSeason() {
+  const seasons = getSeasons();
+  const activeSeasonId = getActiveSeasonId();
+  return seasons.find((season) => season.seasonId === activeSeasonId) || seasons[0] || null;
 }
 
-function renderAll() {
-  ensureVisibility();
-  updateTopbarRoomBadges();
-  updateActiveRoomHeader();
-  updateCurrentMediaBadge();
-  updateSearchControls();
-  renderTopbarUser();
-  updateLastRoomButton();
-  updateGuestIdentityCard();
+function getSelectedEpisodeForActions() {
+  const activeSeason = getActiveSeason();
+  if (!activeSeason?.episodes?.length) return null;
 
-  if (pageMode !== "rooms") {
-    renderSeriesPanel();
-    renderParticipants();
-    renderChat();
-    renderPlaylist();
-    updateSessionCounter();
+  const preferredEpisodeId = Number(getActiveUiState()?.episodeId);
+  if (Number.isFinite(preferredEpisodeId)) {
+    const preferredEpisode = activeSeason.episodes.find((episode) => episode.episodeId === preferredEpisodeId);
+    if (preferredEpisode) return preferredEpisode;
   }
+
+  const currentSeasonId = Number(getActiveSeriesContext()?.currentSeasonId);
+  const currentEpisodeId = Number(getActiveSeriesContext()?.currentEpisodeId);
+
+  if (
+    Number.isFinite(currentSeasonId) &&
+    Number.isFinite(currentEpisodeId) &&
+    activeSeason.seasonId === currentSeasonId
+  ) {
+    const currentEpisode = activeSeason.episodes.find((episode) => episode.episodeId === currentEpisodeId);
+    if (currentEpisode) return currentEpisode;
+  }
+
+  return activeSeason.episodes[0];
 }
 
-function extractMediaTitleAndYearSafe(raw) {
+function extractMediaTitleAndYearSafe(text) {
+  const raw = String(text || "").trim();
   if (!raw) {
     return { title: "", year: "" };
   }
@@ -1255,18 +891,18 @@ function renderSeriesPanel() {
   const seasons = Array.isArray(seriesContext?.seasons) ? seriesContext.seasons : [];
 
   if (!roomState || !currentMedia) {
-    elements.seriesPanel.classList.add("hidden");
-    elements.seriesTitleEl.textContent = "";
-    elements.seriesMetaEl.textContent = "";
-    if (elements.seasonPickerValue) elements.seasonPickerValue.textContent = "";
-    if (elements.episodePickerValue) elements.episodePickerValue.textContent = "";
-    if (elements.translatorPickerValue) elements.translatorPickerValue.textContent = "";
-    elements.seasonButtonsEl.textContent = "";
-    elements.translatorButtonsEl.textContent = "";
-    elements.seriesEpisodesEl.textContent = "";
-    elements.seasonPicker?.removeAttribute("open");
-    elements.episodePicker?.removeAttribute("open");
-    elements.translatorPicker?.removeAttribute("open");
+    seriesPanel.classList.add("hidden");
+    seriesTitleEl.textContent = "";
+    seriesMetaEl.textContent = "";
+    if (seasonPickerValue) seasonPickerValue.textContent = "";
+    if (episodePickerValue) episodePickerValue.textContent = "";
+    if (translatorPickerValue) translatorPickerValue.textContent = "";
+    seasonButtonsEl.textContent = "";
+    translatorButtonsEl.textContent = "";
+    seriesEpisodesEl.textContent = "";
+    seasonPicker?.removeAttribute("open");
+    episodePicker?.removeAttribute("open");
+    translatorPicker?.removeAttribute("open");
     return;
   }
 
@@ -1288,28 +924,28 @@ function renderSeriesPanel() {
   const selectedEpisodeTitle = selectedEpisode?.title || `Episode ${selectedEpisodeIndex > 0 ? selectedEpisodeIndex : 1}`;
   const selectedTranslatorTitle = getSelectedTranslatorTitle() || "Auto";
 
-  elements.seriesPanel.classList.remove("hidden");
-  elements.seriesTitleEl.textContent = title;
-  elements.seriesMetaEl.textContent = displayYear ? `(${displayYear})` : "";
-  if (elements.seasonPickerValue) elements.seasonPickerValue.textContent = selectedSeasonTitle;
-  if (elements.episodePickerValue) elements.episodePickerValue.textContent = selectedEpisodeTitle;
-  if (elements.translatorPickerValue) elements.translatorPickerValue.textContent = selectedTranslatorTitle;
+  seriesPanel.classList.remove("hidden");
+  seriesTitleEl.textContent = title;
+  seriesMetaEl.textContent = displayYear ? `(${displayYear})` : "";
+  if (seasonPickerValue) seasonPickerValue.textContent = selectedSeasonTitle;
+  if (episodePickerValue) episodePickerValue.textContent = selectedEpisodeTitle;
+  if (translatorPickerValue) translatorPickerValue.textContent = selectedTranslatorTitle;
 
   if (!seriesContext || seasons.length < 1) {
-    elements.seasonButtonsEl.textContent = "";
-    elements.translatorButtonsEl.textContent = "";
-    elements.seriesEpisodesEl.textContent = "";
-    elements.seasonButtonsEl.closest(".series-group")?.classList.add("is-hidden");
-    elements.translatorButtonsEl.closest(".series-group")?.classList.add("is-hidden");
-    elements.seriesEpisodesEl.closest(".series-group")?.classList.add("is-hidden");
-    elements.seasonPicker?.removeAttribute("open");
-    elements.episodePicker?.removeAttribute("open");
-    elements.translatorPicker?.removeAttribute("open");
+    seasonButtonsEl.textContent = "";
+    translatorButtonsEl.textContent = "";
+    seriesEpisodesEl.textContent = "";
+    seasonButtonsEl.closest(".series-group")?.classList.add("is-hidden");
+    translatorButtonsEl.closest(".series-group")?.classList.add("is-hidden");
+    seriesEpisodesEl.closest(".series-group")?.classList.add("is-hidden");
+    seasonPicker?.removeAttribute("open");
+    episodePicker?.removeAttribute("open");
+    translatorPicker?.removeAttribute("open");
     return;
   }
 
   renderButtonGroup(
-    elements.seasonButtonsEl,
+    seasonButtonsEl,
     seasons,
     ui.seasonId,
     (season) => season.seasonId,
@@ -1329,7 +965,7 @@ function renderSeriesPanel() {
   );
 
   renderButtonGroup(
-    elements.translatorButtonsEl,
+    translatorButtonsEl,
     getTranslators(),
     ui.translatorId,
     (translator) => translator.translatorId,
@@ -1347,13 +983,13 @@ function renderSeriesPanel() {
     }
   );
 
-  elements.seriesEpisodesEl.textContent = "";
+  seriesEpisodesEl.textContent = "";
   if (activeSeasonEpisodes.length < 1) {
-    elements.seriesEpisodesEl.classList.remove("is-visible");
+    seriesEpisodesEl.classList.remove("is-visible");
     return;
   }
 
-  elements.seriesEpisodesEl.classList.add("is-visible");
+  seriesEpisodesEl.classList.add("is-visible");
 
   activeSeasonEpisodes.forEach((episode, index) => {
     const button = document.createElement("button");
@@ -1378,34 +1014,512 @@ function renderSeriesPanel() {
       });
     });
 
-    elements.seriesEpisodesEl.appendChild(button);
+    seriesEpisodesEl.appendChild(button);
   });
+}
+
+function applyRoomSnapshot(roomId, snapshot) {
+  const { roomState: existing, previousMediaUrl, previousPlayback } = upsertRoomStateFromSnapshot(roomId, snapshot);
+
+  const activeRoomChanged = state.activeRoomId === roomId;
+  if (activeRoomChanged) {
+    refreshActiveRoom();
+  }
+
+  const mediaChanged = previousMediaUrl !== existing.currentMedia?.mediaUrl;
+  const playbackChanged =
+    previousPlayback.state !== existing.currentPlayback?.state ||
+    previousPlayback.time !== existing.currentPlayback?.time;
+
+  renderAll();
+
+  if (activeRoomChanged) {
+    if (mediaChanged) {
+      syncActiveRoomMedia(true);
+    } else if (playbackChanged) {
+      applyPlaybackState(existing.currentPlayback);
+    }
+  }
+}
+
+function refreshActiveRoom() {
+  const roomState = getActiveRoomState();
+  if (!roomState) {
+    updateTopbarRoomBadges();
+    updateActiveRoomHeader();
+    updateCurrentMediaBadge();
+    return;
+  }
+
+  sanitizeRoomUi(roomState);
+  updateTopbarRoomBadges();
+  updateActiveRoomHeader();
+  updateCurrentMediaBadge();
+  renderSeriesPanel();
+  renderParticipants();
+  renderChat();
+  renderPlaylist();
+  updateSessionCounter();
+  updateSearchControls();
+}
+
+function renderParticipants() {
+  const roomState = getActiveRoomState();
+  participantsList.textContent = "";
+
+  if (!roomState?.participants?.length) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "status";
+    placeholder.textContent = "No participants yet.";
+    participantsList.appendChild(placeholder);
+    return;
+  }
+
+  roomState.participants.forEach((participant) => {
+    const item = document.createElement("div");
+    item.className = "participant-item";
+
+    const avatarWrap = document.createElement("div");
+    avatarWrap.className = "participant-avatar-wrap";
+
+    const avatar = document.createElement("div");
+    avatar.className = "user-avatar participant-avatar";
+    avatar.textContent = getParticipantInitials(participant);
+
+
+
+    avatarWrap.appendChild(avatar);
+
+    const nameRow = document.createElement("div");
+    nameRow.className = "participant-name-row";
+
+    const name = document.createElement("div");
+    name.className = "participant-name";
+    name.textContent = participant.nickname || "Guest";
+
+    nameRow.appendChild(name);
+
+    if (String(participant.role || "guest") === "host") {
+      const hostBadge = document.createElement("span");
+      hostBadge.className = "host-badge";
+      hostBadge.textContent = "H";
+      hostBadge.title = "Host";
+      nameRow.appendChild(hostBadge);
+    }
+
+    item.appendChild(avatarWrap);
+    item.appendChild(nameRow);
+    participantsList.appendChild(item);
+  });
+}
+
+function renderChat() {
+  const roomState = getActiveRoomState();
+  chatMessages.textContent = "";
+
+  if (!roomState?.chat?.length) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "status";
+    placeholder.textContent = "No chat messages yet.";
+    chatMessages.appendChild(placeholder);
+    return;
+  }
+
+  roomState.chat.forEach((message) => {
+    const item = document.createElement("div");
+    item.className = "chat-item";
+
+    const top = document.createElement("div");
+    top.className = "chat-top";
+
+    const author = document.createElement("div");
+    author.className = "chat-author";
+    author.textContent = message.author?.nickname || "System";
+
+    const meta = document.createElement("div");
+    meta.className = "chat-meta";
+    meta.textContent = formatClock(message.sentAt);
+
+    top.appendChild(author);
+    top.appendChild(meta);
+
+    const body = document.createElement("div");
+    body.className = "chat-body";
+    body.textContent = message.text || "";
+
+    item.appendChild(top);
+    item.appendChild(body);
+    chatMessages.appendChild(item);
+  });
+
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function renderPlaylist() {
+  const roomState = getActiveRoomState();
+  playlistList.textContent = "";
+
+  if (!roomState?.playlist?.length) {
+    const placeholder = document.createElement("div");
+    placeholder.className = "status";
+    placeholder.textContent = "Playlist is empty.";
+    playlistList.appendChild(placeholder);
+    return;
+  }
+
+  roomState.playlist.forEach((item) => {
+    const card = document.createElement("div");
+    card.className = "playlist-item";
+
+    const top = document.createElement("div");
+    top.className = "playlist-top";
+
+    const title = document.createElement("div");
+    title.className = "playlist-name";
+    title.textContent = item.title || item.mediaUrl || "Playlist item";
+
+    const action = document.createElement("button");
+    action.type = "button";
+    action.textContent = "Play";
+    action.addEventListener("click", () => {
+      sendWs({
+        type: "playlist:activate",
+        roomId: roomState.code,
+        playlistItemId: item.id,
+        originId: clientId
+      });
+    });
+
+    top.appendChild(title);
+    top.appendChild(action);
+
+    const meta = document.createElement("div");
+    meta.className = "playlist-meta";
+    const addedBy = item.addedBy?.nickname || "Unknown";
+    meta.textContent = `${addedBy} - ${formatRelativeTime(item.addedAt)}`;
+
+    card.appendChild(top);
+    card.appendChild(meta);
+    playlistList.appendChild(card);
+  });
+}
+
+function renderRoomsDirectory() {
+  if (pageMode === "rooms" && !isAuthenticated()) {
+    roomsGrid.textContent = "";
+    return;
+  }
+
+  roomsGrid.textContent = "";
+
+  if (state.loadingRooms) {
+    const loading = document.createElement("div");
+    loading.className = "status";
+    loading.textContent = "Loading rooms...";
+    roomsGrid.appendChild(loading);
+    return;
+  }
+
+  if (!state.roomsDirectory.length) {
+    const empty = document.createElement("div");
+    empty.className = "status";
+    empty.textContent = "No rooms are linked to your account yet.";
+    roomsGrid.appendChild(empty);
+    return;
+  }
+
+  state.roomsDirectory.forEach((room) => {
+    const card = document.createElement("div");
+    card.className = "room-card";
+
+    const top = document.createElement("div");
+    top.className = "room-card-top";
+
+    const titleBlock = document.createElement("div");
+    titleBlock.className = "card-title";
+
+    const title = document.createElement("div");
+    title.className = "room-card-title";
+    title.textContent = room.title || `Room ${room.code}`;
+
+    const meta = document.createElement("div");
+    meta.className = "room-card-meta";
+    const currentMedia = room.currentMediaTitle || "No media";
+    const memberCount = room.memberCount || 0;
+    const playlistCount = room.playlistCount || 0;
+    meta.textContent = `${memberCount} ${memberCount === 1 ? "user" : "users"} - ${playlistCount} playlist items - ${currentMedia}`;
+
+    titleBlock.appendChild(title);
+    titleBlock.appendChild(meta);
+
+    top.appendChild(titleBlock);
+
+    const actions = document.createElement("div");
+    actions.className = "room-card-actions";
+
+    const primaryButton = document.createElement("button");
+    primaryButton.type = "button";
+    primaryButton.textContent = "Open";
+    primaryButton.addEventListener("click", () => {
+      window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(room.code)}`);
+    });
+
+    const copyButton = document.createElement("button");
+    copyButton.type = "button";
+    copyButton.textContent = "Copy code";
+    copyButton.addEventListener("click", () => copyToClipboard(room.code));
+
+    actions.appendChild(primaryButton);
+    actions.appendChild(copyButton);
+
+    const leaveButton = document.createElement("button");
+    leaveButton.type = "button";
+    leaveButton.textContent = "Leave";
+    leaveButton.addEventListener("click", () => leaveRoom(room.code));
+    actions.appendChild(leaveButton);
+
+    const status = document.createElement("div");
+    status.className = "status";
+    status.dataset.sessionStartedAt = String(room.sessionStartedAt || Date.now());
+    status.dataset.lastUpdatedAt = String(room.lastUpdatedAt || Date.now());
+    const sessionSpan = document.createElement("span");
+    sessionSpan.className = "room-card-session";
+    sessionSpan.textContent = `Session ${formatDuration(Date.now() - room.sessionStartedAt)}`;
+    const updatedSpan = document.createElement("span");
+    updatedSpan.className = "room-card-updated";
+    updatedSpan.textContent = `Updated ${formatRelativeTime(room.lastUpdatedAt)}`;
+    status.appendChild(sessionSpan);
+    status.appendChild(document.createTextNode(" - "));
+    status.appendChild(updatedSpan);
+
+    card.appendChild(top);
+    card.appendChild(actions);
+    card.appendChild(status);
+    roomsGrid.appendChild(card);
+  });
+}
+
+function updateRoomsDirectoryClock() {
+  if (pageMode !== "rooms" || !roomsGrid || roomsGrid.classList.contains("hidden")) return;
+
+  roomsGrid.querySelectorAll(".status[data-session-started-at]").forEach((status) => {
+    const startedAt = Number(status.dataset.sessionStartedAt);
+    const updatedAt = Number(status.dataset.lastUpdatedAt);
+    const sessionSpan = status.querySelector(".room-card-session");
+    const updatedSpan = status.querySelector(".room-card-updated");
+
+    if (sessionSpan && Number.isFinite(startedAt)) {
+      sessionSpan.textContent = `Session ${formatDuration(Date.now() - startedAt)}`;
+    }
+    if (updatedSpan && Number.isFinite(updatedAt)) {
+      updatedSpan.textContent = `Updated ${formatRelativeTime(updatedAt)}`;
+    }
+  });
+}
+
+function renderAll() {
+  ensureVisibility();
+  updateTopbarRoomBadges();
+  updateActiveRoomHeader();
+  updateCurrentMediaBadge();
+  updateSearchControls();
+  renderTopbarUser();
+  updateLastRoomButton();
+  updateGuestIdentityCard();
+
+  if (pageMode !== "rooms") {
+    renderSeriesPanel();
+    renderParticipants();
+    renderChat();
+    renderPlaylist();
+    updateSessionCounter();
+  }
+}
+
+function getParticipantInitials(participant) {
+  const source = String(participant?.nickname || participant?.displayName || "Guest").trim();
+  if (!source) return "G";
+
+  const pieces = source.split(/\s+/).filter(Boolean);
+  if (!pieces.length) return "G";
+
+  return pieces
+    .slice(0, 2)
+    .map((piece) => piece.charAt(0))
+    .join("")
+    .toUpperCase();
+}
+
+function parseQualityValue(label) {
+  const value = Number.parseInt(String(label || "").replace(/[^0-9]/g, ""), 10);
+  return Number.isFinite(value) ? value : null;
+}
+
+function getPlayerQualityOptionsFromLevels(levels) {
+  return Array.from(
+    new Set(
+      (Array.isArray(levels) ? levels : [])
+        .map((level) => Number(level?.height))
+        .filter((height) => Number.isFinite(height) && height > 0)
+    )
+  ).sort((a, b) => a - b);
+}
+
+function bridgeToSyncEngine() {
+  const nextRoom = state.activeRoomId || "";
+  const nextName = normalizeNickname(nicknameInput.value);
+  const nextRole = currentRole || "guest";
+
+  if (window.anyTogetherSyncBridge?.connectRoom) {
+    window.anyTogetherSyncBridge.connectRoom(nextRoom, nextRole, nextName);
+    return;
+  }
+
+  const roomInput = document.getElementById("roomInput");
+  const displayNameInput = document.getElementById("displayName");
+  const roleSelect = document.getElementById("roleSelect");
+  const connectButton = document.getElementById("connectButton");
+
+  if (!roomInput || !displayNameInput || !roleSelect || !connectButton) return;
+
+  let changed = false;
+
+  if (roomInput.value !== nextRoom) {
+    roomInput.value = nextRoom;
+    changed = true;
+  }
+
+  if (displayNameInput.value !== nextName) {
+    displayNameInput.value = nextName;
+    changed = true;
+  }
+
+  if (roleSelect.value !== nextRole) {
+    roleSelect.value = nextRole;
+    changed = true;
+  }
+
+  if (changed || connectButton.textContent === "Connect") {
+    connectButton.click();
+  }
+}
+
+function loadMedia(url) {
+  const mediaUrl = String(url || "").trim();
+  if (!mediaUrl) return false;
+
+  appendPlaybackDebugEntry("Forwarding media to player", mediaUrl);
+
+  if (window.anyTogetherSyncBridge?.loadMedia) {
+    const loaded = window.anyTogetherSyncBridge.loadMedia(mediaUrl);
+    appendPlaybackDebugEntry(loaded ? "Player bridge accepted media" : "Player bridge rejected media", mediaUrl, !loaded);
+    return loaded;
+  }
+
+  const mediaUrlInput = document.getElementById("mediaUrl");
+  const loadMediaButton = document.getElementById("loadMediaButton");
+
+  if (!mediaUrlInput || !loadMediaButton) return false;
+
+  if (mediaUrlInput.value !== mediaUrl) {
+    mediaUrlInput.value = mediaUrl;
+  }
+
+  loadMediaButton.click();
+  appendPlaybackDebugEntry("Legacy media control clicked", mediaUrl);
+  return true;
+}
+
+function isDirectMediaUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return false;
+    }
+
+    return /\.(?:m3u8|mp4)(?:\?|$)/i.test(url.pathname + url.search);
+  } catch {
+    return false;
+  }
+}
+
+function loadDirectMediaUrl(mediaUrl) {
+  const roomId = state.activeRoomId;
+  if (!roomId) {
+    setSearchHint("Join or create a room first.", true);
+    return false;
+  }
+
+  appendPlaybackDebugEntry("Direct media URL submitted", mediaUrl);
+  updateRoomFromMediaPayload(roomId, {
+    mediaUrl,
+    pageUrl: mediaUrl,
+    title: mediaUrl
+  }, true);
+  setSearchHint("Direct media URL loaded.");
+  return true;
+}
+
+function clearMedia() {
+  loadedMediaKey = null;
+  const mediaUrlInput = document.getElementById("mediaUrl");
+  if (mediaUrlInput) {
+    mediaUrlInput.value = "";
+  }
+  if (currentMediaBadge) {
+    currentMediaBadge.textContent = "";
+    currentMediaBadge.classList.add("hidden");
+  }
+}
+
+function applyPlaybackState() {}
+
+function syncActiveRoomMedia(forceReload = false) {
+  const roomState = getActiveRoomState();
+  bridgeToSyncEngine();
+
+  if (!roomState?.currentMedia?.mediaUrl) {
+    clearMedia();
+    return;
+  }
+
+  const mediaKey = `${roomState.code}:${roomState.currentMedia.mediaUrl}`;
+  const shouldReload = forceReload || loadedMediaKey !== mediaKey;
+
+  if (shouldReload) {
+    loadMedia(roomState.currentMedia.mediaUrl);
+    loadedMediaKey = mediaKey;
+  }
+
+  if (currentMediaBadge) {
+    currentMediaBadge.textContent = "";
+    currentMediaBadge.classList.add("hidden");
+  }
 }
 
 function updateSearchControls() {
   const roomState = getActiveRoomState();
-  const canSearch = currentRole === "host" && Boolean(roomState);
-  elements.searchButton.disabled = !canSearch;
-  elements.addToPlaylistButton.disabled = !roomState?.currentMedia?.mediaUrl;
-  elements.suggestButton.disabled = !roomState?.currentMedia?.mediaUrl;
-  elements.chatSendButton.disabled = !roomState;
-  elements.leaveRoomButton.disabled = !roomState;
-  elements.deleteActiveRoomButton.classList.toggle("hidden", !(roomState && currentRole === "host"));
+  searchButton.disabled = !roomState;
+  addToPlaylistButton.disabled = !roomState?.currentMedia?.mediaUrl;
+  suggestButton.disabled = !roomState?.currentMedia?.mediaUrl;
+  chatSendButton.disabled = !roomState;
+  leaveRoomButton.disabled = !roomState;
+  deleteActiveRoomButton.classList.toggle("hidden", !(roomState && currentRole === "host"));
 
   if (!roomState) {
     setSearchHint("Join or create a room to use playback controls.");
-    elements.searchHint.classList.remove("hidden");
+    searchHint.classList.remove("hidden");
     return;
   }
 
   if (currentRole !== "host") {
-    setSearchHint("Only the host can trigger search.");
-    elements.searchHint.classList.remove("hidden");
+    setSearchHint("Paste a direct media URL, or ask the host to search.");
+    searchHint.classList.remove("hidden");
     return;
   }
 
   setSearchHint("");
-  elements.searchHint.classList.add("hidden");
+  searchHint.classList.add("hidden");
 }
 
 function copyToClipboard(value) {
@@ -1444,6 +1558,9 @@ function leaveRoom(roomId) {
   saveJoinedRooms();
   if (state.activeRoomId) {
     refreshActiveRoom();
+    syncActiveRoomMedia(true);
+  } else {
+    clearMedia();
   }
 
   renderAll();
@@ -1487,6 +1604,9 @@ async function deleteRoom(roomId) {
 
     if (state.activeRoomId) {
       refreshActiveRoom();
+      syncActiveRoomMedia(true);
+    } else {
+      clearMedia();
     }
 
     await fetchRoomsDirectory();
@@ -1499,8 +1619,8 @@ async function deleteRoom(roomId) {
 }
 
 function syncProfile() {
-  const nickname = normalizeNickname(elements.nicknameInput.value);
-  elements.nicknameInput.value = nickname;
+  const nickname = normalizeNickname(nicknameInput.value);
+  nicknameInput.value = nickname;
   storeValue(STORAGE_KEYS.nickname, nickname);
   storeValue(STORAGE_KEYS.role, currentRole);
   renderTopbarUser();
@@ -1516,8 +1636,6 @@ function syncProfile() {
       });
     });
   }
-
-  bridgeToSyncEngine();
 }
 
 async function fetchRoomsDirectory() {
@@ -1553,11 +1671,11 @@ async function fetchRoomsDirectory() {
   } catch (error) {
     state.roomsDirectory = [];
     if (pageMode === "rooms" && isAuthenticated()) {
-      elements.roomsGrid.textContent = "";
+      roomsGrid.textContent = "";
       const errorBox = document.createElement("div");
       errorBox.className = "status";
       errorBox.textContent = `Failed to load rooms: ${error.message}`;
-      elements.roomsGrid.appendChild(errorBox);
+      roomsGrid.appendChild(errorBox);
     }
   } finally {
     state.loadingRooms = false;
@@ -1571,30 +1689,199 @@ async function hydrateAuthSession() {
   if (!token) {
     state.currentUser = null;
     renderRoomsAuthGate();
-    return;
+    return null;
   }
 
   try {
-    const response = await apiRequest("/api/auth/me");
+    const response = await apiRequest("/api/auth/me", { cache: "no-store" });
     if (!response.ok) {
-      throw new Error("Invalid session token");
+      storeAuthToken(null);
+      state.currentUser = null;
+      renderRoomsAuthGate();
+      return null;
     }
 
     const data = await response.json();
-    setCurrentUser(data.user, token);
+    state.currentUser = data.user || null;
+    if (state.currentUser?.displayName) {
+      nicknameInput.value = state.currentUser.displayName;
+      storeValue(STORAGE_KEYS.nickname, state.currentUser.displayName);
+    }
+    renderRoomsAuthGate();
+    return state.currentUser;
   } catch {
     storeAuthToken(null);
     state.currentUser = null;
     renderRoomsAuthGate();
+    return null;
   }
 }
 
-function setCurrentUser(user, token = null) {
-  state.currentUser = user || null;
-  state.currentToken = token;
-  storeAuthToken(token);
-  renderTopbarUser();
+async function signInAccount(mode = state.authMode) {
+  const isSignup = mode === "signup";
+  const identifier = String(authIdentifierInput.value || "").trim();
+  const displayName = String(authNameInput.value || "").trim();
+  const email = normalizeEmail(authEmailInput.value);
+  const password = String(authPasswordInput.value || "").trim();
+
+  if (isSignup) {
+    if (!displayName || !email || password.length < 8) {
+      setAuthStatus("Display name, email, and a password with at least 8 characters are required.", true);
+      return false;
+    }
+  } else if (!identifier || !password) {
+    setAuthStatus("Email or name and password are required.", true);
+    return false;
+  }
+
+  const endpoint = isSignup ? "/api/auth/register" : "/api/auth/login";
+  const payload = isSignup
+    ? { displayName, email, password }
+    : { identifier, password };
+
+  setAuthStatus(isSignup ? "Signing up..." : "Signing in...");
+
+  try {
+    const response = await apiRequest(endpoint, {
+      method: "POST",
+      json: payload
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(data.error || "Authentication failed");
+    }
+
+    storeAuthToken(data.token || null);
+    state.currentUser = data.user || null;
+    if (state.currentUser?.displayName) {
+      nicknameInput.value = state.currentUser.displayName;
+      storeValue(STORAGE_KEYS.nickname, state.currentUser.displayName);
+    }
+    authStatus.classList.add("hidden");
+    renderRoomsAuthGate();
+    renderTopbarUser();
+    updateGuestIdentityCard();
+    await fetchRoomsDirectory();
+    if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+      sendWs({
+        type: "auth:identify",
+        token: data.token || null
+      });
+      syncProfile();
+    } else {
+      connectWs();
+    }
+    return true;
+  } catch (error) {
+    setAuthStatus(error.message || "Authentication failed", true);
+    return false;
+  }
+}
+
+async function signOutAccount() {
+  const token = getAuthToken();
+  try {
+    if (token) {
+      await apiRequest("/api/auth/logout", { method: "POST" });
+    }
+  } catch {}
+
+  storeAuthToken(null);
+  state.currentUser = null;
+  state.roomsDirectory = [];
+  if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    sendWs({
+      type: "auth:identify",
+      token: ""
+    });
+  }
+  authStatus.classList.add("hidden");
+  setAuthMode("signin");
   renderRoomsAuthGate();
+  renderRoomsDirectory();
+  renderTopbarUser();
+  updateGuestIdentityCard();
+}
+
+async function createRoom() {
+  promoteToHost();
+  syncProfile();
+  setCreateHint("Creating a room...");
+
+  try {
+    const response = await apiRequest("/api/rooms", {
+      method: "POST",
+      json: {
+        title: `${normalizeNickname(nicknameInput.value)}'s room`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Create room failed with ${response.status}`);
+    }
+
+    const data = await response.json();
+    const roomCode = normalizeRoomCode(data.room?.code);
+    if (!roomCode) {
+      throw new Error("Server returned an invalid room code");
+    }
+
+    applyLocalRoomJoin(roomCode, data.room || null, true);
+    createdRoomCodeValue.textContent = roomCode;
+    createdRoomCodeButton.classList.remove("hidden");
+    sendJoinMessage(roomCode);
+    setCreateHint(`Room created: ${roomCode}`);
+    window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(roomCode)}`);
+    if (isAuthenticated()) {
+      await fetchRoomsDirectory();
+    }
+  } catch (error) {
+    setCreateHint(error.message, true);
+  }
+}
+
+async function handleRoomJoin(roomCode, options = {}) {
+  const normalized = normalizeRoomCode(roomCode);
+  if (!normalized) {
+    setJoinHint("Enter a room code", true);
+    return false;
+  }
+
+  syncProfile();
+  applyLocalRoomJoin(normalized, null, options.setActive !== false);
+  sendJoinMessage(normalized);
+  if (isAuthenticated()) {
+    fetchRoomsDirectory();
+  }
+
+  if (options.navigateHome) {
+    window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(normalized)}`);
+  }
+
+  return true;
+}
+
+function sendJoinMessage(roomId) {
+  const normalized = normalizeRoomCode(roomId);
+  if (!normalized) return false;
+
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+    pendingRoomJoins.add(normalized);
+    return false;
+  }
+
+  state.ws.send(
+    JSON.stringify({
+      type: "room:join",
+      roomId: normalized,
+      nickname: normalizeNickname(nicknameInput.value),
+      role: currentRole,
+      clientId
+    })
+  );
+  pendingRoomJoins.delete(normalized);
+  return true;
 }
 
 function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
@@ -1610,18 +1897,22 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
     updatedAt: Date.now(),
     addedToPlaylistId: payload.addedToPlaylistId || null
   };
+  roomState.currentPlayback = {
+    state: "paused",
+    time: 0,
+    updatedAt: Date.now()
+  };
   sanitizeRoomUi(roomState);
   state.roomStates.set(normalized, roomState);
+  appendPlaybackDebugEntry("Room media updated", {
+    roomId: normalized,
+    mediaUrl: payload.mediaUrl,
+    title: payload.title || payload.seriesContext?.title || "unknown"
+  });
 
   if (state.activeRoomId === normalized) {
     refreshActiveRoom();
-
-    const mediaUrlInput = document.getElementById("mediaUrl");
-    const loadMediaButton = document.getElementById("loadMediaButton");
-    if (mediaUrlInput && loadMediaButton && mediaUrlInput.value !== payload.mediaUrl) {
-      mediaUrlInput.value = payload.mediaUrl;
-      loadMediaButton.click();
-    }
+    syncActiveRoomMedia(true);
   }
 
   if (shouldBroadcast) {
@@ -1635,6 +1926,12 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
       originId: clientId
     });
   }
+}
+
+function applyMediaPayload(payload, shouldBroadcast) {
+  const roomId = state.activeRoomId;
+  if (!roomId || !payload?.mediaUrl) return;
+  updateRoomFromMediaPayload(roomId, payload, shouldBroadcast);
 }
 
 function getEpisodeTargetForRequest(targetEpisode) {
@@ -1716,7 +2013,7 @@ function addCurrentMediaToPlaylist() {
   sendWs({
     type: "playlist:add",
     roomId,
-    nickname: normalizeNickname(elements.nicknameInput.value),
+    nickname: normalizeNickname(nicknameInput.value),
     role: currentRole,
     item: {
       title: currentMedia.title || currentMedia.seriesContext?.title || currentMedia.mediaUrl,
@@ -1743,7 +2040,7 @@ function suggestCurrentMedia() {
   sendWs({
     type: "playlist:suggest",
     roomId,
-    nickname: normalizeNickname(elements.nicknameInput.value),
+    nickname: normalizeNickname(nicknameInput.value),
     role: currentRole,
     item: {
       title: currentMedia.title || currentMedia.seriesContext?.title || currentMedia.mediaUrl,
@@ -1774,7 +2071,7 @@ function connectWs() {
 
   state.ws.addEventListener("open", () => {
     state.connected = true;
-    setRoomStatus(`Connected as ${normalizeNickname(elements.nicknameInput.value)}.`, false);
+    setRoomStatus(`Connected as ${normalizeNickname(nicknameInput.value)}.`, false);
     const token = getAuthToken();
     if (token) {
       sendWs({
@@ -1819,7 +2116,7 @@ function connectWs() {
     if (msg.type === "auth:accepted") {
       state.currentUser = msg.user || null;
       if (state.currentUser?.displayName) {
-        elements.nicknameInput.value = state.currentUser.displayName;
+        nicknameInput.value = state.currentUser.displayName;
         storeValue(STORAGE_KEYS.nickname, state.currentUser.displayName);
       }
       renderRoomsAuthGate();
@@ -1871,6 +2168,9 @@ function connectWs() {
 
       if (state.activeRoomId) {
         refreshActiveRoom();
+        syncActiveRoomMedia(true);
+      } else {
+        clearMedia();
       }
 
       renderAll();
@@ -1901,6 +2201,10 @@ function connectWs() {
       updateRoomFromMediaPayload(roomId, msg, false);
       return;
     }
+
+    if (msg.roomId !== state.activeRoomId || msg.originId === clientId) {
+      return;
+    }
   });
 
   state.ws.addEventListener("close", () => {
@@ -1925,18 +2229,17 @@ function handleRoomJoinInput(input) {
 }
 
 function handleRoomsJoinInput() {
-  const roomCode = normalizeRoomCode(elements.roomsJoinInput.value);
+  const roomCode = normalizeRoomCode(roomsJoinInput.value);
   if (!roomCode) {
     setJoinHint("Enter a room code", true);
     return;
   }
 
-  elements.roomsJoinInput.value = roomCode;
+  roomsJoinInput.value = roomCode;
   handleRoomJoin(roomCode, { navigateHome: true, setActive: true });
 }
 
 function autoJoinStoredRooms() {
-  const queryRoom = normalizeRoomCode(requestedRoom);
   if (queryRoom) {
     if (!state.joinedRooms.includes(queryRoom)) {
       state.joinedRooms.unshift(queryRoom);
@@ -1960,108 +2263,130 @@ function autoJoinStoredRooms() {
   }
 }
 
+function updateRoomCodeInputs() {
+  if (state.activeRoomId) {
+    return;
+  }
+}
+
 function bindUi() {
-  elements.homeLink.href = resolvePageUrl("./");
-  elements.roomsLink.href = resolvePageUrl("./?page=rooms");
-  elements.createRoomButton.addEventListener("click", createRoom);
-  elements.createdRoomCodeButton.addEventListener("click", () => copyToClipboard(elements.createdRoomCodeValue.textContent));
-  elements.homeSignInButton.addEventListener("click", () => {
+  homeLink.href = resolvePageUrl("./");
+  roomsLink.href = resolvePageUrl("./?page=rooms");
+  createRoomButton.addEventListener("click", createRoom);
+  createdRoomCodeButton.addEventListener("click", () => copyToClipboard(createdRoomCodeValue.textContent));
+  homeSignInButton.addEventListener("click", () => {
     window.location.href = resolvePageUrl("./?page=rooms&auth=signin");
   });
-  elements.homeSignUpButton.addEventListener("click", () => {
+  homeSignUpButton.addEventListener("click", () => {
     window.location.href = resolvePageUrl("./?page=rooms&auth=signup");
   });
-  elements.joinRoomButton.addEventListener("click", () => handleRoomJoinInput(elements.roomCodeInput));
-  elements.roomsCreateButton.addEventListener("click", createRoom);
-  elements.roomsJoinButton.addEventListener("click", handleRoomsJoinInput);
-  elements.refreshRoomsButton.addEventListener("click", fetchRoomsDirectory);
-  elements.reconnectButton.addEventListener("click", connectWs);
-  elements.signOutButton.addEventListener("click", signOutAccount);
-  elements.lastRoomButton?.addEventListener("click", () => {
-    const roomCode = elements.lastRoomButton.getAttribute("data-room") || state.activeRoomId || state.joinedRooms[0];
+  joinRoomButton.addEventListener("click", () => handleRoomJoinInput(roomCodeInput));
+  roomsCreateButton.addEventListener("click", createRoom);
+  roomsJoinButton.addEventListener("click", handleRoomsJoinInput);
+  refreshRoomsButton.addEventListener("click", fetchRoomsDirectory);
+  reconnectButton.addEventListener("click", connectWs);
+  clearPlaybackDebugButton?.addEventListener("click", () => {
+    if (playbackDebugLog) {
+      playbackDebugLog.textContent = "";
+    }
+  });
+  signOutButton.addEventListener("click", signOutAccount);
+  lastRoomButton?.addEventListener("click", () => {
+    const roomCode = lastRoomButton.getAttribute("data-room") || state.activeRoomId || state.joinedRooms[0];
     if (roomCode) window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(roomCode)}`);
   });
-  elements.deleteActiveRoomButton.addEventListener("click", () => {
+  deleteActiveRoomButton.addEventListener("click", () => {
     if (state.activeRoomId) {
       deleteRoom(state.activeRoomId);
     }
   });
-  elements.leaveRoomButton.addEventListener("click", leaveActiveRoom);
-  elements.activeRoomCodeButton?.addEventListener("click", () => {
+  leaveRoomButton.addEventListener("click", leaveActiveRoom);
+  activeRoomCodeButton?.addEventListener("click", () => {
     if (state.activeRoomId) {
       copyToClipboard(state.activeRoomId);
     }
   });
-  elements.activeRoomCodeToggleButton?.addEventListener("click", () => {
+  activeRoomCodeToggleButton?.addEventListener("click", () => {
     roomCodeHidden = !roomCodeHidden;
     updateActiveRoomCodeControls();
   });
-  elements.topbarRoomCodeButton.addEventListener("click", () => {
+  topbarRoomCodeButton.addEventListener("click", () => {
     if (!state.activeRoomId) return;
     window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(state.activeRoomId)}`);
   });
-  elements.addToPlaylistButton.addEventListener("click", addCurrentMediaToPlaylist);
-  elements.suggestButton.addEventListener("click", suggestCurrentMedia);
-  elements.authToggleButton.addEventListener("click", () => setAuthMode(state.authMode === "signup" ? "signin" : "signup"));
-  elements.googleSignInButton.addEventListener("click", () => setAuthStatus("Google sign-in is not configured yet.", true));
-  elements.appleSignInButton.addEventListener("click", () => setAuthStatus("Apple sign-in is not configured yet.", true));
-  elements.forgotPasswordButton.addEventListener("click", () => setAuthStatus("Password reset is not configured yet.", true));
+  addToPlaylistButton.addEventListener("click", addCurrentMediaToPlaylist);
+  suggestButton.addEventListener("click", suggestCurrentMedia);
+  authToggleButton.addEventListener("click", () => setAuthMode(state.authMode === "signup" ? "signin" : "signup"));
+  googleSignInButton.addEventListener("click", () => setAuthStatus("Google sign-in is not configured yet.", true));
+  appleSignInButton.addEventListener("click", () => setAuthStatus("Apple sign-in is not configured yet.", true));
+  forgotPasswordButton.addEventListener("click", () => setAuthStatus("Password reset is not configured yet.", true));
 
-  elements.authForm.addEventListener("submit", async (event) => {
+  authForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     await signInAccount(state.authMode);
   });
 
-  elements.searchButton.addEventListener("click", () => {
-    const query = elements.searchInput.value.trim();
+  searchButton.addEventListener("click", () => {
+    const query = searchInput.value.trim();
     if (!query) {
       setSearchHint("Enter a search query", true);
       return;
     }
 
+    if (isDirectMediaUrl(query)) {
+      loadDirectMediaUrl(query);
+      return;
+    }
+
     if (currentRole !== "host") {
-      setSearchHint("Only the host can trigger search.", true);
+      setSearchHint("Only the host can trigger search. Paste a direct media URL to load without search.", true);
       return;
     }
 
     sendSearchToExtension(query);
   });
 
-  elements.nicknameInput.addEventListener("change", syncProfile);
-  elements.nicknameInput.addEventListener("blur", syncProfile);
+  searchInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    searchButton.click();
+  });
 
-  elements.roomCodeInput.addEventListener("keydown", (event) => {
+  nicknameInput.addEventListener("change", syncProfile);
+  nicknameInput.addEventListener("blur", syncProfile);
+
+  roomCodeInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      handleRoomJoinInput(elements.roomCodeInput);
+      handleRoomJoinInput(roomCodeInput);
     }
   });
 
-  elements.roomsJoinInput.addEventListener("keydown", (event) => {
+  roomsJoinInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
       handleRoomsJoinInput();
     }
   });
 
-  elements.authIdentifierInput.addEventListener("keydown", (event) => {
+  authIdentifierInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && state.authMode === "signin") {
       event.preventDefault();
-      elements.authForm.requestSubmit();
+      authForm.requestSubmit();
     }
   });
 
-  elements.authPasswordInput.addEventListener("keydown", (event) => {
+  authPasswordInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
-      elements.authForm.requestSubmit();
+      authForm.requestSubmit();
     }
   });
 
-  elements.chatForm.addEventListener("submit", (event) => {
+  chatForm.addEventListener("submit", (event) => {
     event.preventDefault();
 
-    const text = elements.chatInput.value.trim();
+    const text = chatInput.value.trim();
     if (!text) return;
 
     if (!state.activeRoomId) {
@@ -2073,12 +2398,12 @@ function bindUi() {
       type: "chat:message",
       roomId: state.activeRoomId,
       text,
-      nickname: normalizeNickname(elements.nicknameInput.value),
+      nickname: normalizeNickname(nicknameInput.value),
       role: currentRole,
       originId: clientId
     });
 
-    elements.chatInput.value = "";
+    chatInput.value = "";
   });
 }
 
@@ -2090,22 +2415,14 @@ function startUiClock() {
 }
 
 async function start() {
-  const savedNick = loadStoredValue(STORAGE_KEYS.nickname);
-  if (savedNick) {
-    elements.nicknameInput.value = savedNick;
-  } else {
-    elements.nicknameInput.value = "Guest";
-  }
-
   currentRole = normalizeRole(requestedRole || loadStoredValue(STORAGE_KEYS.role) || "guest");
   storeValue(STORAGE_KEYS.role, currentRole);
-  const roleSelect = document.getElementById("roleSelect");
-  if (roleSelect) {
-    roleSelect.value = currentRole;
+  if (new URLSearchParams(window.location.search).get("api")) {
+    storeValue(STORAGE_KEYS.backendBaseUrl, backendBaseUrl);
   }
-
   await hydrateAuthSession();
   autoJoinStoredRooms();
+  updateRoomCodeInputs();
   ensureVisibility();
   updateSearchControls();
   bindUi();
@@ -2117,6 +2434,11 @@ async function start() {
   if (state.activeRoomId) {
     refreshActiveRoom();
   }
+
+  appendPlaybackDebugEntry("Debug log ready", "Playback events will appear here.");
+  window.addEventListener("anytogether:sync-log", (event) => {
+    appendPlaybackDebugEntry(event.detail?.title || "Playback event", event.detail?.detail || "");
+  });
 
   window.addEventListener("message", (event) => {
     if (event.source !== window) return;
@@ -2146,7 +2468,7 @@ async function start() {
 
 window.addEventListener("beforeunload", () => {
   try {
-    storeValue(STORAGE_KEYS.nickname, normalizeNickname(elements.nicknameInput.value));
+    storeValue(STORAGE_KEYS.nickname, normalizeNickname(nicknameInput.value));
     saveJoinedRooms();
   } catch {}
 });
