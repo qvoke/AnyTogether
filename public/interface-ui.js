@@ -1321,6 +1321,15 @@ function getPlayerQualityOptionsFromLevels(levels) {
 }
 
 function bridgeToSyncEngine() {
+  const nextRoom = state.activeRoomId || "";
+  const nextName = normalizeNickname(nicknameInput.value);
+  const nextRole = currentRole || "guest";
+
+  if (window.anyTogetherSyncBridge?.connectRoom) {
+    window.anyTogetherSyncBridge.connectRoom(nextRoom, nextRole, nextName);
+    return;
+  }
+
   const roomInput = document.getElementById("roomInput");
   const displayNameInput = document.getElementById("displayName");
   const roleSelect = document.getElementById("roleSelect");
@@ -1329,9 +1338,6 @@ function bridgeToSyncEngine() {
   if (!roomInput || !displayNameInput || !roleSelect || !connectButton) return;
 
   let changed = false;
-  const nextRoom = state.activeRoomId || "";
-  const nextName = normalizeNickname(nicknameInput.value);
-  const nextRole = currentRole || "guest";
 
   if (roomInput.value !== nextRoom) {
     roomInput.value = nextRoom;
@@ -1354,16 +1360,53 @@ function bridgeToSyncEngine() {
 }
 
 function loadMedia(url) {
+  const mediaUrl = String(url || "").trim();
+  if (!mediaUrl) return false;
+
+  if (window.anyTogetherSyncBridge?.loadMedia) {
+    return window.anyTogetherSyncBridge.loadMedia(mediaUrl);
+  }
+
   const mediaUrlInput = document.getElementById("mediaUrl");
   const loadMediaButton = document.getElementById("loadMediaButton");
 
-  if (!mediaUrlInput || !loadMediaButton) return;
+  if (!mediaUrlInput || !loadMediaButton) return false;
 
-  if (mediaUrlInput.value !== url) {
-    mediaUrlInput.value = url;
+  if (mediaUrlInput.value !== mediaUrl) {
+    mediaUrlInput.value = mediaUrl;
   }
 
   loadMediaButton.click();
+  return true;
+}
+
+function isDirectMediaUrl(value) {
+  try {
+    const url = new URL(String(value || "").trim());
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return false;
+    }
+
+    return /\.(?:m3u8|mp4)(?:\?|$)/i.test(url.pathname + url.search);
+  } catch {
+    return false;
+  }
+}
+
+function loadDirectMediaUrl(mediaUrl) {
+  const roomId = state.activeRoomId;
+  if (!roomId) {
+    setSearchHint("Join or create a room first.", true);
+    return false;
+  }
+
+  updateRoomFromMediaPayload(roomId, {
+    mediaUrl,
+    pageUrl: mediaUrl,
+    title: mediaUrl
+  }, true);
+  setSearchHint("Direct media URL loaded.");
+  return true;
 }
 
 function clearMedia() {
@@ -2235,7 +2278,18 @@ function bindUi() {
       return;
     }
 
+    if (isDirectMediaUrl(query)) {
+      loadDirectMediaUrl(query);
+      return;
+    }
+
     sendSearchToExtension(query);
+  });
+
+  searchInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    searchButton.click();
   });
 
   nicknameInput.addEventListener("change", syncProfile);
