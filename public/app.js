@@ -1107,7 +1107,7 @@ function requestPluginSearch() {
 function loadManualMedia() {
   const url = elements.mediaUrl.value.trim();
   if (!url) {
-    return;
+    return false;
   }
 
   const wasPaused = elements.player.paused;
@@ -1138,7 +1138,44 @@ function loadManualMedia() {
     sourceUrl: url,
     currentTime: currentTime.toFixed(2)
   });
+  return true;
 }
+
+function connectBridgeRoom(room, role, name) {
+  const nextRoom = String(room || "").trim() || "lobby";
+  const nextRole = String(role || "").trim().toLowerCase() === "host" ? "host" : "guest";
+  const nextName = String(name || "").trim() || "Guest";
+  const shouldReconnect =
+    !state.connection ||
+    state.connection.readyState === WebSocket.CLOSED ||
+    state.connection.readyState === WebSocket.CLOSING ||
+    state.room !== nextRoom ||
+    state.role !== nextRole ||
+    elements.displayName.value.trim() !== nextName;
+
+  elements.roomInput.value = nextRoom;
+  elements.roleSelect.value = nextRole;
+  elements.displayName.value = nextName;
+
+  if (shouldReconnect) {
+    connectRoom();
+  }
+}
+
+function loadBridgeMedia(url) {
+  const mediaUrl = String(url || "").trim();
+  if (!mediaUrl) {
+    return false;
+  }
+
+  elements.mediaUrl.value = mediaUrl;
+  return loadManualMedia();
+}
+
+window.anyTogetherSyncBridge = {
+  connectRoom: connectBridgeRoom,
+  loadMedia: loadBridgeMedia
+};
 
 function handlePluginMessage(event) {
   if (event.source !== window || !event.data || event.data.source !== "anytogether-plugin") {
