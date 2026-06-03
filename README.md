@@ -4,7 +4,7 @@ AnyTogether is a synchronized media room interface with:
 
 - Intent-based WebSocket playback sync for `load`, `play`, `pause`, and `seek`
 - A short hidden control lease so only one client drives the room at a time
-- Video.js playback for MP4/HLS streams with an in-player HLS quality menu
+- Shaka Player UI playback for MP4/HLS streams with a built-in quality menu
 - A plugin bridge that delivers metasearch results into the page
 
 ## Run locally
@@ -93,4 +93,4 @@ Use a simple pattern when inspecting request URLs for direct stream manifests:
 const streamPattern = /\.(?:m3u8|mp4)(?:\?|$)/i;
 ```
 
-The interface also includes playback diagnostics in the room log, while Video.js exposes HLS quality switching through an AnyTogether control-bar quality menu populated from Video.js quality levels.
+Shaka Player UI exposes HLS quality switching through its built-in quality menu, and the interface keeps playback diagnostics visible in the room log.
