@@ -59,6 +59,7 @@ const state = {
   stallRecoveryTimer: null,
   suppressOutgoingUntil: 0,
   hls: null,
+  videoPlayer: null,
   hlsRecoveryAttempts: 0,
   hlsMediaErrorAttempts: 0,
   hlsLastRecoveryAt: 0,
@@ -386,6 +387,82 @@ function isHlsSource(url) {
   return /\.m3u8(?:\?|$)/i.test(url);
 }
 
+
+function getSourceType(url) {
+  if (isHlsSource(url)) {
+    return "application/x-mpegURL";
+  }
+
+  if (/\.mp4(?:\?|$)/i.test(url)) {
+    return "video/mp4";
+  }
+
+  return undefined;
+}
+
+function initializeVideoPlayer() {
+  if (!window.videojs || state.videoPlayer) {
+    return state.videoPlayer;
+  }
+
+  state.videoPlayer = window.videojs(elements.player, {
+    controls: true,
+    fluid: true,
+    responsive: true,
+    preload: "auto",
+    liveui: true,
+    inactivityTimeout: 1200,
+    playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
+    html5: {
+      vhs: {
+        overrideNative: true,
+        enableLowInitialPlaylist: false
+      },
+      nativeAudioTracks: false,
+      nativeVideoTracks: false
+    }
+  });
+
+  if (typeof state.videoPlayer.hlsQualitySelector === "function") {
+    state.videoPlayer.hlsQualitySelector({
+      displayCurrentQuality: true
+    });
+  }
+
+  state.videoPlayer.on("error", () => {
+    const error = state.videoPlayer?.error?.();
+    logEvent("Video.js error", {
+      code: error?.code || "unknown",
+      message: error?.message || "unknown"
+    });
+  });
+
+  return state.videoPlayer;
+}
+
+function loadPlayerSource(url, forceReload = false) {
+  const player = initializeVideoPlayer();
+  const source = { src: url };
+  const type = getSourceType(url);
+
+  if (type) {
+    source.type = type;
+  }
+
+  if (player) {
+    player.src(source);
+    if (forceReload || isHlsSource(url)) {
+      player.load();
+    }
+    return;
+  }
+
+  elements.player.src = url;
+  if (forceReload) {
+    elements.player.load();
+  }
+}
+
 function destroyHls() {
   clearStallRecoveryTimer();
 
@@ -450,19 +527,7 @@ function rebuildPlaybackPipeline(reason, startPosition = elements.player.current
   state.remoteSeekActivityAt = 0;
   clearPendingSeekCommitTimer();
 
-  if (isHlsSource(sourceUrl) && window.Hls) {
-    const hls = new window.Hls({
-      lowLatencyMode: true
-    });
-
-    attachHlsListeners(hls);
-    hls.loadSource(sourceUrl);
-    hls.attachMedia(elements.player);
-    state.hls = hls;
-  } else {
-    elements.player.src = sourceUrl;
-    elements.player.load();
-  }
+  loadPlayerSource(sourceUrl, true);
 
   state.pendingSeek = Number.isFinite(startPosition) ? Math.max(0, startPosition) : 0;
   state.pendingPlaybackState = elements.player.paused;
@@ -608,21 +673,7 @@ function loadSource(url, options = {}) {
   state.programmaticPauseEvents = 0;
   clearPendingSeekCommitTimer();
 
-  if (isHlsSource(nextUrl) && window.Hls) {
-    const hls = new window.Hls({
-      lowLatencyMode: true
-    });
-
-    attachHlsListeners(hls);
-    hls.loadSource(nextUrl);
-    hls.attachMedia(elements.player);
-    state.hls = hls;
-  } else {
-    elements.player.src = nextUrl;
-    if (forceReload) {
-      elements.player.load();
-    }
-  }
+  loadPlayerSource(nextUrl, forceReload);
 
   logEvent("Media source loaded", {
     reason: options.reason || "manual",
@@ -1204,6 +1255,8 @@ function handleWaitingLikeEvent() {
   state.isBuffering = true;
   scheduleStallRecovery("waiting");
 }
+
+initializeVideoPlayer();
 
 elements.connectButton.addEventListener("click", connectRoom);
 if (elements.searchButton) {
