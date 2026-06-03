@@ -443,12 +443,20 @@
       aspect-ratio: 16 / 9;
     }
 
+    .player-shell.is-playing .plyr__control--overlaid,
     .player-shell .plyr--playing .plyr__control--overlaid {
+      display: none !important;
       opacity: 0;
       pointer-events: none;
       visibility: hidden;
     }
 
+    .player-shell.is-playing .plyr__poster {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .player-shell.is-paused .plyr__control--overlaid,
     .player-shell .plyr--paused .plyr__control--overlaid {
       opacity: 1;
       visibility: visible;

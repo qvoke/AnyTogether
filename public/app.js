@@ -13,6 +13,7 @@ const elements = {
   mediaUrl: document.getElementById("mediaUrl"),
   playbackState: document.getElementById("playbackState"),
   player: document.getElementById("player"),
+  playerShell: document.querySelector(".player-shell"),
   revisionLabel: document.getElementById("revisionLabel"),
   roleSelect: document.getElementById("roleSelect"),
   roomInput: document.getElementById("roomInput"),
@@ -442,20 +443,37 @@ function applyPlayerQuality(quality) {
 }
 
 function syncEnhancedPlayerUi(paused = elements.player.paused) {
+  const isPaused = Boolean(paused);
   const container = state.plyr?.elements?.container;
-  if (!container) {
+  const playerShell = elements.playerShell || elements.player.closest(".player-shell");
+
+  if (playerShell) {
+    playerShell.classList.toggle("is-playing", !isPaused);
+    playerShell.classList.toggle("is-paused", isPaused);
+  }
+
+  if (container) {
+    container.classList.toggle("plyr--playing", !isPaused);
+    container.classList.toggle("plyr--paused", isPaused);
+  }
+
+  const uiRoot = container || playerShell;
+  if (!uiRoot) {
     return;
   }
 
-  const isPaused = Boolean(paused);
-  container.classList.toggle("plyr--playing", !isPaused);
-  container.classList.toggle("plyr--paused", isPaused);
-
-  const overlaidPlayButton = container.querySelector(".plyr__control--overlaid");
-  if (overlaidPlayButton) {
+  uiRoot.querySelectorAll(".plyr__control--overlaid").forEach((overlaidPlayButton) => {
     overlaidPlayButton.hidden = !isPaused;
+    overlaidPlayButton.style.display = isPaused ? "" : "none";
+    overlaidPlayButton.style.pointerEvents = isPaused ? "" : "none";
     overlaidPlayButton.setAttribute("aria-hidden", String(!isPaused));
-  }
+  });
+}
+
+function scheduleEnhancedPlayerUiSync(paused = elements.player.paused) {
+  syncEnhancedPlayerUi(paused);
+  requestAnimationFrame(() => syncEnhancedPlayerUi(paused));
+  setTimeout(() => syncEnhancedPlayerUi(paused), 120);
 }
 
 function initializeEnhancedPlayer(qualityOptions = []) {
@@ -497,13 +515,13 @@ function initializeEnhancedPlayer(qualityOptions = []) {
     }
   });
 
-  player.on("ready", () => syncEnhancedPlayerUi());
-  player.on("play", () => syncEnhancedPlayerUi(false));
-  player.on("playing", () => syncEnhancedPlayerUi(false));
-  player.on("pause", () => syncEnhancedPlayerUi(true));
+  player.on("ready", () => scheduleEnhancedPlayerUiSync());
+  player.on("play", () => scheduleEnhancedPlayerUiSync(false));
+  player.on("playing", () => scheduleEnhancedPlayerUiSync(false));
+  player.on("pause", () => scheduleEnhancedPlayerUiSync(true));
 
   state.plyr = player;
-  queueMicrotask(() => syncEnhancedPlayerUi());
+  queueMicrotask(() => scheduleEnhancedPlayerUiSync());
   return player;
 }
 
@@ -780,13 +798,13 @@ function applyPlaybackState(paused) {
     } else {
       elements.player.pause();
     }
-    syncEnhancedPlayerUi(true);
+    scheduleEnhancedPlayerUiSync(true);
     return;
   }
 
   const playPromise = state.plyr?.play ? state.plyr.play() : elements.player.play();
   void Promise.resolve(playPromise)
-    .then(() => syncEnhancedPlayerUi(false))
+    .then(() => scheduleEnhancedPlayerUiSync(false))
     .catch(() => {
       if (state.programmaticPlayEvents > 0) {
         state.programmaticPlayEvents -= 1;
@@ -1355,7 +1373,7 @@ elements.seekButton.addEventListener("click", () => {
 elements.syncButton.addEventListener("click", () => sendMessage({ type: "request-sync" }));
 
 elements.player.addEventListener("play", () => {
-  syncEnhancedPlayerUi(false);
+  scheduleEnhancedPlayerUiSync(false);
   const isProgrammaticPlay = consumeProgrammaticPlaybackEvent(false);
 
   if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
@@ -1382,7 +1400,7 @@ elements.player.addEventListener("play", () => {
 });
 
 elements.player.addEventListener("pause", () => {
-  syncEnhancedPlayerUi(true);
+  scheduleEnhancedPlayerUiSync(true);
   const isProgrammaticPause = consumeProgrammaticPlaybackEvent(true);
 
   if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
@@ -1449,7 +1467,7 @@ elements.player.addEventListener("loadedmetadata", () => {
 elements.player.addEventListener("loadeddata", handleHlsPlayingActivity);
 elements.player.addEventListener("canplay", handleHlsPlayingActivity);
 elements.player.addEventListener("playing", () => {
-  syncEnhancedPlayerUi(false);
+  scheduleEnhancedPlayerUiSync(false);
   handleHlsPlayingActivity();
 });
 elements.player.addEventListener("waiting", handleWaitingLikeEvent);
