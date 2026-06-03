@@ -8,7 +8,6 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdn.plyr.io/3.8.4/plyr.css" />
   <style>
     :root {
       --bg-0: #070b16;
@@ -431,35 +430,38 @@
       border: 1px solid var(--border);
       box-shadow: var(--shadow);
     }
-    video,
-    .player-shell .plyr {
+    video {
       width: 100%;
       display: block;
+      aspect-ratio: 16 / 9;
       background: #000;
     }
 
-    video,
-    .player-shell .plyr__video-wrapper {
-      aspect-ratio: 16 / 9;
+    .quality-control {
+      position: absolute;
+      right: 14px;
+      top: 14px;
+      z-index: 4;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 7px 10px;
+      border-radius: 999px;
+      background: rgba(8, 12, 24, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.16);
+      color: var(--text);
+      font-size: 0.78rem;
+      font-weight: 700;
+      backdrop-filter: blur(10px);
     }
 
-    .player-shell.is-playing .plyr__control--overlaid,
-    .player-shell .plyr--playing .plyr__control--overlaid {
-      display: none !important;
-      opacity: 0;
-      pointer-events: none;
-      visibility: hidden;
-    }
-
-    .player-shell.is-playing .plyr__poster {
-      opacity: 0;
-      pointer-events: none;
-    }
-
-    .player-shell.is-paused .plyr__control--overlaid,
-    .player-shell .plyr--paused .plyr__control--overlaid {
-      opacity: 1;
-      visibility: visible;
+    .quality-control select {
+      border: 0;
+      border-radius: 999px;
+      padding: 4px 8px;
+      color: #fff;
+      background: rgba(108, 140, 255, 0.85);
+      font: inherit;
     }
 
     .playback-debug-card {
@@ -997,6 +999,10 @@
 
           <div class="player-shell">
             <video id="player" controls playsinline></video>
+            <label class="quality-control hidden" id="hlsQualityControl">
+              <span>Quality</span>
+              <select id="hlsQualitySelect" class="hidden" disabled aria-label="Video quality"></select>
+            </label>
           </div>
 
           <div class="card playback-debug-card">
@@ -1119,7 +1125,6 @@
   </section>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
-  <script src="https://cdn.plyr.io/3.8.4/plyr.polyfilled.js"></script>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/interface-ui.js"></script>
 </body>
