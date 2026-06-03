@@ -423,9 +423,9 @@ function initializeVideoPlayer() {
     }
   });
 
-  if (typeof state.videoPlayer.hlsQualitySelector === "function") {
-    state.videoPlayer.hlsQualitySelector({
-      displayCurrentQuality: true
+  if (typeof state.videoPlayer.qualityMenu === "function") {
+    state.videoPlayer.qualityMenu({
+      useResolutionLabels: true
     });
   }
 
