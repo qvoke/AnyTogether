@@ -12,9 +12,6 @@ const elements = {
   memberList: document.getElementById("memberList"),
   mediaUrl: document.getElementById("mediaUrl"),
   playbackState: document.getElementById("playbackState"),
-  qualityButton: document.getElementById("qualityButton"),
-  qualityControl: document.getElementById("qualityControl"),
-  qualityMenu: document.getElementById("qualityMenu"),
   player: document.getElementById("player") || document.getElementById("video"),
   revisionLabel: document.getElementById("revisionLabel"),
   roleSelect: document.getElementById("roleSelect"),
@@ -62,9 +59,8 @@ const state = {
   stallRecoveryTimer: null,
   suppressOutgoingUntil: 0,
   hls: null,
-  videoPlayer: null,
-  videoQualityMenu: null,
-  videoQualitySelection: "auto",
+  shakaPlayer: null,
+  shakaUi: null,
   hlsRecoveryAttempts: 0,
   hlsMediaErrorAttempts: 0,
   hlsLastRecoveryAt: 0,
@@ -405,324 +401,99 @@ function getSourceType(url) {
   return undefined;
 }
 
+function getShakaContainer() {
+  return elements.player.closest(".player-shell") || elements.player.parentElement;
+}
 
-function getVideoJsQualityLevels(player = state.videoPlayer) {
-  if (!player || typeof player.qualityLevels !== "function") {
+function configureShakaUi(ui) {
+  ui.configure({
+    addSeekBar: true,
+    addBigPlayButton: true,
+    controlPanelElements: [
+      "play_pause",
+      "mute",
+      "volume",
+      "time_and_duration",
+      "spacer",
+      "overflow_menu",
+      "picture_in_picture",
+      "fullscreen"
+    ],
+    overflowMenuButtons: [
+      "quality",
+      "playback_rate",
+      "picture_in_picture",
+      "captions"
+    ]
+  });
+}
+
+async function initializeShakaPlayer() {
+  if (state.shakaPlayer) {
+    return state.shakaPlayer;
+  }
+
+  if (!window.shaka?.Player || !window.shaka?.ui?.Overlay) {
     return null;
   }
 
-  return player.qualityLevels();
-}
-
-function getVideoJsVhsRepresentations(player = state.videoPlayer) {
-  const tech = typeof player?.tech === "function" ? player.tech({ IWillNotUseThisInPlugins: true }) : null;
-  const representations = tech?.vhs?.representations || tech?.hls?.representations;
-  if (typeof representations !== "function") {
-    return [];
+  if (typeof window.shaka.polyfill?.installAll === "function") {
+    window.shaka.polyfill.installAll();
   }
 
-  try {
-    const list = representations.call(tech.vhs || tech.hls || tech);
-    return Array.isArray(list) ? list : [];
-  } catch (error) {
-    return [];
-  }
-}
+  const player = new window.shaka.Player();
+  await player.attach(elements.player);
 
-function getVideoJsQualityOptions(player = state.videoPlayer) {
-  const levels = getVideoJsQualityLevels(player);
-  const sourceLevels = levels && Number.isFinite(levels.length) && levels.length > 0
-    ? Array.from({ length: levels.length }, (_unused, index) => levels[index])
-    : getVideoJsVhsRepresentations(player);
-
-  if (!sourceLevels.length) {
-    return [];
-  }
-
-  const options = [];
-  const seen = new Set();
-
-  for (let index = 0; index < sourceLevels.length; index += 1) {
-    const level = sourceLevels[index];
-    const height = Number(level?.height);
-    if (!Number.isFinite(height) || height <= 0 || seen.has(height)) {
-      continue;
-    }
-
-    seen.add(height);
-    options.push({
-      value: String(height),
-      label: `${height}p`,
-      height,
-      bitrate: Number(level?.bitrate) || 0
-    });
-  }
-
-  return options.sort((a, b) => b.height - a.height);
-}
-
-function applyVideoJsQualitySelection(selection = state.videoQualitySelection) {
-  const player = state.videoPlayer;
-  const levels = getVideoJsQualityLevels(player);
-  const selectedHeight = selection === "auto" ? null : Number(selection);
-  const hasManualSelection = Number.isFinite(selectedHeight);
-
-  if (levels) {
-    for (let index = 0; index < levels.length; index += 1) {
-      const level = levels[index];
-      level.enabled = !hasManualSelection || Number(level?.height) === selectedHeight;
-    }
-  }
-
-  getVideoJsVhsRepresentations(player).forEach((representation) => {
-    if (typeof representation?.enabled === "function") {
-      representation.enabled(!hasManualSelection || Number(representation.height) === selectedHeight);
+  player.configure({
+    streaming: {
+      lowLatencyMode: true,
+      rebufferingGoal: 2,
+      bufferingGoal: 20
     }
   });
 
-  state.videoQualitySelection = hasManualSelection ? String(selectedHeight) : "auto";
-}
-
-function updateVideoJsQualityButton() {
-  const button = state.videoQualityMenu;
-  if (!button) {
-    updateCustomQualityControl();
-    return;
-  }
-
-  if (typeof button.update === "function") {
-    button.update();
-  }
-
-  const options = getVideoJsQualityOptions();
-  if (typeof button.show === "function" && typeof button.hide === "function") {
-    if (options.length > 1) {
-      button.show();
-    } else {
-      button.hide();
-    }
-  }
-
-  updateCustomQualityControl(options);
-}
-
-function closeCustomQualityMenu() {
-  elements.qualityMenu?.classList.add("hidden");
-  elements.qualityButton?.setAttribute("aria-expanded", "false");
-}
-
-function updateCustomQualityControl(options = getVideoJsQualityOptions()) {
-  if (!elements.qualityControl || !elements.qualityButton || !elements.qualityMenu) {
-    return;
-  }
-
-  const selected = state.videoQualitySelection === "auto" ? "Auto" : `${state.videoQualitySelection}p`;
-  elements.qualityButton.textContent = `Quality: ${selected}`;
-  elements.qualityControl.classList.remove("hidden");
-  elements.qualityMenu.innerHTML = "";
-
-  const allOptions = [
-    { value: "auto", label: "Auto" },
-    ...options.map((option) => ({ value: option.value, label: option.label }))
-  ];
-
-  allOptions.forEach((option) => {
-    const item = document.createElement("button");
-    item.type = "button";
-    item.setAttribute("role", "menuitemradio");
-    item.setAttribute("aria-checked", String(option.value === state.videoQualitySelection));
-    item.className = option.value === state.videoQualitySelection ? "is-active" : "";
-    item.textContent = option.label;
-    item.addEventListener("click", () => {
-      state.videoQualitySelection = option.value;
-      applyVideoJsQualitySelection(option.value);
-      updateCustomQualityControl();
-      closeCustomQualityMenu();
-      logEvent("Video quality selected", { quality: option.label });
-    });
-    elements.qualityMenu.append(item);
-  });
-}
-
-function installVideoJsQualityMenu(player) {
-  if (!window.videojs || !player || !player.controlBar || state.videoQualityMenu) {
-    return;
-  }
-
-  const videojs = window.videojs;
-  const MenuButton = videojs.getComponent("MenuButton");
-  const MenuItem = videojs.getComponent("MenuItem");
-
-  if (!MenuButton || !MenuItem) {
-    return;
-  }
-
-  if (!videojs.getComponent("AnyTogetherQualityMenuItem")) {
-    class AnyTogetherQualityMenuItem extends MenuItem {
-      constructor(menuPlayer, options = {}) {
-        super(menuPlayer, {
-          ...options,
-          selectable: true,
-          selected: options.qualityValue === state.videoQualitySelection
-        });
-        this.qualityValue = options.qualityValue || "auto";
-      }
-
-      handleClick(event) {
-        super.handleClick(event);
-        state.videoQualitySelection = this.qualityValue;
-        applyVideoJsQualitySelection(this.qualityValue);
-        updateVideoJsQualityButton();
-        logEvent("Video quality selected", {
-          quality: this.qualityValue === "auto" ? "Auto" : `${this.qualityValue}p`
-        });
-      }
-    }
-
-    videojs.registerComponent("AnyTogetherQualityMenuItem", AnyTogetherQualityMenuItem);
-  }
-
-  if (!videojs.getComponent("AnyTogetherQualityMenuButton")) {
-    class AnyTogetherQualityMenuButton extends MenuButton {
-      constructor(menuPlayer, options = {}) {
-        super(menuPlayer, options);
-        this.controlText("Quality");
-      }
-
-      buildCSSClass() {
-        return `${super.buildCSSClass()} vjs-quality-menu-button`;
-      }
-
-      createEl() {
-        const el = super.createEl();
-        const label = document.createElement("span");
-        label.className = "vjs-quality-menu-label";
-        label.textContent = "Auto";
-        el.append(label);
-        this.qualityLabel = label;
-        return el;
-      }
-
-      createItems() {
-        const Item = videojs.getComponent("AnyTogetherQualityMenuItem");
-        const options = getVideoJsQualityOptions(this.player());
-        const items = [
-          new Item(this.player(), {
-            label: "Auto",
-            qualityValue: "auto",
-            selected: state.videoQualitySelection === "auto"
-          })
-        ];
-
-        options.forEach((option) => {
-          items.push(new Item(this.player(), {
-            label: option.label,
-            qualityValue: option.value,
-            selected: state.videoQualitySelection === option.value
-          }));
-        });
-
-        return items;
-      }
-
-      update() {
-        const result = super.update();
-        const selection = state.videoQualitySelection;
-        if (this.qualityLabel) {
-          this.qualityLabel.textContent = selection === "auto" ? "Auto" : `${selection}p`;
-        }
-        return result;
-      }
-    }
-
-    videojs.registerComponent("AnyTogetherQualityMenuButton", AnyTogetherQualityMenuButton);
-  }
-
-  state.videoQualityMenu = player.controlBar.addChild("AnyTogetherQualityMenuButton", {}, player.controlBar.children().length - 1);
-
-  const refreshQualityMenu = () => {
-    applyVideoJsQualitySelection();
-    updateVideoJsQualityButton();
-  };
-
-  player.on("loadedmetadata", refreshQualityMenu);
-  player.on("loadeddata", refreshQualityMenu);
-  player.on("loadstart", () => {
-    state.videoQualitySelection = "auto";
-    updateCustomQualityControl([]);
-    updateVideoJsQualityButton();
-  });
-
-  const levels = getVideoJsQualityLevels(player);
-  if (levels) {
-    if (typeof levels.on === "function") {
-      levels.on("addqualitylevel", refreshQualityMenu);
-      levels.on("change", updateVideoJsQualityButton);
-    } else if (typeof levels.addEventListener === "function") {
-      levels.addEventListener("addqualitylevel", refreshQualityMenu);
-      levels.addEventListener("change", updateVideoJsQualityButton);
-    }
-  }
-
-  updateVideoJsQualityButton();
-}
-
-function initializeVideoPlayer() {
-  if (!window.videojs || state.videoPlayer) {
-    return state.videoPlayer;
-  }
-
-  state.videoPlayer = window.videojs(elements.player, {
-    controls: true,
-    fluid: true,
-    responsive: true,
-    preload: "auto",
-    liveui: true,
-    inactivityTimeout: 1200,
-    playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 2],
-    html5: {
-      vhs: {
-        overrideNative: true,
-        enableLowInitialPlaylist: false
-      },
-      nativeAudioTracks: false,
-      nativeVideoTracks: false
-    }
-  });
-
-  installVideoJsQualityMenu(state.videoPlayer);
-  updateCustomQualityControl([]);
-
-  state.videoPlayer.on("error", () => {
-    const error = state.videoPlayer?.error?.();
-    logEvent("Video.js error", {
+  player.addEventListener("error", (event) => {
+    const error = event.detail;
+    logEvent("Shaka player error", {
       code: error?.code || "unknown",
+      category: error?.category || "unknown",
+      severity: error?.severity || "unknown",
       message: error?.message || "unknown"
     });
   });
 
-  return state.videoPlayer;
+  const ui = new window.shaka.ui.Overlay(player, getShakaContainer(), elements.player);
+  configureShakaUi(ui);
+
+  state.shakaPlayer = player;
+  state.shakaUi = ui;
+
+  return player;
 }
 
-function loadPlayerSource(url, forceReload = false) {
-  const player = initializeVideoPlayer();
-  const source = { src: url };
-  const type = getSourceType(url);
-
-  if (type) {
-    source.type = type;
-  }
+async function loadPlayerSource(url, forceReload = false) {
+  const player = await initializeShakaPlayer();
 
   if (player) {
-    player.src(source);
-    if (forceReload || isHlsSource(url)) {
-      player.load();
+    try {
+      await player.load(url);
+      return;
+    } catch (error) {
+      logEvent("Shaka load failed", {
+        sourceUrl: url,
+        code: error?.code || "unknown",
+        message: error?.message || "unknown"
+      });
     }
-    return;
+  }
+
+  const type = getSourceType(url);
+  if (type) {
+    elements.player.setAttribute("type", type);
   }
 
   elements.player.src = url;
-  if (forceReload) {
+  if (forceReload || isHlsSource(url)) {
     elements.player.load();
   }
 }
@@ -791,7 +562,7 @@ function rebuildPlaybackPipeline(reason, startPosition = elements.player.current
   state.remoteSeekActivityAt = 0;
   clearPendingSeekCommitTimer();
 
-  loadPlayerSource(sourceUrl, true);
+  void loadPlayerSource(sourceUrl, true);
 
   state.pendingSeek = Number.isFinite(startPosition) ? Math.max(0, startPosition) : 0;
   state.pendingPlaybackState = elements.player.paused;
@@ -937,7 +708,7 @@ function loadSource(url, options = {}) {
   state.programmaticPauseEvents = 0;
   clearPendingSeekCommitTimer();
 
-  loadPlayerSource(nextUrl, forceReload);
+  void loadPlayerSource(nextUrl, forceReload);
 
   logEvent("Media source loaded", {
     reason: options.reason || "manual",
@@ -1520,26 +1291,8 @@ function handleWaitingLikeEvent() {
   scheduleStallRecovery("waiting");
 }
 
-initializeVideoPlayer();
+void initializeShakaPlayer();
 
-if (elements.qualityButton) {
-  elements.qualityButton.addEventListener("click", () => {
-    const isOpen = !elements.qualityMenu?.classList.contains("hidden");
-    if (isOpen) {
-      closeCustomQualityMenu();
-    } else {
-      updateCustomQualityControl();
-      elements.qualityMenu?.classList.remove("hidden");
-      elements.qualityButton.setAttribute("aria-expanded", "true");
-    }
-  });
-}
-
-document.addEventListener("click", (event) => {
-  if (!elements.qualityControl?.contains(event.target)) {
-    closeCustomQualityMenu();
-  }
-});
 
 elements.connectButton.addEventListener("click", connectRoom);
 if (elements.searchButton) {

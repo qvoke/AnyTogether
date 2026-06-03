@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/video.js@8.23.4/dist/video-js.min.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/shaka-player@4.15.1/dist/controls.css" />
   <style>
     :root {
       --bg-0: #070b16;
@@ -431,100 +431,23 @@
       border: 1px solid var(--border);
       box-shadow: var(--shadow);
     }
-    video,
-    .player-shell .video-js {
+    video {
       width: 100%;
       display: block;
       aspect-ratio: 16 / 9;
       background: #000;
     }
 
-    .player-shell .video-js {
-      height: auto;
+    .player-shell .shaka-video-container,
+    .player-shell .shaka-video-container video {
+      width: 100%;
+      height: 100%;
       min-height: 320px;
       border-radius: var(--radius);
     }
 
-    .player-shell .vjs-fluid:not(.vjs-audio-only-mode) {
-      padding-top: 56.25%;
-    }
-
-    .player-shell .vjs-quality-menu-button .vjs-icon-placeholder::before {
-      content: "⚙";
-      font-family: inherit;
-      font-size: 1.15em;
-      line-height: 1.67;
-    }
-
-    .player-shell .vjs-quality-menu-label {
-      position: absolute;
-      inset: auto 0 0 0;
-      display: block;
-      font-size: 0.62em;
-      font-weight: 800;
-      line-height: 1;
-      text-align: center;
-      pointer-events: none;
-    }
-
-    .player-quality-control {
-      position: absolute;
-      right: 76px;
-      bottom: 42px;
-      z-index: 20;
-      font-size: 12px;
-      pointer-events: auto;
-    }
-
-    .player-quality-button {
-      min-width: 92px;
-      padding: 7px 10px;
-      border-radius: 10px;
-      border: 1px solid rgba(255, 255, 255, 0.24);
-      background: rgba(7, 11, 22, 0.82);
-      color: #fff;
-      font-size: 12px;
-      font-weight: 800;
-      line-height: 1;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-      backdrop-filter: blur(10px);
-    }
-
-    .player-quality-button:hover {
-      background: rgba(108, 140, 255, 0.84);
-      border-color: rgba(255, 255, 255, 0.42);
-    }
-
-    .player-quality-menu {
-      position: absolute;
-      right: 0;
-      bottom: calc(100% + 8px);
-      min-width: 118px;
-      padding: 6px;
-      border-radius: 12px;
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      background: rgba(7, 11, 22, 0.94);
-      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.42);
-      backdrop-filter: blur(14px);
-    }
-
-    .player-quality-menu button {
-      display: block;
-      width: 100%;
-      padding: 8px 10px;
-      border: 0;
-      border-radius: 8px;
-      background: transparent;
-      color: #dbe7ff;
-      font-size: 12px;
-      font-weight: 800;
-      text-align: left;
-    }
-
-    .player-quality-menu button:hover,
-    .player-quality-menu button.is-active {
-      background: rgba(108, 140, 255, 0.24);
-      color: #fff;
+    .player-shell .shaka-controls-container {
+      border-radius: var(--radius);
     }
 
     .playback-debug-card {
@@ -1061,11 +984,7 @@
           </div>
 
           <div class="player-shell">
-            <video id="player" class="video-js vjs-default-skin vjs-big-play-centered" controls playsinline preload="auto"></video>
-            <div id="qualityControl" class="player-quality-control" aria-live="polite">
-              <button id="qualityButton" class="player-quality-button" type="button" aria-haspopup="true" aria-expanded="false">Quality: Auto</button>
-              <div id="qualityMenu" class="player-quality-menu hidden" role="menu"></div>
-            </div>
+            <video id="player" data-shaka-player playsinline></video>
           </div>
 
           <div class="card playback-debug-card">
@@ -1187,8 +1106,7 @@
     <button id="legacySearchButton" type="button">Send to plugin</button>
   </section>
 
-  <script src="https://cdn.jsdelivr.net/npm/video.js@8.23.4/dist/video.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/videojs-contrib-quality-levels@4.1.0/dist/videojs-contrib-quality-levels.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/shaka-player@4.15.1/dist/shaka-player.ui.js"></script>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/interface-ui.js"></script>
 </body>
