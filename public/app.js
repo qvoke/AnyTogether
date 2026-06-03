@@ -16,7 +16,7 @@ const elements = {
   revisionLabel: document.getElementById("revisionLabel"),
   roleSelect: document.getElementById("roleSelect"),
   roomInput: document.getElementById("roomInput"),
-  searchButton: document.getElementById("searchButton"),
+  searchButton: document.getElementById("legacySearchButton") || document.getElementById("searchButton"),
   searchQuery: document.getElementById("searchQuery"),
   seekButton: document.getElementById("seekButton"),
   seekInput: document.getElementById("seekInput"),
@@ -59,6 +59,7 @@ const state = {
   stallRecoveryTimer: null,
   suppressOutgoingUntil: 0,
   hls: null,
+  plyr: null,
   hlsRecoveryAttempts: 0,
   hlsMediaErrorAttempts: 0,
   hlsLastRecoveryAt: 0,
@@ -395,6 +396,117 @@ function destroyHls() {
   }
 }
 
+function destroyEnhancedPlayer() {
+  if (!state.plyr) {
+    return;
+  }
+
+  try {
+    state.plyr.destroy();
+  } catch (error) {
+    logEvent("Enhanced player destroy failed", error);
+  } finally {
+    state.plyr = null;
+  }
+}
+
+function getPlayerQualityOptionsFromLevels(levels) {
+  const heights = Array.from(
+    new Set(
+      (Array.isArray(levels) ? levels : [])
+        .map((level) => Number(level?.height))
+        .filter((height) => Number.isFinite(height) && height > 0)
+    )
+  ).sort((left, right) => left - right);
+
+  return heights.length ? [0, ...heights] : [];
+}
+
+function applyPlayerQuality(quality) {
+  if (!state.hls) {
+    return;
+  }
+
+  const selected = Number(quality);
+  if (!Number.isFinite(selected) || selected === 0) {
+    state.hls.currentLevel = -1;
+    state.hls.loadLevel = -1;
+    return;
+  }
+
+  const levelIndex = state.hls.levels.findIndex((level) => Number(level.height) === selected);
+  if (levelIndex >= 0) {
+    state.hls.currentLevel = levelIndex;
+    state.hls.loadLevel = levelIndex;
+  }
+}
+
+function syncEnhancedPlayerUi(paused = elements.player.paused) {
+  const container = state.plyr?.elements?.container;
+  if (!container) {
+    return;
+  }
+
+  const isPaused = Boolean(paused);
+  container.classList.toggle("plyr--playing", !isPaused);
+  container.classList.toggle("plyr--paused", isPaused);
+
+  const overlaidPlayButton = container.querySelector(".plyr__control--overlaid");
+  if (overlaidPlayButton) {
+    overlaidPlayButton.hidden = !isPaused;
+    overlaidPlayButton.setAttribute("aria-hidden", String(!isPaused));
+  }
+}
+
+function initializeEnhancedPlayer(qualityOptions = []) {
+  if (!window.Plyr) {
+    return null;
+  }
+
+  destroyEnhancedPlayer();
+
+  const hasQualityOptions = Array.isArray(qualityOptions) && qualityOptions.length > 0;
+  const player = new window.Plyr(elements.player, {
+    controls: [
+      "play-large",
+      "play",
+      "progress",
+      "current-time",
+      "duration",
+      "mute",
+      "volume",
+      "settings",
+      "pip",
+      "airplay",
+      "fullscreen"
+    ],
+    settings: hasQualityOptions ? ["quality", "speed", "loop"] : ["speed", "loop"],
+    quality: hasQualityOptions
+      ? {
+          default: 0,
+          options: qualityOptions,
+          forced: true,
+          onChange: applyPlayerQuality
+        }
+      : undefined,
+    i18n: {
+      quality: "Quality",
+      qualityLabel: {
+        0: "Auto"
+      }
+    }
+  });
+
+  player.on("ready", () => syncEnhancedPlayerUi());
+  player.on("play", () => syncEnhancedPlayerUi(false));
+  player.on("playing", () => syncEnhancedPlayerUi(false));
+  player.on("pause", () => syncEnhancedPlayerUi(true));
+
+  state.plyr = player;
+  queueMicrotask(() => syncEnhancedPlayerUi());
+  return player;
+}
+
 function pauseStreamBuffering() {
   if (state.hls && typeof state.hls.pauseBuffering === "function") {
     try {
@@ -439,8 +551,9 @@ function rebuildPlaybackPipeline(reason, startPosition = elements.player.current
   }
 
   clearPendingSeekCommitTimer();
-  destroyHls();
   suppressOutgoingEvents(2000);
+  destroyEnhancedPlayer();
+  destroyHls();
   resetHlsRecoveryState();
   state.isBuffering = false;
   state.programmaticSeekEvents = 0;
@@ -462,6 +575,7 @@ function rebuildPlaybackPipeline(reason, startPosition = elements.player.current
   } else {
     elements.player.src = sourceUrl;
     elements.player.load();
+    initializeEnhancedPlayer();
   }
 
   state.pendingSeek = Number.isFinite(startPosition) ? Math.max(0, startPosition) : 0;
@@ -558,6 +672,16 @@ function handleHlsError(event, data) {
   }
 
   if (
+    !data?.fatal &&
+    data?.type === errorTypes.NETWORK_ERROR &&
+    (details === errorDetails.FRAG_LOAD_ERROR || details === "fragLoadError")
+  ) {
+    resumeStreamBuffering(currentTime);
+    scheduleStallRecovery(String(details));
+    return;
+  }
+
+  if (
     details === errorDetails.BUFFER_STALLED_ERROR ||
     details === errorDetails.BUFFER_NUDGE_ON_STALL ||
     details === errorDetails.BUFFER_SEEK_OVER_HOLE
@@ -574,7 +698,11 @@ function attachHlsListeners(hls) {
   hls.on(window.Hls.Events.ERROR, handleHlsError);
   hls.on(window.Hls.Events.STALL_RESOLVED, handleHlsStallResolved);
   hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-    logEvent("HLS manifest parsed", state.currentMediaUrl || "unknown source");
+    const qualityOptions = getPlayerQualityOptionsFromLevels(hls.levels);
+    initializeEnhancedPlayer(qualityOptions);
+    logEvent("Enhanced player ready", {
+      qualityOptions: qualityOptions.length ? qualityOptions.join(",") : "native"
+    });
   });
 }
 
@@ -592,9 +720,10 @@ function loadSource(url, options = {}) {
   }
 
   clearPendingSeekCommitTimer();
+  suppressOutgoingEvents(options.suppressMs ?? 1500);
+  destroyEnhancedPlayer();
   destroyHls();
   resetHlsRecoveryState();
-  suppressOutgoingEvents(options.suppressMs ?? 1500);
 
   state.currentMediaUrl = nextUrl;
   state.pendingSeek = null;
@@ -611,11 +740,7 @@ function loadSource(url, options = {}) {
   state.programmaticPauseEvents = 0;
   clearPendingSeekCommitTimer();
 
-  const isHls = isHlsSource(nextUrl);
-  const canUseHlsJs = isHls && window.Hls?.isSupported?.();
-  const canUseNativeHls = isHls && elements.player.canPlayType("application/vnd.apple.mpegurl");
-
-  if (canUseHlsJs) {
+  if (isHlsSource(nextUrl) && window.Hls) {
     const hls = new window.Hls({
       lowLatencyMode: true
     });
@@ -625,12 +750,11 @@ function loadSource(url, options = {}) {
     hls.attachMedia(elements.player);
     state.hls = hls;
   } else {
-    if (isHls && !canUseNativeHls) {
-      logEvent("HLS fallback selected", "hls.js is unavailable or unsupported in this browser.");
-    }
-
     elements.player.src = nextUrl;
-    elements.player.load();
+    if (forceReload) {
+      elements.player.load();
+    }
+    initializeEnhancedPlayer();
   }
 
   logEvent("Media source loaded", {
@@ -651,15 +775,23 @@ function applyPlaybackState(paused) {
   markProgrammaticPlaybackChange(paused);
 
   if (paused) {
-    elements.player.pause();
+    if (state.plyr?.pause) {
+      state.plyr.pause();
+    } else {
+      elements.player.pause();
+    }
+    syncEnhancedPlayerUi(true);
     return;
   }
 
-  void elements.player.play().catch(() => {
-    if (state.programmaticPlayEvents > 0) {
-      state.programmaticPlayEvents -= 1;
-    }
-  });
+  const playPromise = state.plyr?.play ? state.plyr.play() : elements.player.play();
+  void Promise.resolve(playPromise)
+    .then(() => syncEnhancedPlayerUi(false))
+    .catch(() => {
+      if (state.programmaticPlayEvents > 0) {
+        state.programmaticPlayEvents -= 1;
+      }
+    });
 }
 
 function applyRemoteState(snapshot) {
@@ -706,7 +838,7 @@ function applyRemoteState(snapshot) {
       : null;
 
     if (mediaUrl) {
-      const shouldReload = snapshot.lastAction === "load" || mediaUrl !== state.currentMediaUrl;
+      const shouldReload = mediaUrl !== state.currentMediaUrl;
       loadSource(mediaUrl, {
         forceReload: shouldReload,
         reason: "remote",
@@ -1124,7 +1256,7 @@ function requestPluginSearch() {
 function loadManualMedia() {
   const url = elements.mediaUrl.value.trim();
   if (!url) {
-    return false;
+    return;
   }
 
   const wasPaused = elements.player.paused;
@@ -1155,44 +1287,7 @@ function loadManualMedia() {
     sourceUrl: url,
     currentTime: currentTime.toFixed(2)
   });
-  return true;
 }
-
-function connectBridgeRoom(room, role, name) {
-  const nextRoom = String(room || "").trim() || "lobby";
-  const nextRole = String(role || "").trim().toLowerCase() === "host" ? "host" : "guest";
-  const nextName = String(name || "").trim() || "Guest";
-  const shouldReconnect =
-    !state.connection ||
-    state.connection.readyState === WebSocket.CLOSED ||
-    state.connection.readyState === WebSocket.CLOSING ||
-    state.room !== nextRoom ||
-    state.role !== nextRole ||
-    elements.displayName.value.trim() !== nextName;
-
-  elements.roomInput.value = nextRoom;
-  elements.roleSelect.value = nextRole;
-  elements.displayName.value = nextName;
-
-  if (shouldReconnect) {
-    connectRoom();
-  }
-}
-
-function loadBridgeMedia(url) {
-  const mediaUrl = String(url || "").trim();
-  if (!mediaUrl) {
-    return false;
-  }
-
-  elements.mediaUrl.value = mediaUrl;
-  return loadManualMedia();
-}
-
-window.anyTogetherSyncBridge = {
-  connectRoom: connectBridgeRoom,
-  loadMedia: loadBridgeMedia
-};
 
 function handlePluginMessage(event) {
   if (event.source !== window || !event.data || event.data.source !== "anytogether-plugin") {
@@ -1251,18 +1346,6 @@ function handleWaitingLikeEvent() {
   scheduleStallRecovery("waiting");
 }
 
-function getMediaErrorMessage(error) {
-  const code = Number(error?.code);
-  const messages = {
-    1: "Media loading aborted.",
-    2: "Network error while loading media.",
-    3: "Media decoding failed.",
-    4: "Media source is not supported."
-  };
-
-  return messages[code] || "Unknown media error.";
-}
-
 elements.connectButton.addEventListener("click", connectRoom);
 elements.searchButton.addEventListener("click", requestPluginSearch);
 elements.loadMediaButton.addEventListener("click", loadManualMedia);
@@ -1270,23 +1353,9 @@ elements.seekButton.addEventListener("click", () => {
   elements.player.currentTime = Math.max(0, Number(elements.seekInput.value) || 0);
 });
 elements.syncButton.addEventListener("click", () => sendMessage({ type: "request-sync" }));
-elements.player.addEventListener("loadedmetadata", () => {
-  logEvent("Media metadata loaded", {
-    duration: Number.isFinite(elements.player.duration) ? elements.player.duration.toFixed(2) : "unknown",
-    sourceUrl: state.currentMediaUrl || "unknown"
-  });
-});
-elements.player.addEventListener("canplay", () => {
-  logEvent("Media can play", state.currentMediaUrl || "unknown source");
-});
-elements.player.addEventListener("error", () => {
-  logEvent("Media element error", {
-    message: getMediaErrorMessage(elements.player.error),
-    sourceUrl: state.currentMediaUrl || elements.player.currentSrc || "unknown"
-  });
-});
 
 elements.player.addEventListener("play", () => {
+  syncEnhancedPlayerUi(false);
   const isProgrammaticPlay = consumeProgrammaticPlaybackEvent(false);
 
   if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
@@ -1313,6 +1382,7 @@ elements.player.addEventListener("play", () => {
 });
 
 elements.player.addEventListener("pause", () => {
+  syncEnhancedPlayerUi(true);
   const isProgrammaticPause = consumeProgrammaticPlaybackEvent(true);
 
   if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
@@ -1378,7 +1448,10 @@ elements.player.addEventListener("loadedmetadata", () => {
 
 elements.player.addEventListener("loadeddata", handleHlsPlayingActivity);
 elements.player.addEventListener("canplay", handleHlsPlayingActivity);
-elements.player.addEventListener("playing", handleHlsPlayingActivity);
+elements.player.addEventListener("playing", () => {
+  syncEnhancedPlayerUi(false);
+  handleHlsPlayingActivity();
+});
 elements.player.addEventListener("waiting", handleWaitingLikeEvent);
 elements.player.addEventListener("stalled", handleWaitingLikeEvent);
 
