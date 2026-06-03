@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "AnyTogether Search Bridge",
+  "version": "1.0.0",
+  "description": "Bridges page search requests to public search engines and returns discovered stream URLs.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "webRequest"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "https://localhost/*",
+        "http://127.0.0.1/*",
+        "https://127.0.0.1/*",
+        "http://[::1]/*",
+        "https://[::1]/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "AnyTogether Search Bridge"
+  }
+}

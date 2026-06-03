@@ -12,11 +12,11 @@ const elements = {
   memberList: document.getElementById("memberList"),
   mediaUrl: document.getElementById("mediaUrl"),
   playbackState: document.getElementById("playbackState"),
-  player: document.getElementById("player") || document.getElementById("video"),
+  player: document.getElementById("player"),
   revisionLabel: document.getElementById("revisionLabel"),
   roleSelect: document.getElementById("roleSelect"),
   roomInput: document.getElementById("roomInput"),
-  searchButton: document.getElementById("legacySearchButton") || document.getElementById("searchButton"),
+  searchButton: document.getElementById("searchButton"),
   searchQuery: document.getElementById("searchQuery"),
   seekButton: document.getElementById("seekButton"),
   seekInput: document.getElementById("seekInput"),
@@ -103,8 +103,7 @@ function logEvent(title, detail = "") {
   heading.textContent = title;
 
   const time = document.createElement("time");
-  const timestamp = new Date();
-  time.textContent = timestamp.toLocaleTimeString();
+  time.textContent = new Date().toLocaleTimeString();
 
   entry.append(heading);
 
@@ -117,13 +116,6 @@ function logEvent(title, detail = "") {
 
   entry.append(time);
   elements.eventLog.prepend(entry);
-  window.dispatchEvent(new CustomEvent("anytogether:sync-log", {
-    detail: {
-      title,
-      detail: detailText,
-      timestamp: timestamp.toISOString()
-    }
-  }));
 }
 
 function setConnectionLabel(label) {
@@ -1206,9 +1198,7 @@ function handleWaitingLikeEvent() {
 }
 
 elements.connectButton.addEventListener("click", connectRoom);
-if (elements.searchButton) {
-  elements.searchButton.addEventListener("click", requestPluginSearch);
-}
+elements.searchButton.addEventListener("click", requestPluginSearch);
 elements.loadMediaButton.addEventListener("click", loadManualMedia);
 elements.seekButton.addEventListener("click", () => {
   elements.player.currentTime = Math.max(0, Number(elements.seekInput.value) || 0);
