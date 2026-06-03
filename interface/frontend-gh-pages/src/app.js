@@ -120,6 +120,9 @@ const roomsJoinInput = document.getElementById("roomsJoinInput");
 const roomsJoinButton = document.getElementById("roomsJoinButton");
 
 const video = document.getElementById("video");
+const qualityControl = document.getElementById("qualityControl");
+const qualityButton = document.getElementById("qualityButton");
+const qualityMenu = document.getElementById("qualityMenu");
 
 const topbarUser = document.getElementById("topbarUser");
 const topbarNickDisplay = document.getElementById("topbarNickDisplay");
@@ -1356,17 +1359,36 @@ function getVideoJsQualityLevels(player = state.player) {
   return player.qualityLevels();
 }
 
+function getVideoJsVhsRepresentations(player = state.player) {
+  const tech = typeof player?.tech === "function" ? player.tech({ IWillNotUseThisInPlugins: true }) : null;
+  const representations = tech?.vhs?.representations || tech?.hls?.representations;
+  if (typeof representations !== "function") {
+    return [];
+  }
+
+  try {
+    const list = representations.call(tech.vhs || tech.hls || tech);
+    return Array.isArray(list) ? list : [];
+  } catch (error) {
+    return [];
+  }
+}
+
 function getVideoJsQualityOptions(player = state.player) {
   const levels = getVideoJsQualityLevels(player);
-  if (!levels || !Number.isFinite(levels.length)) {
+  const sourceLevels = levels && Number.isFinite(levels.length) && levels.length > 0
+    ? Array.from({ length: levels.length }, (_unused, index) => levels[index])
+    : getVideoJsVhsRepresentations(player);
+
+  if (!sourceLevels.length) {
     return [];
   }
 
   const options = [];
   const seen = new Set();
 
-  for (let index = 0; index < levels.length; index += 1) {
-    const level = levels[index];
+  for (let index = 0; index < sourceLevels.length; index += 1) {
+    const level = sourceLevels[index];
     const height = Number(level?.height);
     if (!Number.isFinite(height) || height <= 0 || seen.has(height)) {
       continue;
@@ -1384,23 +1406,33 @@ function getVideoJsQualityOptions(player = state.player) {
 }
 
 function applyVideoJsQualitySelection(selection = state.videoQualitySelection) {
-  const levels = getVideoJsQualityLevels();
-  if (!levels) return;
-
+  const player = state.player;
+  const levels = getVideoJsQualityLevels(player);
   const selectedHeight = selection === "auto" ? null : Number(selection);
   const hasManualSelection = Number.isFinite(selectedHeight);
 
-  for (let index = 0; index < levels.length; index += 1) {
-    const level = levels[index];
-    level.enabled = !hasManualSelection || Number(level?.height) === selectedHeight;
+  if (levels) {
+    for (let index = 0; index < levels.length; index += 1) {
+      const level = levels[index];
+      level.enabled = !hasManualSelection || Number(level?.height) === selectedHeight;
+    }
   }
+
+  getVideoJsVhsRepresentations(player).forEach((representation) => {
+    if (typeof representation?.enabled === "function") {
+      representation.enabled(!hasManualSelection || Number(representation.height) === selectedHeight);
+    }
+  });
 
   state.videoQualitySelection = hasManualSelection ? String(selectedHeight) : "auto";
 }
 
 function updateVideoJsQualityButton() {
   const button = state.videoQualityMenu;
-  if (!button) return;
+  if (!button) {
+    updateCustomQualityControl();
+    return;
+  }
 
   if (typeof button.update === "function") {
     button.update();
@@ -1414,6 +1446,43 @@ function updateVideoJsQualityButton() {
       button.hide();
     }
   }
+
+  updateCustomQualityControl(options);
+}
+
+function closeCustomQualityMenu() {
+  qualityMenu?.classList.add("hidden");
+  qualityButton?.setAttribute("aria-expanded", "false");
+}
+
+function updateCustomQualityControl(options = getVideoJsQualityOptions()) {
+  if (!qualityControl || !qualityButton || !qualityMenu) return;
+
+  const selected = state.videoQualitySelection === "auto" ? "Auto" : `${state.videoQualitySelection}p`;
+  qualityButton.textContent = `Quality: ${selected}`;
+  qualityControl.classList.remove("hidden");
+  qualityMenu.innerHTML = "";
+
+  const allOptions = [
+    { value: "auto", label: "Auto" },
+    ...options.map((option) => ({ value: option.value, label: option.label }))
+  ];
+
+  allOptions.forEach((option) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.setAttribute("role", "menuitemradio");
+    item.setAttribute("aria-checked", String(option.value === state.videoQualitySelection));
+    item.className = option.value === state.videoQualitySelection ? "is-active" : "";
+    item.textContent = option.label;
+    item.addEventListener("click", () => {
+      state.videoQualitySelection = option.value;
+      applyVideoJsQualitySelection(option.value);
+      updateCustomQualityControl();
+      closeCustomQualityMenu();
+    });
+    qualityMenu.append(item);
+  });
 }
 
 function installVideoJsQualityMenu(player) {
@@ -1520,6 +1589,7 @@ function installVideoJsQualityMenu(player) {
   player.on("loadeddata", refreshQualityMenu);
   player.on("loadstart", () => {
     state.videoQualitySelection = "auto";
+    updateCustomQualityControl([]);
     updateVideoJsQualityButton();
   });
 
@@ -1560,6 +1630,7 @@ function initializePlayer() {
   });
 
   installVideoJsQualityMenu(state.player);
+  updateCustomQualityControl([]);
   return state.player;
 }
 
@@ -2641,6 +2712,25 @@ async function start() {
     }
   });
 }
+
+if (qualityButton) {
+  qualityButton.addEventListener("click", () => {
+    const isOpen = !qualityMenu?.classList.contains("hidden");
+    if (isOpen) {
+      closeCustomQualityMenu();
+    } else {
+      updateCustomQualityControl();
+      qualityMenu?.classList.remove("hidden");
+      qualityButton.setAttribute("aria-expanded", "true");
+    }
+  });
+}
+
+document.addEventListener("click", (event) => {
+  if (!qualityControl?.contains(event.target)) {
+    closeCustomQualityMenu();
+  }
+});
 
 video.addEventListener("play", () => {
   if (applyingRemoteState) return;

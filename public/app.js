@@ -12,6 +12,9 @@ const elements = {
   memberList: document.getElementById("memberList"),
   mediaUrl: document.getElementById("mediaUrl"),
   playbackState: document.getElementById("playbackState"),
+  qualityButton: document.getElementById("qualityButton"),
+  qualityControl: document.getElementById("qualityControl"),
+  qualityMenu: document.getElementById("qualityMenu"),
   player: document.getElementById("player") || document.getElementById("video"),
   revisionLabel: document.getElementById("revisionLabel"),
   roleSelect: document.getElementById("roleSelect"),
@@ -411,17 +414,36 @@ function getVideoJsQualityLevels(player = state.videoPlayer) {
   return player.qualityLevels();
 }
 
+function getVideoJsVhsRepresentations(player = state.videoPlayer) {
+  const tech = typeof player?.tech === "function" ? player.tech({ IWillNotUseThisInPlugins: true }) : null;
+  const representations = tech?.vhs?.representations || tech?.hls?.representations;
+  if (typeof representations !== "function") {
+    return [];
+  }
+
+  try {
+    const list = representations.call(tech.vhs || tech.hls || tech);
+    return Array.isArray(list) ? list : [];
+  } catch (error) {
+    return [];
+  }
+}
+
 function getVideoJsQualityOptions(player = state.videoPlayer) {
   const levels = getVideoJsQualityLevels(player);
-  if (!levels || !Number.isFinite(levels.length)) {
+  const sourceLevels = levels && Number.isFinite(levels.length) && levels.length > 0
+    ? Array.from({ length: levels.length }, (_unused, index) => levels[index])
+    : getVideoJsVhsRepresentations(player);
+
+  if (!sourceLevels.length) {
     return [];
   }
 
   const options = [];
   const seen = new Set();
 
-  for (let index = 0; index < levels.length; index += 1) {
-    const level = levels[index];
+  for (let index = 0; index < sourceLevels.length; index += 1) {
+    const level = sourceLevels[index];
     const height = Number(level?.height);
     if (!Number.isFinite(height) || height <= 0 || seen.has(height)) {
       continue;
@@ -442,17 +464,21 @@ function getVideoJsQualityOptions(player = state.videoPlayer) {
 function applyVideoJsQualitySelection(selection = state.videoQualitySelection) {
   const player = state.videoPlayer;
   const levels = getVideoJsQualityLevels(player);
-  if (!levels) {
-    return;
-  }
-
   const selectedHeight = selection === "auto" ? null : Number(selection);
   const hasManualSelection = Number.isFinite(selectedHeight);
 
-  for (let index = 0; index < levels.length; index += 1) {
-    const level = levels[index];
-    level.enabled = !hasManualSelection || Number(level?.height) === selectedHeight;
+  if (levels) {
+    for (let index = 0; index < levels.length; index += 1) {
+      const level = levels[index];
+      level.enabled = !hasManualSelection || Number(level?.height) === selectedHeight;
+    }
   }
+
+  getVideoJsVhsRepresentations(player).forEach((representation) => {
+    if (typeof representation?.enabled === "function") {
+      representation.enabled(!hasManualSelection || Number(representation.height) === selectedHeight);
+    }
+  });
 
   state.videoQualitySelection = hasManualSelection ? String(selectedHeight) : "auto";
 }
@@ -460,6 +486,7 @@ function applyVideoJsQualitySelection(selection = state.videoQualitySelection) {
 function updateVideoJsQualityButton() {
   const button = state.videoQualityMenu;
   if (!button) {
+    updateCustomQualityControl();
     return;
   }
 
@@ -475,6 +502,46 @@ function updateVideoJsQualityButton() {
       button.hide();
     }
   }
+
+  updateCustomQualityControl(options);
+}
+
+function closeCustomQualityMenu() {
+  elements.qualityMenu?.classList.add("hidden");
+  elements.qualityButton?.setAttribute("aria-expanded", "false");
+}
+
+function updateCustomQualityControl(options = getVideoJsQualityOptions()) {
+  if (!elements.qualityControl || !elements.qualityButton || !elements.qualityMenu) {
+    return;
+  }
+
+  const selected = state.videoQualitySelection === "auto" ? "Auto" : `${state.videoQualitySelection}p`;
+  elements.qualityButton.textContent = `Quality: ${selected}`;
+  elements.qualityControl.classList.remove("hidden");
+  elements.qualityMenu.innerHTML = "";
+
+  const allOptions = [
+    { value: "auto", label: "Auto" },
+    ...options.map((option) => ({ value: option.value, label: option.label }))
+  ];
+
+  allOptions.forEach((option) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.setAttribute("role", "menuitemradio");
+    item.setAttribute("aria-checked", String(option.value === state.videoQualitySelection));
+    item.className = option.value === state.videoQualitySelection ? "is-active" : "";
+    item.textContent = option.label;
+    item.addEventListener("click", () => {
+      state.videoQualitySelection = option.value;
+      applyVideoJsQualitySelection(option.value);
+      updateCustomQualityControl();
+      closeCustomQualityMenu();
+      logEvent("Video quality selected", { quality: option.label });
+    });
+    elements.qualityMenu.append(item);
+  });
 }
 
 function installVideoJsQualityMenu(player) {
@@ -582,6 +649,7 @@ function installVideoJsQualityMenu(player) {
   player.on("loadeddata", refreshQualityMenu);
   player.on("loadstart", () => {
     state.videoQualitySelection = "auto";
+    updateCustomQualityControl([]);
     updateVideoJsQualityButton();
   });
 
@@ -623,6 +691,7 @@ function initializeVideoPlayer() {
   });
 
   installVideoJsQualityMenu(state.videoPlayer);
+  updateCustomQualityControl([]);
 
   state.videoPlayer.on("error", () => {
     const error = state.videoPlayer?.error?.();
@@ -1452,6 +1521,25 @@ function handleWaitingLikeEvent() {
 }
 
 initializeVideoPlayer();
+
+if (elements.qualityButton) {
+  elements.qualityButton.addEventListener("click", () => {
+    const isOpen = !elements.qualityMenu?.classList.contains("hidden");
+    if (isOpen) {
+      closeCustomQualityMenu();
+    } else {
+      updateCustomQualityControl();
+      elements.qualityMenu?.classList.remove("hidden");
+      elements.qualityButton.setAttribute("aria-expanded", "true");
+    }
+  });
+}
+
+document.addEventListener("click", (event) => {
+  if (!elements.qualityControl?.contains(event.target)) {
+    closeCustomQualityMenu();
+  }
+});
 
 elements.connectButton.addEventListener("click", connectRoom);
 if (elements.searchButton) {
