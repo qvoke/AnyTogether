@@ -142,6 +142,7 @@ const state = {
 };
 
 let loadedMediaKey = null;
+let lastMediaForward = { key: null, at: 0 };
 let pendingSearchStatusTimer = null;
 let roomCodeHidden = false;
 const pendingRoomJoins = new Set();
@@ -1490,11 +1491,14 @@ function syncActiveRoomMedia(forceReload = false) {
   }
 
   const mediaKey = `${roomState.code}:${roomState.currentMedia.mediaUrl}`;
-  const shouldReload = forceReload || loadedMediaKey !== mediaKey;
+  const now = Date.now();
+  const recentlyForwarded = lastMediaForward.key === mediaKey && now - lastMediaForward.at < 1500;
+  const shouldReload = loadedMediaKey !== mediaKey || (forceReload && !recentlyForwarded);
 
   if (shouldReload) {
     loadMedia(roomState.currentMedia.mediaUrl);
     loadedMediaKey = mediaKey;
+    lastMediaForward = { key: mediaKey, at: now };
   }
 
   if (currentMediaBadge) {
