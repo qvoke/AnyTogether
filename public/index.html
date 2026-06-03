@@ -431,11 +431,27 @@
       border: 1px solid var(--border);
       box-shadow: var(--shadow);
     }
-    video {
+    video,
+    .player-shell .plyr {
       width: 100%;
       display: block;
-      aspect-ratio: 16 / 9;
       background: #000;
+    }
+
+    video,
+    .player-shell .plyr__video-wrapper {
+      aspect-ratio: 16 / 9;
+    }
+
+    .player-shell .plyr--playing .plyr__control--overlaid {
+      opacity: 0;
+      pointer-events: none;
+      visibility: hidden;
+    }
+
+    .player-shell .plyr--paused .plyr__control--overlaid {
+      opacity: 1;
+      visibility: visible;
     }
 
     .playback-debug-card {
@@ -972,7 +988,7 @@
           </div>
 
           <div class="player-shell">
-            <video id="video" controls playsinline></video>
+            <video id="player" controls playsinline></video>
           </div>
 
           <div class="card playback-debug-card">
@@ -1091,6 +1107,7 @@
     <div id="memberList"></div>
     <div id="eventLog" aria-live="polite"></div>
     <input id="searchQuery" type="text" />
+    <button id="legacySearchButton" type="button">Send to plugin</button>
   </section>
 
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
