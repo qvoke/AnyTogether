@@ -1,0 +1,2311 @@
+{
+  "rooms": {
+    "CC9683": {
+      "code": "CC9683",
+      "title": "TestRoom",
+      "ownerId": "ffd5ca6e-ccf3-4775-9a76-32043e4c444e",
+      "createdAt": 1780409216659,
+      "sessionStartedAt": 1780409216659,
+      "chat": [],
+      "playlist": [],
+      "currentMedia": null,
+      "currentPlayback": {
+        "state": "paused",
+        "time": 0,
+        "updatedAt": 1780409216659
+      },
+      "lastUpdatedAt": 1780409216659
+    },
+    "TEST01": {
+      "code": "TEST01",
+      "title": "Room TEST01",
+      "ownerId": null,
+      "createdAt": 1780409235936,
+      "sessionStartedAt": 1780409235936,
+      "chat": [],
+      "playlist": [],
+      "currentMedia": null,
+      "currentPlayback": {
+        "state": "paused",
+        "time": 0,
+        "updatedAt": 1780409235936
+      },
+      "lastUpdatedAt": 1780409235936
+    },
+    "0085D0": {
+      "code": "0085D0",
+      "title": "Room 0085D0",
+      "ownerId": null,
+      "createdAt": 1780424658235,
+      "sessionStartedAt": 1780424658235,
+      "chat": [],
+      "playlist": [],
+      "currentMedia": null,
+      "currentPlayback": {
+        "state": "paused",
+        "time": 0,
+        "updatedAt": 1780424658235
+      },
+      "lastUpdatedAt": 1780424658235
+    },
+    "B66203": {
+      "code": "B66203",
+      "title": "Room B66203",
+      "ownerId": null,
+      "createdAt": 1780426532956,
+      "sessionStartedAt": 1780426532956,
+      "chat": [],
+      "playlist": [],
+      "currentMedia": {
+        "mediaUrl": "https://stream.voidboost.cc/f56c68628372f61ddcec676f4711eadf:2026060406:OW4wOUtObjk4OW5WVE5oTEJOZWxSUUIrSW42SW1VVXp4U0RKY1dXZDYrTXVBaXBtN0NPR2VEMUVZVDhjNVdGYXZpNXdBNHdjbXR2ZE1Ba3g2WFgxMVE9PQ==/1/1/9/2/8/5/3/igkln.mp4:hls:manifest.m3u8",
+        "pageUrl": "https://rezka.ag/series/thriller/646-vo-vse-tyazhkie-2008-latest.html",
+        "title": "Во все тяжкие (2008)",
+        "seriesContext": {
+          "currentEpisodeId": 1,
+          "currentEpisodeIndex": 0,
+          "currentPageUrl": "https://rezka.ag/series/thriller/646-vo-vse-tyazhkie-2008-latest.html",
+          "currentSeasonId": 1,
+          "episodes": [
+            {
+              "episodeId": 1,
+              "seasonId": 1,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 1,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 1,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 1,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 1,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 1,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 1,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 2,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 2,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 2,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 2,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 2,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 2,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 2,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 2,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 2,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 2,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 2,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 2,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 2,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 3,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 3,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 3,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 3,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 3,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 3,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 3,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 3,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 3,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 3,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 3,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 3,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 3,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 4,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 4,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 4,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 4,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 4,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 4,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 4,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 4,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 4,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 4,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 4,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 4,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 4,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 5,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 5,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 5,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 5,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 5,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 5,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 5,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 5,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 5,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 5,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 5,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 5,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 5,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 14,
+              "seasonId": 5,
+              "title": "Серия 14"
+            },
+            {
+              "episodeId": 15,
+              "seasonId": 5,
+              "title": "Серия 15"
+            },
+            {
+              "episodeId": 16,
+              "seasonId": 5,
+              "title": "Серия 16"
+            },
+            {
+              "episodeId": 17,
+              "seasonId": 5,
+              "title": "Special"
+            }
+          ],
+          "resolver": {
+            "favs": "1b2ad834-d5ea-40ad-af9a-a3b63fbd8973",
+            "itemId": 646,
+            "origin": "https://rezka.ag",
+            "pageUrl": "https://rezka.ag/series/thriller/646-vo-vse-tyazhkie-2008-latest.html",
+            "provider": "rezka",
+            "translatorId": 565
+          },
+          "seasons": [
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 1,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 1,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 1,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 1,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 1,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 1,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 1,
+                  "title": "Серия 7"
+                }
+              ],
+              "seasonId": 1,
+              "title": "Сезон 1"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 2,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 2,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 2,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 2,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 2,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 2,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 2,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 2,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 2,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 2,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 2,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 2,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 2,
+                  "title": "Серия 13"
+                }
+              ],
+              "seasonId": 2,
+              "title": "Сезон 2"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 3,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 3,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 3,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 3,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 3,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 3,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 3,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 3,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 3,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 3,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 3,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 3,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 3,
+                  "title": "Серия 13"
+                }
+              ],
+              "seasonId": 3,
+              "title": "Сезон 3"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 4,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 4,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 4,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 4,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 4,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 4,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 4,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 4,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 4,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 4,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 4,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 4,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 4,
+                  "title": "Серия 13"
+                }
+              ],
+              "seasonId": 4,
+              "title": "Сезон 4"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 5,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 5,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 5,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 5,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 5,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 5,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 5,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 5,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 5,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 5,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 5,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 5,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 5,
+                  "title": "Серия 13"
+                },
+                {
+                  "episodeId": 14,
+                  "seasonId": 5,
+                  "title": "Серия 14"
+                },
+                {
+                  "episodeId": 15,
+                  "seasonId": 5,
+                  "title": "Серия 15"
+                },
+                {
+                  "episodeId": 16,
+                  "seasonId": 5,
+                  "title": "Серия 16"
+                },
+                {
+                  "episodeId": 17,
+                  "seasonId": 5,
+                  "title": "Special"
+                }
+              ],
+              "seasonId": 5,
+              "title": "Сезон 5"
+            }
+          ],
+          "selectedTranslatorId": 565,
+          "selectedTranslatorTitle": "TVShows",
+          "title": "Во все тяжкие (2008)",
+          "translators": [
+            {
+              "title": "Дубляж",
+              "translatorId": 56
+            },
+            {
+              "title": "Амедиа (Amedia)",
+              "translatorId": 12
+            },
+            {
+              "title": "TVShows",
+              "translatorId": 565
+            },
+            {
+              "title": "HDrezka в Кубе (Kubik³)",
+              "translatorId": 6
+            },
+            {
+              "title": "лостфильм (LostFilm)",
+              "translatorId": 1
+            },
+            {
+              "title": "Гоблин",
+              "translatorId": 80
+            },
+            {
+              "title": "Сербин",
+              "translatorId": 63
+            },
+            {
+              "title": "Украинский многоголосый",
+              "translatorId": 359
+            },
+            {
+              "title": "Оригинал (+субтитры)",
+              "translatorId": 238
+            }
+          ]
+        },
+        "updatedAt": 1780472092693
+      },
+      "currentPlayback": {
+        "state": "paused",
+        "time": 257.29131,
+        "updatedAt": 1780472092693
+      },
+      "lastUpdatedAt": 1780472092693
+    },
+    "E3204F": {
+      "code": "E3204F",
+      "title": "Room E3204F",
+      "ownerId": null,
+      "createdAt": 1780472117528,
+      "sessionStartedAt": 1780472117528,
+      "chat": [],
+      "playlist": [],
+      "currentMedia": {
+        "mediaUrl": "https://stream.voidboost.cc/f9713f3c403ad648a5f57b7e5c684b02:2026060406:OW4wOUtObjk4OW5WVE5oTEJOZWxSUUIrSW42SW1VVXp4U0RKY1dXZDYrTXVBaXBtN0NPR2VEMUVZVDhjNVdGYTM5TDI5ZUQyTWNpb0J3aTJhNFZ5OFE9PQ==/1/1/9/2/8/5/3/igkln.mp4:hls:manifest.m3u8",
+        "pageUrl": "https://rezka.ag/series/thriller/646-vo-vse-tyazhkie-2008-latest.html",
+        "title": "Во все тяжкие (2008)",
+        "seriesContext": {
+          "currentEpisodeId": 1,
+          "currentEpisodeIndex": 0,
+          "currentPageUrl": "https://rezka.ag/series/thriller/646-vo-vse-tyazhkie-2008-latest.html",
+          "currentSeasonId": 1,
+          "episodes": [
+            {
+              "episodeId": 1,
+              "seasonId": 1,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 1,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 1,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 1,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 1,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 1,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 1,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 2,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 2,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 2,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 2,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 2,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 2,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 2,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 2,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 2,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 2,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 2,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 2,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 2,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 3,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 3,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 3,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 3,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 3,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 3,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 3,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 3,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 3,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 3,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 3,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 3,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 3,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 4,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 4,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 4,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 4,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 4,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 4,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 4,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 4,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 4,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 4,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 4,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 4,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 4,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 5,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 5,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 5,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 5,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 5,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 5,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 5,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 5,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 5,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 5,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 5,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 5,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 5,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 14,
+              "seasonId": 5,
+              "title": "Серия 14"
+            },
+            {
+              "episodeId": 15,
+              "seasonId": 5,
+              "title": "Серия 15"
+            },
+            {
+              "episodeId": 16,
+              "seasonId": 5,
+              "title": "Серия 16"
+            },
+            {
+              "episodeId": 17,
+              "seasonId": 5,
+              "title": "Special"
+            }
+          ],
+          "resolver": {
+            "favs": "fe10b38b-dc6d-4a6b-9093-091c9e138391",
+            "itemId": 646,
+            "origin": "https://rezka.ag",
+            "pageUrl": "https://rezka.ag/series/thriller/646-vo-vse-tyazhkie-2008-latest.html",
+            "provider": "rezka",
+            "translatorId": 565
+          },
+          "seasons": [
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 1,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 1,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 1,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 1,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 1,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 1,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 1,
+                  "title": "Серия 7"
+                }
+              ],
+              "seasonId": 1,
+              "title": "Сезон 1"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 2,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 2,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 2,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 2,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 2,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 2,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 2,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 2,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 2,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 2,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 2,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 2,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 2,
+                  "title": "Серия 13"
+                }
+              ],
+              "seasonId": 2,
+              "title": "Сезон 2"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 3,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 3,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 3,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 3,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 3,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 3,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 3,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 3,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 3,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 3,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 3,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 3,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 3,
+                  "title": "Серия 13"
+                }
+              ],
+              "seasonId": 3,
+              "title": "Сезон 3"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 4,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 4,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 4,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 4,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 4,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 4,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 4,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 4,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 4,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 4,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 4,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 4,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 4,
+                  "title": "Серия 13"
+                }
+              ],
+              "seasonId": 4,
+              "title": "Сезон 4"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 5,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 5,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 5,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 5,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 5,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 5,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 5,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 5,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 5,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 5,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 5,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 5,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 5,
+                  "title": "Серия 13"
+                },
+                {
+                  "episodeId": 14,
+                  "seasonId": 5,
+                  "title": "Серия 14"
+                },
+                {
+                  "episodeId": 15,
+                  "seasonId": 5,
+                  "title": "Серия 15"
+                },
+                {
+                  "episodeId": 16,
+                  "seasonId": 5,
+                  "title": "Серия 16"
+                },
+                {
+                  "episodeId": 17,
+                  "seasonId": 5,
+                  "title": "Special"
+                }
+              ],
+              "seasonId": 5,
+              "title": "Сезон 5"
+            }
+          ],
+          "selectedTranslatorId": 565,
+          "selectedTranslatorTitle": "TVShows",
+          "title": "Во все тяжкие (2008)",
+          "translators": [
+            {
+              "title": "Дубляж",
+              "translatorId": 56
+            },
+            {
+              "title": "Амедиа (Amedia)",
+              "translatorId": 12
+            },
+            {
+              "title": "TVShows",
+              "translatorId": 565
+            },
+            {
+              "title": "HDrezka в Кубе (Kubik³)",
+              "translatorId": 6
+            },
+            {
+              "title": "лостфильм (LostFilm)",
+              "translatorId": 1
+            },
+            {
+              "title": "Гоблин",
+              "translatorId": 80
+            },
+            {
+              "title": "Сербин",
+              "translatorId": 63
+            },
+            {
+              "title": "Украинский многоголосый",
+              "translatorId": 359
+            },
+            {
+              "title": "Оригинал (+субтитры)",
+              "translatorId": 238
+            }
+          ],
+          "selectedQualityLabel": "480p",
+          "availableQualities": [
+            {
+              "label": "360p",
+              "normalizedLabel": "360p"
+            },
+            {
+              "label": "480p",
+              "normalizedLabel": "480p"
+            },
+            {
+              "label": "720p",
+              "normalizedLabel": "720p"
+            },
+            {
+              "label": "1080p",
+              "normalizedLabel": "1080p"
+            },
+            {
+              "label": "1080p Ultra",
+              "normalizedLabel": "1080p ultra"
+            }
+          ]
+        },
+        "updatedAt": 1780472341868
+      },
+      "currentPlayback": {
+        "state": "paused",
+        "time": 386.131583,
+        "updatedAt": 1780472341868
+      },
+      "lastUpdatedAt": 1780472341868
+    },
+    "B8AB1B": {
+      "code": "B8AB1B",
+      "title": "Room B8AB1B",
+      "ownerId": null,
+      "createdAt": 1780481934862,
+      "sessionStartedAt": 1780481934862,
+      "chat": [],
+      "playlist": [],
+      "currentMedia": null,
+      "currentPlayback": {
+        "state": "paused",
+        "time": 0,
+        "updatedAt": 1780481934862
+      },
+      "lastUpdatedAt": 1780481934862
+    },
+    "53D291": {
+      "code": "53D291",
+      "title": "Room 53D291",
+      "ownerId": null,
+      "createdAt": 1780481934863,
+      "sessionStartedAt": 1780481934863,
+      "chat": [],
+      "playlist": [],
+      "currentMedia": {
+        "mediaUrl": "https://stream.voidboost.cc/c27c895b3f5bb632040bbe98f41eee1c:2026060409:OW4wOUtObjk4OW5WVE5oTEJOZWxSUUIrSW42SW1VVXp4U0RKY1dXZDYrTXVBaXBtN0NPR2VEMUVZVDhjNVdGYTFCYkdJaDFOVzhvL3NJcFZCd3J5UXc9PQ==/1/1/9/2/8/5/3/igkln.mp4:hls:manifest.m3u8",
+        "pageUrl": "https://rezka.ag/series/thriller/646-vo-vse-tyazhkie-2008-latest.html",
+        "title": "Во все тяжкие (2008)",
+        "seriesContext": {
+          "currentEpisodeId": 1,
+          "currentEpisodeIndex": 0,
+          "currentPageUrl": "https://rezka.ag/series/thriller/646-vo-vse-tyazhkie-2008-latest.html",
+          "currentSeasonId": 1,
+          "episodes": [
+            {
+              "episodeId": 1,
+              "seasonId": 1,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 1,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 1,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 1,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 1,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 1,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 1,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 2,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 2,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 2,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 2,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 2,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 2,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 2,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 2,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 2,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 2,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 2,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 2,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 2,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 3,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 3,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 3,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 3,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 3,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 3,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 3,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 3,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 3,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 3,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 3,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 3,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 3,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 4,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 4,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 4,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 4,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 4,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 4,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 4,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 4,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 4,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 4,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 4,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 4,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 4,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 1,
+              "seasonId": 5,
+              "title": "Серия 1"
+            },
+            {
+              "episodeId": 2,
+              "seasonId": 5,
+              "title": "Серия 2"
+            },
+            {
+              "episodeId": 3,
+              "seasonId": 5,
+              "title": "Серия 3"
+            },
+            {
+              "episodeId": 4,
+              "seasonId": 5,
+              "title": "Серия 4"
+            },
+            {
+              "episodeId": 5,
+              "seasonId": 5,
+              "title": "Серия 5"
+            },
+            {
+              "episodeId": 6,
+              "seasonId": 5,
+              "title": "Серия 6"
+            },
+            {
+              "episodeId": 7,
+              "seasonId": 5,
+              "title": "Серия 7"
+            },
+            {
+              "episodeId": 8,
+              "seasonId": 5,
+              "title": "Серия 8"
+            },
+            {
+              "episodeId": 9,
+              "seasonId": 5,
+              "title": "Серия 9"
+            },
+            {
+              "episodeId": 10,
+              "seasonId": 5,
+              "title": "Серия 10"
+            },
+            {
+              "episodeId": 11,
+              "seasonId": 5,
+              "title": "Серия 11"
+            },
+            {
+              "episodeId": 12,
+              "seasonId": 5,
+              "title": "Серия 12"
+            },
+            {
+              "episodeId": 13,
+              "seasonId": 5,
+              "title": "Серия 13"
+            },
+            {
+              "episodeId": 14,
+              "seasonId": 5,
+              "title": "Серия 14"
+            },
+            {
+              "episodeId": 15,
+              "seasonId": 5,
+              "title": "Серия 15"
+            },
+            {
+              "episodeId": 16,
+              "seasonId": 5,
+              "title": "Серия 16"
+            },
+            {
+              "episodeId": 17,
+              "seasonId": 5,
+              "title": "Special"
+            }
+          ],
+          "resolver": {
+            "favs": "74f75f15-79cd-492c-82f9-f7db154ea6f8",
+            "itemId": 646,
+            "origin": "https://rezka.ag",
+            "pageUrl": "https://rezka.ag/series/thriller/646-vo-vse-tyazhkie-2008-latest.html",
+            "provider": "rezka",
+            "translatorId": 565
+          },
+          "seasons": [
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 1,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 1,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 1,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 1,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 1,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 1,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 1,
+                  "title": "Серия 7"
+                }
+              ],
+              "seasonId": 1,
+              "title": "Сезон 1"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 2,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 2,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 2,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 2,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 2,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 2,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 2,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 2,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 2,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 2,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 2,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 2,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 2,
+                  "title": "Серия 13"
+                }
+              ],
+              "seasonId": 2,
+              "title": "Сезон 2"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 3,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 3,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 3,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 3,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 3,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 3,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 3,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 3,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 3,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 3,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 3,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 3,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 3,
+                  "title": "Серия 13"
+                }
+              ],
+              "seasonId": 3,
+              "title": "Сезон 3"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 4,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 4,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 4,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 4,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 4,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 4,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 4,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 4,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 4,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 4,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 4,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 4,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 4,
+                  "title": "Серия 13"
+                }
+              ],
+              "seasonId": 4,
+              "title": "Сезон 4"
+            },
+            {
+              "episodes": [
+                {
+                  "episodeId": 1,
+                  "seasonId": 5,
+                  "title": "Серия 1"
+                },
+                {
+                  "episodeId": 2,
+                  "seasonId": 5,
+                  "title": "Серия 2"
+                },
+                {
+                  "episodeId": 3,
+                  "seasonId": 5,
+                  "title": "Серия 3"
+                },
+                {
+                  "episodeId": 4,
+                  "seasonId": 5,
+                  "title": "Серия 4"
+                },
+                {
+                  "episodeId": 5,
+                  "seasonId": 5,
+                  "title": "Серия 5"
+                },
+                {
+                  "episodeId": 6,
+                  "seasonId": 5,
+                  "title": "Серия 6"
+                },
+                {
+                  "episodeId": 7,
+                  "seasonId": 5,
+                  "title": "Серия 7"
+                },
+                {
+                  "episodeId": 8,
+                  "seasonId": 5,
+                  "title": "Серия 8"
+                },
+                {
+                  "episodeId": 9,
+                  "seasonId": 5,
+                  "title": "Серия 9"
+                },
+                {
+                  "episodeId": 10,
+                  "seasonId": 5,
+                  "title": "Серия 10"
+                },
+                {
+                  "episodeId": 11,
+                  "seasonId": 5,
+                  "title": "Серия 11"
+                },
+                {
+                  "episodeId": 12,
+                  "seasonId": 5,
+                  "title": "Серия 12"
+                },
+                {
+                  "episodeId": 13,
+                  "seasonId": 5,
+                  "title": "Серия 13"
+                },
+                {
+                  "episodeId": 14,
+                  "seasonId": 5,
+                  "title": "Серия 14"
+                },
+                {
+                  "episodeId": 15,
+                  "seasonId": 5,
+                  "title": "Серия 15"
+                },
+                {
+                  "episodeId": 16,
+                  "seasonId": 5,
+                  "title": "Серия 16"
+                },
+                {
+                  "episodeId": 17,
+                  "seasonId": 5,
+                  "title": "Special"
+                }
+              ],
+              "seasonId": 5,
+              "title": "Сезон 5"
+            }
+          ],
+          "selectedTranslatorId": 565,
+          "selectedTranslatorTitle": "TVShows",
+          "title": "Во все тяжкие (2008)",
+          "translators": [
+            {
+              "title": "Дубляж",
+              "translatorId": 56
+            },
+            {
+              "title": "Амедиа (Amedia)",
+              "translatorId": 12
+            },
+            {
+              "title": "TVShows",
+              "translatorId": 565
+            },
+            {
+              "title": "HDrezka в Кубе (Kubik³)",
+              "translatorId": 6
+            },
+            {
+              "title": "лостфильм (LostFilm)",
+              "translatorId": 1
+            },
+            {
+              "title": "Гоблин",
+              "translatorId": 80
+            },
+            {
+              "title": "Сербин",
+              "translatorId": 63
+            },
+            {
+              "title": "Украинский многоголосый",
+              "translatorId": 359
+            },
+            {
+              "title": "Оригинал (+субтитры)",
+              "translatorId": 238
+            }
+          ]
+        },
+        "updatedAt": 1780482054893
+      },
+      "currentPlayback": {
+        "state": "paused",
+        "time": 481.577209,
+        "updatedAt": 1780482054893
+      },
+      "lastUpdatedAt": 1780482054893
+    }
+  }
+}

@@ -142,7 +142,6 @@ const state = {
 };
 
 let loadedMediaKey = null;
-let lastMediaForward = { key: null, at: 0 };
 let pendingSearchStatusTimer = null;
 let roomCodeHidden = false;
 const pendingRoomJoins = new Set();
@@ -1412,9 +1411,15 @@ function loadMedia(url) {
   appendPlaybackDebugEntry("Forwarding media to player", mediaUrl);
 
   if (window.anyTogetherSyncBridge?.loadMedia) {
-    const loaded = window.anyTogetherSyncBridge.loadMedia(mediaUrl);
-    appendPlaybackDebugEntry(loaded ? "Player bridge accepted media" : "Player bridge rejected media", mediaUrl, !loaded);
-    return loaded;
+    try {
+      const loaded = window.anyTogetherSyncBridge.loadMedia(mediaUrl);
+      appendPlaybackDebugEntry(loaded ? "Player bridge accepted media" : "Player bridge rejected media", mediaUrl, !loaded);
+      if (loaded) {
+        return true;
+      }
+    } catch (error) {
+      appendPlaybackDebugEntry("Player bridge failed", error?.message || String(error), true);
+    }
   }
 
   const mediaUrlInput = document.getElementById("mediaUrl");
@@ -1485,14 +1490,11 @@ function syncActiveRoomMedia(forceReload = false) {
   }
 
   const mediaKey = `${roomState.code}:${roomState.currentMedia.mediaUrl}`;
-  const now = Date.now();
-  const recentlyForwarded = lastMediaForward.key === mediaKey && now - lastMediaForward.at < 1500;
-  const shouldReload = loadedMediaKey !== mediaKey || (forceReload && !recentlyForwarded);
+  const shouldReload = forceReload || loadedMediaKey !== mediaKey;
 
   if (shouldReload) {
     loadMedia(roomState.currentMedia.mediaUrl);
     loadedMediaKey = mediaKey;
-    lastMediaForward = { key: mediaKey, at: now };
   }
 
   if (currentMediaBadge) {
