@@ -60,6 +60,8 @@ const state = {
   suppressOutgoingUntil: 0,
   hls: null,
   videoPlayer: null,
+  videoQualityMenu: null,
+  videoQualitySelection: "auto",
   hlsRecoveryAttempts: 0,
   hlsMediaErrorAttempts: 0,
   hlsLastRecoveryAt: 0,
@@ -400,6 +402,203 @@ function getSourceType(url) {
   return undefined;
 }
 
+
+function getVideoJsQualityLevels(player = state.videoPlayer) {
+  if (!player || typeof player.qualityLevels !== "function") {
+    return null;
+  }
+
+  return player.qualityLevels();
+}
+
+function getVideoJsQualityOptions(player = state.videoPlayer) {
+  const levels = getVideoJsQualityLevels(player);
+  if (!levels || !Number.isFinite(levels.length)) {
+    return [];
+  }
+
+  const options = [];
+  const seen = new Set();
+
+  for (let index = 0; index < levels.length; index += 1) {
+    const level = levels[index];
+    const height = Number(level?.height);
+    if (!Number.isFinite(height) || height <= 0 || seen.has(height)) {
+      continue;
+    }
+
+    seen.add(height);
+    options.push({
+      value: String(height),
+      label: `${height}p`,
+      height,
+      bitrate: Number(level?.bitrate) || 0
+    });
+  }
+
+  return options.sort((a, b) => b.height - a.height);
+}
+
+function applyVideoJsQualitySelection(selection = state.videoQualitySelection) {
+  const player = state.videoPlayer;
+  const levels = getVideoJsQualityLevels(player);
+  if (!levels) {
+    return;
+  }
+
+  const selectedHeight = selection === "auto" ? null : Number(selection);
+  const hasManualSelection = Number.isFinite(selectedHeight);
+
+  for (let index = 0; index < levels.length; index += 1) {
+    const level = levels[index];
+    level.enabled = !hasManualSelection || Number(level?.height) === selectedHeight;
+  }
+
+  state.videoQualitySelection = hasManualSelection ? String(selectedHeight) : "auto";
+}
+
+function updateVideoJsQualityButton() {
+  const button = state.videoQualityMenu;
+  if (!button) {
+    return;
+  }
+
+  if (typeof button.update === "function") {
+    button.update();
+  }
+
+  const options = getVideoJsQualityOptions();
+  if (typeof button.show === "function" && typeof button.hide === "function") {
+    if (options.length > 1) {
+      button.show();
+    } else {
+      button.hide();
+    }
+  }
+}
+
+function installVideoJsQualityMenu(player) {
+  if (!window.videojs || !player || !player.controlBar || state.videoQualityMenu) {
+    return;
+  }
+
+  const videojs = window.videojs;
+  const MenuButton = videojs.getComponent("MenuButton");
+  const MenuItem = videojs.getComponent("MenuItem");
+
+  if (!MenuButton || !MenuItem) {
+    return;
+  }
+
+  if (!videojs.getComponent("AnyTogetherQualityMenuItem")) {
+    class AnyTogetherQualityMenuItem extends MenuItem {
+      constructor(menuPlayer, options = {}) {
+        super(menuPlayer, {
+          ...options,
+          selectable: true,
+          selected: options.qualityValue === state.videoQualitySelection
+        });
+        this.qualityValue = options.qualityValue || "auto";
+      }
+
+      handleClick(event) {
+        super.handleClick(event);
+        state.videoQualitySelection = this.qualityValue;
+        applyVideoJsQualitySelection(this.qualityValue);
+        updateVideoJsQualityButton();
+        logEvent("Video quality selected", {
+          quality: this.qualityValue === "auto" ? "Auto" : `${this.qualityValue}p`
+        });
+      }
+    }
+
+    videojs.registerComponent("AnyTogetherQualityMenuItem", AnyTogetherQualityMenuItem);
+  }
+
+  if (!videojs.getComponent("AnyTogetherQualityMenuButton")) {
+    class AnyTogetherQualityMenuButton extends MenuButton {
+      constructor(menuPlayer, options = {}) {
+        super(menuPlayer, options);
+        this.controlText("Quality");
+      }
+
+      buildCSSClass() {
+        return `${super.buildCSSClass()} vjs-quality-menu-button`;
+      }
+
+      createEl() {
+        const el = super.createEl();
+        const label = document.createElement("span");
+        label.className = "vjs-quality-menu-label";
+        label.textContent = "Auto";
+        el.append(label);
+        this.qualityLabel = label;
+        return el;
+      }
+
+      createItems() {
+        const Item = videojs.getComponent("AnyTogetherQualityMenuItem");
+        const options = getVideoJsQualityOptions(this.player());
+        const items = [
+          new Item(this.player(), {
+            label: "Auto",
+            qualityValue: "auto",
+            selected: state.videoQualitySelection === "auto"
+          })
+        ];
+
+        options.forEach((option) => {
+          items.push(new Item(this.player(), {
+            label: option.label,
+            qualityValue: option.value,
+            selected: state.videoQualitySelection === option.value
+          }));
+        });
+
+        return items;
+      }
+
+      update() {
+        const result = super.update();
+        const selection = state.videoQualitySelection;
+        if (this.qualityLabel) {
+          this.qualityLabel.textContent = selection === "auto" ? "Auto" : `${selection}p`;
+        }
+        return result;
+      }
+    }
+
+    videojs.registerComponent("AnyTogetherQualityMenuButton", AnyTogetherQualityMenuButton);
+  }
+
+  state.videoQualityMenu = player.controlBar.addChild("AnyTogetherQualityMenuButton", {}, player.controlBar.children().length - 1);
+
+  const refreshQualityMenu = () => {
+    applyVideoJsQualitySelection();
+    updateVideoJsQualityButton();
+  };
+
+  player.on("loadedmetadata", refreshQualityMenu);
+  player.on("loadeddata", refreshQualityMenu);
+  player.on("loadstart", () => {
+    state.videoQualitySelection = "auto";
+    updateVideoJsQualityButton();
+  });
+
+  const levels = getVideoJsQualityLevels(player);
+  if (levels) {
+    if (typeof levels.on === "function") {
+      levels.on("addqualitylevel", refreshQualityMenu);
+      levels.on("change", updateVideoJsQualityButton);
+    } else if (typeof levels.addEventListener === "function") {
+      levels.addEventListener("addqualitylevel", refreshQualityMenu);
+      levels.addEventListener("change", updateVideoJsQualityButton);
+    }
+  }
+
+  updateVideoJsQualityButton();
+}
+
 function initializeVideoPlayer() {
   if (!window.videojs || state.videoPlayer) {
     return state.videoPlayer;
@@ -423,11 +622,7 @@ function initializeVideoPlayer() {
     }
   });
 
-  if (typeof state.videoPlayer.qualityMenu === "function") {
-    state.videoPlayer.qualityMenu({
-      useResolutionLabels: true
-    });
-  }
+  installVideoJsQualityMenu(state.videoPlayer);
 
   state.videoPlayer.on("error", () => {
     const error = state.videoPlayer?.error?.();
