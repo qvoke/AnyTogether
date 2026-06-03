@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdn.plyr.io/3.8.4/plyr.css" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/video.js@8.23.4/dist/video-js.min.css" />
   <style>
     :root {
       --bg-0: #070b16;
@@ -436,11 +436,40 @@
       border: 1px solid var(--border);
       box-shadow: var(--shadow);
     }
-    video {
+    video,
+    .player-shell .video-js {
       width: 100%;
       display: block;
       aspect-ratio: 16 / 9;
       background: #000;
+    }
+
+    .player-shell .video-js {
+      height: auto;
+      min-height: 320px;
+      border-radius: var(--radius);
+    }
+
+    .player-shell .vjs-fluid:not(.vjs-audio-only-mode) {
+      padding-top: 56.25%;
+    }
+
+    .player-shell .vjs-quality-menu-button .vjs-icon-placeholder::before {
+      content: "⚙";
+      font-family: inherit;
+      font-size: 1.15em;
+      line-height: 1.67;
+    }
+
+    .player-shell .vjs-quality-menu-label {
+      position: absolute;
+      inset: auto 0 0 0;
+      display: block;
+      font-size: 0.62em;
+      font-weight: 800;
+      line-height: 1;
+      text-align: center;
+      pointer-events: none;
     }
 
     .search-bar { display: flex; gap: 10px; align-items: stretch; }
@@ -944,7 +973,7 @@
           </div>
 
           <div class="player-shell">
-            <video id="video" controls playsinline></video>
+            <video id="video" class="video-js vjs-default-skin vjs-big-play-centered" controls playsinline preload="auto"></video>
           </div>
 
           <div class="card">
@@ -1033,8 +1062,8 @@
     </section>
   </main>
 
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
-  <script src="https://cdn.plyr.io/3.8.4/plyr.polyfilled.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/video.js@8.23.4/dist/video.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/videojs-contrib-quality-levels@4.1.0/dist/videojs-contrib-quality-levels.min.js"></script>
   <script src="./src/app.js" defer></script>
 </body>
 </html>
