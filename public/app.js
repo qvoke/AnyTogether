@@ -14,6 +14,8 @@ const elements = {
   playbackState: document.getElementById("playbackState"),
   player: document.getElementById("player"),
   playerShell: document.querySelector(".player-shell"),
+  qualityControl: document.getElementById("hlsQualityControl"),
+  qualitySelect: document.getElementById("hlsQualitySelect"),
   revisionLabel: document.getElementById("revisionLabel"),
   roleSelect: document.getElementById("roleSelect"),
   roomInput: document.getElementById("roomInput"),
@@ -398,17 +400,7 @@ function destroyHls() {
 }
 
 function destroyEnhancedPlayer() {
-  if (!state.plyr) {
-    return;
-  }
-
-  try {
-    state.plyr.destroy();
-  } catch (error) {
-    logEvent("Enhanced player destroy failed", error);
-  } finally {
-    state.plyr = null;
-  }
+  state.plyr = null;
 }
 
 function getPlayerQualityOptionsFromLevels(levels) {
@@ -442,87 +434,53 @@ function applyPlayerQuality(quality) {
   }
 }
 
+function updateQualityControl(qualityOptions = []) {
+  const select = elements.qualitySelect;
+  const control = elements.qualityControl;
+  if (!select) {
+    return;
+  }
+
+  const options = Array.isArray(qualityOptions) ? qualityOptions : [];
+  select.textContent = "";
+
+  if (!options.length) {
+    select.classList.add("hidden");
+    control?.classList.add("hidden");
+    select.disabled = true;
+    return;
+  }
+
+  for (const quality of options) {
+    const option = document.createElement("option");
+    option.value = String(quality);
+    option.textContent = Number(quality) === 0 ? "Auto" : `${quality}p`;
+    select.append(option);
+  }
+
+  select.value = "0";
+  select.disabled = false;
+  select.classList.remove("hidden");
+  control?.classList.remove("hidden");
+}
+
+function initializeEnhancedPlayer(qualityOptions = []) {
+  updateQualityControl(qualityOptions);
+  return null;
+}
+
 function syncEnhancedPlayerUi(paused = elements.player.paused) {
   const isPaused = Boolean(paused);
-  const container = state.plyr?.elements?.container;
   const playerShell = elements.playerShell || elements.player.closest(".player-shell");
 
   if (playerShell) {
     playerShell.classList.toggle("is-playing", !isPaused);
     playerShell.classList.toggle("is-paused", isPaused);
   }
-
-  if (container) {
-    container.classList.toggle("plyr--playing", !isPaused);
-    container.classList.toggle("plyr--paused", isPaused);
-  }
-
-  const uiRoot = container || playerShell;
-  if (!uiRoot) {
-    return;
-  }
-
-  uiRoot.querySelectorAll(".plyr__control--overlaid").forEach((overlaidPlayButton) => {
-    overlaidPlayButton.hidden = !isPaused;
-    overlaidPlayButton.style.display = isPaused ? "" : "none";
-    overlaidPlayButton.style.pointerEvents = isPaused ? "" : "none";
-    overlaidPlayButton.setAttribute("aria-hidden", String(!isPaused));
-  });
 }
 
 function scheduleEnhancedPlayerUiSync(paused = elements.player.paused) {
   syncEnhancedPlayerUi(paused);
-  requestAnimationFrame(() => syncEnhancedPlayerUi(paused));
-  setTimeout(() => syncEnhancedPlayerUi(paused), 120);
-}
-
-function initializeEnhancedPlayer(qualityOptions = []) {
-  if (!window.Plyr) {
-    return null;
-  }
-
-  destroyEnhancedPlayer();
-
-  const hasQualityOptions = Array.isArray(qualityOptions) && qualityOptions.length > 0;
-  const player = new window.Plyr(elements.player, {
-    controls: [
-      "play-large",
-      "play",
-      "progress",
-      "current-time",
-      "duration",
-      "mute",
-      "volume",
-      "settings",
-      "pip",
-      "airplay",
-      "fullscreen"
-    ],
-    settings: hasQualityOptions ? ["quality", "speed", "loop"] : ["speed", "loop"],
-    quality: hasQualityOptions
-      ? {
-          default: 0,
-          options: qualityOptions,
-          forced: true,
-          onChange: applyPlayerQuality
-        }
-      : undefined,
-    i18n: {
-      quality: "Quality",
-      qualityLabel: {
-        0: "Auto"
-      }
-    }
-  });
-
-  player.on("ready", () => scheduleEnhancedPlayerUiSync());
-  player.on("play", () => scheduleEnhancedPlayerUiSync(false));
-  player.on("playing", () => scheduleEnhancedPlayerUiSync(false));
-  player.on("pause", () => scheduleEnhancedPlayerUiSync(true));
-
-  state.plyr = player;
-  queueMicrotask(() => scheduleEnhancedPlayerUiSync());
-  return player;
 }
 
 function pauseStreamBuffering() {
@@ -793,17 +751,12 @@ function applyPlaybackState(paused) {
   markProgrammaticPlaybackChange(paused);
 
   if (paused) {
-    if (state.plyr?.pause) {
-      state.plyr.pause();
-    } else {
-      elements.player.pause();
-    }
+    elements.player.pause();
     scheduleEnhancedPlayerUiSync(true);
     return;
   }
 
-  const playPromise = state.plyr?.play ? state.plyr.play() : elements.player.play();
-  void Promise.resolve(playPromise)
+  void elements.player.play()
     .then(() => scheduleEnhancedPlayerUiSync(false))
     .catch(() => {
       if (state.programmaticPlayEvents > 0) {
@@ -1371,6 +1324,9 @@ elements.seekButton.addEventListener("click", () => {
   elements.player.currentTime = Math.max(0, Number(elements.seekInput.value) || 0);
 });
 elements.syncButton.addEventListener("click", () => sendMessage({ type: "request-sync" }));
+if (elements.qualitySelect) {
+  elements.qualitySelect.addEventListener("change", () => applyPlayerQuality(elements.qualitySelect.value));
+}
 
 elements.player.addEventListener("play", () => {
   scheduleEnhancedPlayerUiSync(false);
