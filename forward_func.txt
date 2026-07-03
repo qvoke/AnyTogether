@@ -1,0 +1,1539 @@
+﻿const SEARCH_REQUEST_EVENT = "WT_SEARCH_REQUEST";
+const RESOLVE_PAGE_REQUEST_EVENT = "WT_RESOLVE_PAGE_URL";
+const EXTENSION_STATUS_EVENT = "WT_EXTENSION_STATUS";
+const EXTENSION_ERROR_EVENT = "WT_EXTENSION_ERROR";
+const MEDIA_URL_REGEX = /https?:\/\/[^\s"'<>]+?\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?/i;
+
+function sendStatus(tabId, message) {
+  if (typeof tabId !== "number") return;
+
+  chrome.tabs.sendMessage(tabId, {
+    type: EXTENSION_STATUS_EVENT,
+    payload: { message }
+  });
+}
+
+function sendError(tabId, message) {
+  if (typeof tabId !== "number") return;
+
+  chrome.tabs.sendMessage(tabId, {
+    type: EXTENSION_ERROR_EVENT,
+    payload: { message }
+  });
+}
+
+function decodeDuckDuckGoHref(rawHref) {
+  try {
+    const url = new URL(rawHref);
+    const wrapped = url.searchParams.get("uddg");
+    return wrapped ? decodeURIComponent(wrapped) : rawHref;
+  } catch {
+    return rawHref;
+  }
+}
+
+function buildSearchUrl(query) {
+  const fullQuery = encodeURIComponent(query);
+  return `https://html.duckduckgo.com/html/?q=${fullQuery}`;
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function normalizeQualityLabel(label) {
+  return String(label || "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function parseRezkaStreamOptions(streamText) {
+  if (typeof streamText !== "string" || !streamText) return [];
+
+  const options = [];
+  const entries = streamText.split(/,(?=\[[^\]]+\])/g);
+
+  for (const entry of entries) {
+    const labelMatch = entry.match(/^\[([^\]]+)\]/);
+    const urlMatch = entry.match(/https?:\/\/[^\s"'<>]+/i);
+
+    if (!labelMatch || !urlMatch) continue;
+
+    const label = String(labelMatch[1] || "")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const url = String(urlMatch[0] || "").trim();
+
+    if (!label || !url) continue;
+
+    options.push({
+      label,
+      normalizedLabel: normalizeQualityLabel(label),
+      url
+    });
+  }
+
+  return options;
+}
+
+function pickRezkaStreamOption(options, preferredQualityLabel, defaultQualityLabel) {
+  if (!Array.isArray(options) || options.length === 0) return null;
+
+  const parseResolution = (label) => {
+    const value = Number.parseInt(String(label || "").replace(/[^0-9]/g, ""), 10);
+    return Number.isFinite(value) ? value : null;
+  };
+
+  const preferred = normalizeQualityLabel(preferredQualityLabel);
+  if (preferred) {
+    const exactMatch = options.find((option) => option.normalizedLabel === preferred);
+    if (exactMatch) return exactMatch;
+
+    const looseMatch = options.find((option) => option.normalizedLabel.includes(preferred));
+    if (looseMatch) return looseMatch;
+  }
+
+  // Р’Р°Р¶РЅРѕ: РјРЅРѕРіРёРµ РёСЃС‚РѕС‡РЅРёРєРё РІРѕР·РІСЂР°С‰Р°СЋС‚ default_quality/data.quality РєР°Рє "360p", РґР°Р¶Рµ РєРѕРіРґР° РґРѕСЃС‚СѓРїРЅС‹ 720/1080.
+  // Р•СЃР»Рё РїРѕР»СЊР·РѕРІР°С‚РµР»СЊ РЅРµ Р·Р°РґР°Р» РєР°С‡РµСЃС‚РІРѕ СЏРІРЅРѕ вЂ” РІС‹Р±РёСЂР°РµРј РјР°РєСЃРёРјР°Р»СЊРЅРѕ РґРѕСЃС‚СѓРїРЅРѕРµ РїРѕ РјРµС‚РєРµ.
+  const ranked = options
+    .map((option) => ({ option, resolution: parseResolution(option.label) ?? parseResolution(option.normalizedLabel) ?? 0 }))
+    .sort((a, b) => b.resolution - a.resolution);
+
+  if (ranked.length && ranked[0].resolution > 0) {
+    return ranked[0].option;
+  }
+
+  // Fallback: СЃРѕС…СЂР°РЅРёРј СЃС‚Р°СЂРѕРµ РїРѕРІРµРґРµРЅРёРµ РЅР° СЃР»СѓС‡Р°Р№ РЅРµСЃС‚Р°РЅРґР°СЂС‚РЅС‹С… РјРµС‚РѕРє.
+  const defaultMatch = normalizeQualityLabel(defaultQualityLabel);
+  if (defaultMatch) {
+    const exactDefault = options.find((option) => option.normalizedLabel === defaultMatch);
+    if (exactDefault) return exactDefault;
+  }
+
+  return options[0];
+}
+
+async function fetchRezkaEpisodeMedia(seriesContext, targetEpisode, options = {}) {
+  const resolver = seriesContext?.resolver;
+  if (!resolver || resolver.provider !== "rezka") {
+    return null;
+  }
+
+  const itemId = Number(resolver.itemId);
+  const translatorId = Number(
+    Number.isFinite(Number(options.translatorId)) ? options.translatorId : resolver.translatorId
+  );
+  const seasonId = Number(targetEpisode?.seasonId);
+  const episodeId = Number(targetEpisode?.episodeId);
+
+  if (!Number.isFinite(itemId) || !Number.isFinite(translatorId) || !Number.isFinite(seasonId) || !Number.isFinite(episodeId)) {
+    return null;
+  }
+
+  const origin = resolver.origin || "https://rezka-ua.tv";
+  const endpoint = new URL("/ajax/get_cdn_series/", origin);
+  endpoint.searchParams.set("t", String(Date.now()));
+
+  const response = await fetch(endpoint.href, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+      "X-Requested-With": "XMLHttpRequest"
+    },
+    body: new URLSearchParams({
+      id: String(itemId),
+      translator_id: String(translatorId),
+      season: String(seasonId),
+      episode: String(episodeId),
+      favs: resolver.favs || "",
+      action: "get_stream"
+    })
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const data = await response.json().catch(() => null);
+  const streamOptions = parseRezkaStreamOptions(data?.url || "");
+  const selectedStream = pickRezkaStreamOption(
+    streamOptions,
+    options.qualityLabel || data?.quality,
+    data?.default_quality
+  );
+
+  if (!selectedStream?.url) {
+    return null;
+  }
+
+  const episodes = Array.isArray(seriesContext?.episodes) ? seriesContext.episodes : [];
+  const currentEpisodeIndex = episodes.findIndex(
+    (episode) => Number(episode?.seasonId) === seasonId && Number(episode?.episodeId) === episodeId
+  );
+
+  // Debug: log what quality was selected and what URLs are available
+  console.log("[AnyTogether Rezka Resolver]", {
+    requestedQuality: options.qualityLabel || data?.quality,
+    selectedLabel: selectedStream.label,
+    selectedUrl: selectedStream.url ? selectedStream.url.substring(0, 100) + '...' : 'NONE',
+    allOptionsCount: streamOptions.length,
+    allOptions: streamOptions.map(o => ({ label: o.label, url: o.url.substring(0, 50) + '...' }))
+  });
+
+  return {
+    mediaUrl: selectedStream.url,
+    pageUrl: resolver.pageUrl || null,
+    seriesContext: {
+      ...seriesContext,
+      currentEpisodeIndex,
+      currentSeasonId: seasonId,
+      currentEpisodeId: episodeId,
+      selectedTranslatorId: translatorId,
+      selectedQualityLabel: selectedStream.label,
+      availableQualities: streamOptions.map((streamOption) => ({
+        label: streamOption.label,
+        normalizedLabel: streamOption.normalizedLabel
+      }))
+    }
+  };
+}
+
+// ---------- HLS Master playlist resolver ----------
+
+function isMasterPlaylist(playlistText) {
+  return /#EXT-X-STREAM-INF\s*:/i.test(playlistText);
+}
+
+function isMediaPlaylist(playlistText) {
+  return /#EXTINF\s*:/i.test(playlistText);
+}
+
+function pickBestVariantFromMaster(playlistText, baseUrl) {
+  const lines = playlistText.split(/\r?\n/);
+  const variants = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!/#EXT-X-STREAM-INF\s*:/i.test(line)) continue;
+
+    const attrs = {};
+    const attrStr = line.replace(/^#EXT-X-STREAM-INF\s*:\s*/i, '');
+    const attrRegex = /([A-Z_-]+)\s*=\s*(?:"([^"]*)"|([^,"\s]*))/gi;
+    let match;
+    while ((match = attrRegex.exec(attrStr)) !== null) {
+      attrs[match[1].toUpperCase()] = match[2] !== undefined ? match[2] : match[3];
+    }
+
+    let j = i + 1;
+    while (j < lines.length && (lines[j].startsWith('#') || lines[j].trim() === '')) {
+      j++;
+    }
+    if (j >= lines.length) continue;
+
+    const variantUrl = resolveUrl(lines[j].trim(), baseUrl);
+    if (!variantUrl) continue;
+
+    const bandwidth = parseInt(attrs.BANDWIDTH, 10) || 0;
+    let resolution = 0;
+    if (attrs.RESOLUTION) {
+      const resMatch = attrs.RESOLUTION.match(/(\d+)\s*x\s*(\d+)/i);
+      if (resMatch) resolution = parseInt(resMatch[2], 10);
+    }
+
+    variants.push({ url: variantUrl, bandwidth, resolution });
+  }
+
+  if (variants.length === 0) return null;
+
+  variants.sort((a, b) => (b.resolution - a.resolution) || (b.bandwidth - a.bandwidth));
+
+  return {
+    url: variants[0].url,
+    bandwidth: variants[0].bandwidth,
+    resolution: variants[0].resolution,
+    label: variants[0].resolution ? `${variants[0].resolution}p` : `${Math.round(variants[0].bandwidth / 1000)}k`,
+    allVariants: variants.map(v => ({
+      url: v.url,
+      bandwidth: v.bandwidth,
+      resolution: v.resolution,
+      label: v.resolution ? `${v.resolution}p` : `${Math.round(v.bandwidth / 1000)}k`
+    }))
+  };
+}
+
+function resolveUrl(urlStr, baseUrlStr) {
+  if (!urlStr) return null;
+  try {
+    return new URL(urlStr, baseUrlStr).href;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchPlaylist(url) {
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      cache: 'no-store',
+      credentials: 'omit',
+      redirect: 'follow',
+      referrerPolicy: 'no-referrer'
+    });
+    if (!response.ok) return null;
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (contentType.includes('text/html')) return null;
+    return await response.text();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Given an .m3u8 URL, try to resolve to best quality variant:
+ * 1. Fetch the URL вЂ” if it's a master playlist, extract best variant
+ * 2. If it's a media playlist, try common master playlist names in same dir
+ * 3. Return the best quality media URL + master URL for hls.js
+ */
+// РћРїСЂРµРґРµР»СЏРµС‚, РІС‹РіР»СЏРґРёС‚ Р»Рё РёРјСЏ С„Р°Р№Р»Р° РєР°Рє master playlist
+function isMasterByFilename(filename) {
+  const base = filename.split('?')[0].split('#')[0].toLowerCase();
+  // РРјРµРЅР°, С‚РёРїРёС‡РЅС‹Рµ РґР»СЏ master playlist
+  if (/^(master|index|playlist|manifest|multi|variant|adaptive)/i.test(base)) return true;
+  // РќРµ СЃРѕРґРµСЂР¶РёС‚ С†РёС„СЂ РєР°С‡РµСЃС‚РІР° (360p, 720p, 1080, 1920x1080)
+  if (!/\d{3,4}p?/.test(base) && !/_\d+x\d+/.test(base)) return true;
+  return false;
+}
+
+// РџР°СЂСЃРёС‚ РёРјСЏ С„Р°Р№Р»Р° media playlist РЅР° РїСЂРµРґРјРµС‚ СЂР°Р·СЂРµС€РµРЅРёСЏ (РЅР°РїСЂРёРјРµСЂ, 720p, 1080, 1920x1080)
+function guessResolutionFromFilename(filename) {
+  const base = filename.split('?')[0].split('#')[0];
+  // 1080p, 720p, 360p
+  const labeled = base.match(/(\d{3,4})\s*p/i);
+  if (labeled) return parseInt(labeled[1], 10);
+  // 1920x1080, 1280x720
+  const dims = base.match(/(\d+)x(\d+)/i);
+  if (dims) return parseInt(dims[2], 10);
+  // РџСЂРѕСЃС‚Рѕ С‡РёСЃР»Рѕ (1080, 720)
+  const number = base.match(/(\d{3,4})(?:\.[^.]+)?$/);
+  if (number) return parseInt(number[1], 10);
+  return 0;
+}
+
+// Р’С‹Р±РёСЂР°РµС‚ РЅР°РёР»СѓС‡С€РёР№ .m3u8 РёР· СЃРїРёСЃРєР° РїРѕ РёРјРµРЅРё С„Р°Р№Р»Р°
+function pickBestM3u8ByFilename(urls) {
+  if (!urls || urls.length === 0) return null;
+  
+  // РЎРѕСЂС‚РёСЂСѓРµРј: СЃРЅР°С‡Р°Р»Р° master РїРѕ РёРјРµРЅРё, РїРѕС‚РѕРј media РїРѕ СѓР±С‹РІР°РЅРёСЋ СЂР°Р·СЂРµС€РµРЅРёСЏ
+  const scored = urls.map(url => {
+    const filename = url.split('/').pop() || '';
+    const isMaster = isMasterByFilename(filename);
+    const resolution = isMaster ? 99999 : guessResolutionFromFilename(filename);
+    return { url, filename, isMaster, resolution, score: isMaster ? 100000 + resolution : resolution };
+  });
+  
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0];
+}
+
+async function resolveBestQualityHls(mediaUrl) {
+  if (!mediaUrl || !/\.m3u8/i.test(mediaUrl)) return { url: mediaUrl, masterUrl: null, variants: null };
+
+  // РџСЂРѕР±СѓРµРј Р·Р°РіСЂСѓР·РёС‚СЊ С‡РµСЂРµР· fetch (РµСЃР»Рё CORS СЂР°Р·СЂРµС€С‘РЅ)
+  // Р•СЃР»Рё РЅРµ РїРѕР»СѓС‡РёР»РѕСЃСЊ вЂ” РїС‹С‚Р°РµРјСЃСЏ СѓРіР°РґР°С‚СЊ master playlist РїРѕ РёРјРµРЅРё С„Р°Р№Р»Р°
+  const tryFetchAndAnalyze = async (url) => {
+    try {
+      const text = await fetchPlaylist(url);
+      if (!text) return null;
+      if (isMasterPlaylist(text)) {
+        const best = pickBestVariantFromMaster(text, url);
+        if (best) return { url: best.url, masterUrl: url, variants: best.allVariants, isMaster: true };
+      }
+      if (isMediaPlaylist(text)) return { url, masterUrl: null, variants: null, isMaster: false };
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  const result1 = await tryFetchAndAnalyze(mediaUrl);
+  if (result1) {
+    if (result1.isMaster) return result1;
+  }
+
+  // РџРѕРїСЂРѕР±СѓРµРј РЅР°Р№С‚Рё master РїРѕ СЂР°Р·РЅС‹Рј РёРјРµРЅР°Рј РІ С‚РѕР№ Р¶Рµ РґРёСЂРµРєС‚РѕСЂРёРё
+  const urlObj = new URL(mediaUrl);
+  const pathParts = urlObj.pathname.split('/');
+  const filename = pathParts[pathParts.length - 1] || '';
+
+  const masterCandidates = [
+    'master.m3u8',
+    'index.m3u8',
+    'playlist.m3u8',
+    'manifest.m3u8'
+  ];
+
+  for (const candidate of [...new Set(masterCandidates)]) {
+    if (candidate === filename) continue;
+    urlObj.pathname = [...pathParts.slice(0, -1), candidate].join('/');
+    const result = await tryFetchAndAnalyze(urlObj.href);
+    if (result && result.isMaster) {
+      return { url: result.url, masterUrl: urlObj.href, variants: result.variants };
+    }
+  }
+
+  // Р•СЃР»Рё fetch РЅРµ СЃСЂР°Р±РѕС‚Р°Р» (CORS) вЂ” РїС‹С‚Р°РµРјСЃСЏ СѓРіР°РґР°С‚СЊ master РїРѕ РёРјРµРЅРё С„Р°Р№Р»Р°
+  const best = pickBestM3u8ByFilename([mediaUrl]);
+  if (best && best.isMaster) {
+    return { url: best.url, masterUrl: best.url, variants: null };
+  }
+
+  // Р•СЃР»Рё Сѓ РЅР°СЃ media playlist СЃ РёР·РІРµСЃС‚РЅС‹Рј СЂР°Р·СЂРµС€РµРЅРёРµРј вЂ” РѕС‚РґР°С‘Рј РєР°Рє РµСЃС‚СЊ
+  if (result1) return result1;
+
+  // Fallback: РёСЃС…РѕРґРЅС‹Р№ URL РєР°Рє РµСЃС‚СЊ
+  return { url: mediaUrl, masterUrl: null, variants: null };
+}
+
+// ---------- End HLS Master playlist resolver ----------
+
+async function clearOriginSiteData(pageUrl) {
+  try {
+    const origin = new URL(pageUrl).origin;
+    await chrome.browsingData.remove(
+      { origins: [origin] },
+      {
+        cookies: true,
+        localStorage: true,
+        indexedDB: true,
+        cache: true,
+        serviceWorkers: true,
+        webSQL: true
+      }
+    );
+  } catch {
+    // The target page can still work if data removal is not available for this origin.
+  }
+}
+
+function normalizePageUrl(value) {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function samePageUrl(left, right) {
+  try {
+    const leftUrl = new URL(left);
+    const rightUrl = new URL(right);
+    return (
+      leftUrl.origin === rightUrl.origin &&
+      leftUrl.pathname.replace(/\/+$/, "") === rightUrl.pathname.replace(/\/+$/, "")
+    );
+  } catch {
+    return false;
+  }
+}
+
+function sharedPathPrefixCount(left, right) {
+  try {
+    const leftSegments = new URL(left).pathname.split("/").filter(Boolean);
+    const rightSegments = new URL(right).pathname.split("/").filter(Boolean);
+    let count = 0;
+
+    while (count < leftSegments.length && count < rightSegments.length) {
+      if (leftSegments[count] !== rightSegments[count]) break;
+      count += 1;
+    }
+
+    return count;
+  } catch {
+    return 0;
+  }
+}
+
+async function getSearchCandidates(query, hostTabId) {
+  const queryTokens = query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+
+  const searchTab = await chrome.tabs.create({
+    url: buildSearchUrl(query),
+    active: false
+  });
+
+  try {
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      sendStatus(hostTabId, `Search page ready, extraction attempt ${attempt}`);
+      await delay(1500);
+
+      const [result] = await chrome.scripting.executeScript({
+        target: { tabId: searchTab.id },
+        args: [queryTokens],
+        func: (tokens) => {
+          const scoreCandidate = (anchor) => {
+            try {
+              const url = new URL(anchor.href);
+              if (!/^https?:$/.test(url.protocol)) return Number.NEGATIVE_INFINITY;
+              if (url.hostname.includes("duckduckgo.com")) return Number.NEGATIVE_INFINITY;
+              if (url.pathname === "/" || url.pathname === "") return Number.NEGATIVE_INFINITY;
+
+              const text = `${anchor.textContent || ""} ${anchor.getAttribute("title") || ""} ${anchor.href}`.toLowerCase();
+              let score = 0;
+
+              for (const token of tokens) {
+                if (text.includes(token)) {
+                  score += 4;
+                }
+              }
+
+              if (url.pathname.split("/").filter(Boolean).length > 0) {
+                score += 2;
+              }
+
+              return score;
+            } catch {
+              return Number.NEGATIVE_INFINITY;
+            }
+          };
+
+          const selectors = [
+            "a.result__a[href]",
+            'a[data-testid="result-title-a"][href]',
+            "article a[href]",
+            "h2 a[href]",
+            "a[href]"
+          ];
+
+          const anchors = [...new Set(selectors.flatMap((selector) => [...document.querySelectorAll(selector)]))];
+          const ranked = anchors
+            .map((anchor) => ({ anchor, score: scoreCandidate(anchor) }))
+            .filter((item) => Number.isFinite(item.score))
+            .sort((a, b) => b.score - a.score);
+
+          const candidates = ranked.slice(0, 8).map((item) => item.anchor.href);
+
+          if (candidates.length > 0) {
+            return candidates;
+          }
+
+          const bodyText = document.body?.innerText || "";
+          const fallback = [];
+          const explicitUrls = bodyText.match(/https?:\/\/[^\s"'<>]+/gi) || [];
+          const urlishPaths = bodyText.match(/\b[a-z0-9.-]+\.[a-z]{2,}(?:\/[^\s"'<>]+)?/gi) || [];
+
+          for (const candidate of [...explicitUrls, ...urlishPaths]) {
+            const normalizedCandidate = candidate.startsWith("http")
+              ? candidate
+              : `https://${candidate}`;
+
+            if (normalizedCandidate.includes("...")) continue;
+
+            try {
+              const url = new URL(normalizedCandidate);
+              if (url.hostname.includes("duckduckgo.com")) continue;
+              fallback.push(normalizedCandidate);
+            } catch {
+              continue;
+            }
+          }
+
+          return [...new Set(fallback)].slice(0, 8);
+        }
+      });
+
+      const candidates = (result?.result || []).map((candidate) => decodeDuckDuckGoHref(candidate));
+      const uniqueCandidates = [...new Set(candidates)].filter(Boolean);
+
+      sendStatus(hostTabId, `Search candidates found: ${uniqueCandidates.length}`);
+      if (uniqueCandidates.length > 0) {
+        return uniqueCandidates;
+      }
+
+      sendStatus(hostTabId, "No result on this attempt, retrying");
+    }
+
+    return [];
+  } finally {
+    chrome.tabs.remove(searchTab.id).catch(() => {});
+  }
+}
+
+function waitForMediaUrl(tabId, timeoutMs = 15000) {
+  let stop = () => {};
+
+  const promise = new Promise((resolve) => {
+    const collectedUrls = [];
+    const timeoutId = setTimeout(async () => {
+      chrome.webRequest.onBeforeRequest.removeListener(listener);
+      
+      // РћС‚С„РёР»СЊС‚СЂРѕРІС‹РІР°РµРј .m3u8 вЂ” СЃСЂРµРґРё РЅРёС… РёС‰РµРј master
+      const m3u8Urls = [...new Set(collectedUrls.filter(url => /\.m3u8/i.test(url)))];
+      const mp4Urls = [...new Set(collectedUrls.filter(url => /\.mp4/i.test(url)))];
+      
+      // 1. РЎРЅР°С‡Р°Р»Р° РїСЂРѕР±СѓРµРј РєР°Р¶РґС‹Р№ .m3u8 вЂ” РјРѕР¶РµС‚ Р±С‹С‚СЊ master playlist
+      if (m3u8Urls.length > 0) {
+        // РџСЂРѕР±СѓРµРј Р·Р°РіСЂСѓР·РёС‚СЊ РєР°Р¶РґС‹Р№ .m3u8 Рё РїСЂРѕРІРµСЂРёС‚СЊ, РЅРµ master Р»Рё РѕРЅ
+        for (const url of m3u8Urls) {
+          const resolved = await resolveBestQualityHls(url);
+          if (resolved?.masterUrl || resolved?.variants) {
+            // Р­С‚Рѕ master playlist! РћС‚РґР°С‘Рј РµРіРѕ URL
+            resolve(resolved.masterUrl || url);
+            return;
+          }
+        }
+        // РќРё РѕРґРёРЅ РЅРµ РѕРєР°Р·Р°Р»СЃСЏ master вЂ” РѕС‚РґР°С‘Рј media playlist СЃ РЅР°РёРІС‹СЃС€РёРј СЂР°Р·СЂРµС€РµРЅРёРµРј
+        // (resolveBestQualityHls СѓР¶Рµ РїРѕРїС‹С‚Р°Р»СЃСЏ РЅР°Р№С‚Рё master СЂСЏРґРѕРј)
+        for (const url of m3u8Urls) {
+          const resolved = await resolveBestQualityHls(url);
+          if (resolved?.url) {
+            resolve(resolved.url);
+            return;
+          }
+        }
+        // Fallback: РїРµСЂРІС‹Р№ .m3u8
+        resolve(m3u8Urls[0]);
+        return;
+      }
+      
+      // 2. .mp4 С„Р°Р№Р»С‹
+      if (mp4Urls.length > 0) {
+        resolve(mp4Urls[0]);
+        return;
+      }
+      
+      resolve(null);
+    }, timeoutMs);
+
+    function listener(details) {
+      const candidate = details.url || "";
+      if (!MEDIA_URL_REGEX.test(candidate)) return;
+      collectedUrls.push(candidate);
+    }
+
+    stop = () => {
+      clearTimeout(timeoutId);
+      chrome.webRequest.onBeforeRequest.removeListener(listener);
+    };
+
+    chrome.webRequest.onBeforeRequest.addListener(
+      listener,
+      { urls: ["<all_urls>"], tabId },
+      []
+    );
+  });
+
+  return { promise, stop };
+}
+
+async function extractMediaUrlFromPage(tabId) {
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: async () => {
+        // Helper functions
+        const isMasterPlaylist = (text) => /#EXT-X-STREAM-INF\s*:/i.test(text);
+        const isMediaPlaylist = (text) => /#EXTINF\s*:/i.test(text);
+
+        const isMasterByFilename = (url) => {
+          const base = url.split('/').pop()?.split('?')[0]?.split('#')[0]?.toLowerCase() || '';
+          if (/^(master|index|playlist|manifest|multi|variant|adaptive)/i.test(base)) return true;
+          if (/\d{3,4}p?/.test(base)) return false;
+          if (/_\d+x\d+/.test(base)) return false;
+          if (/\d{3,4}(?:\.[^.]+)?$/.test(base)) return false;
+          return true;
+        };
+
+        const guessResolution = (url) => {
+          const base = url.split('/').pop()?.split('?')[0] || '';
+          const labeled = base.match(/(\d{3,4})\s*p/i);
+          if (labeled) return parseInt(labeled[1], 10);
+          const dims = base.match(/(\d+)x(\d+)/i);
+          if (dims) return parseInt(dims[2], 10);
+          const number = base.match(/(\d{3,4})(?:\.[^.]+)?$/);
+          if (number) return parseInt(number[1], 10);
+          return 0;
+        };
+
+        /**
+         * Р—Р°РіСЂСѓР¶Р°РµС‚ .m3u8 (Р±РµР· CORS РїСЂРѕР±Р»РµРј, С‚.Рє. РІРЅСѓС‚СЂРё СЃС‚СЂР°РЅРёС†С‹)
+         * Рё РѕРїСЂРµРґРµР»СЏРµС‚ master СЌС‚Рѕ РёР»Рё media playlist.
+         * Р’РѕР·РІСЂР°С‰Р°РµС‚ { isMaster, variants } РёР»Рё null.
+         */
+        async function analyzeM3u8(url) {
+          try {
+            const response = await fetch(url, {
+              method: 'GET',
+              cache: 'no-store',
+              credentials: 'include',
+              redirect: 'follow'
+            });
+            if (!response.ok) return null;
+            const text = await response.text();
+            if (!text) return null;
+
+            if (isMasterPlaylist(text)) {
+              // РџР°СЂСЃРёРј РІР°СЂРёР°РЅС‚С‹ РєР°С‡РµСЃС‚РІР°
+              const lines = text.split(/\r?\n/);
+              const variants = [];
+              for (let i = 0; i < lines.length; i++) {
+                if (!/#EXT-X-STREAM-INF\s*:/i.test(lines[i])) continue;
+                const resMatch = lines[i].match(/RESOLUTION\s*=\s*(\d+)x(\d+)/i);
+                let j = i + 1;
+                while (j < lines.length && (lines[j].startsWith('#') || !lines[j].trim())) j++;
+                if (j >= lines.length) continue;
+                const variantUrl = lines[j].trim().startsWith('http')
+                  ? lines[j].trim()
+                  : new URL(lines[j].trim(), url).href;
+                const height = resMatch ? parseInt(resMatch[2], 10) : 0;
+                variants.push({ url: variantUrl, height });
+              }
+              if (variants.length > 0) {
+                variants.sort((a, b) => b.height - a.height);
+                return { isMaster: true, bestUrl: variants[0].url, variants };
+              }
+              return { isMaster: true, bestUrl: url, variants: [] };
+            }
+            
+            if (isMediaPlaylist(text)) {
+              return { isMaster: false, bestUrl: url, variants: null };
+            }
+            
+            return null;
+          } catch {
+            return null;
+          }
+        }
+
+        // РЎРѕР±РёСЂР°РµРј РІСЃРµ URL
+        const m3u8Urls = new Set();
+        const mp4Urls = new Set();
+
+        const addUrl = (value) => {
+          if (!value || typeof value !== "string") return;
+          if (/(?:blob:|data:)/i.test(value)) return;
+          if (/https?:\/\/[^\s"'<>]+?\.(?:m3u8)(?:\?[^\s"'<>]*)?/i.test(value)) {
+            m3u8Urls.add(value);
+          } else if (/https?:\/\/[^\s"'<>]+?\.(?:mp4)(?:\?[^\s"'<>]*)?/i.test(value)) {
+            mp4Urls.add(value);
+          }
+        };
+
+        // РР· video/source/meta
+        document.querySelectorAll("video, video source, source, meta").forEach((node) => {
+          if (node.tagName === "VIDEO") { addUrl(node.currentSrc); addUrl(node.src); }
+          if (node.tagName === "SOURCE") { addUrl(node.src); }
+          if (node.tagName === "META") { addUrl(node.content); }
+        });
+
+        // РР· СЃРєСЂРёРїС‚РѕРІ
+        for (const script of document.scripts) {
+          const text = script.textContent || "";
+          const escaped = text.match(/https?:\\\/\\\/[^\s"'<>]+?\.(?:m3u8|mp4)(?:[^\s"'<>]*)/gi);
+          if (escaped) escaped.forEach(m => addUrl(m.replace(/\\\//g, '/')));
+          const plain = text.match(/https?:\/\/[^\s"'<>]+?\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?/gi);
+          if (plain) plain.forEach(addUrl);
+        }
+
+        // РР· HTML
+        const html = document.documentElement.innerHTML;
+        const htmlEscaped = html.match(/https?:\\\/\\\/[^\s"'<>]+?\.(?:m3u8|mp4)(?:[^\s"'<>]*)/gi);
+        if (htmlEscaped) htmlEscaped.forEach(m => addUrl(m.replace(/\\\//g, '/')));
+        const htmlPlain = html.match(/https?:\/\/[^\s"'<>]+?\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?/gi);
+        if (htmlPlain) htmlPlain.forEach(addUrl);
+
+        const m3u8List = [...m3u8Urls];
+
+        // 1) РЎРЅР°С‡Р°Р»Р° РїС‹С‚Р°РµРјСЃСЏ Р·Р°РіСЂСѓР·РёС‚СЊ РєР°Р¶РґС‹Р№ СѓРЅРёРєР°Р»СЊРЅС‹Р№ .m3u8 Рё РїСЂРѕРІРµСЂРёС‚СЊ вЂ” РЅРµ master Р»Рё РѕРЅ
+        // РџСЂРѕР±СѓРµРј РЅРµ Р±РѕР»РµРµ 5 URL РґР»СЏ СЃРєРѕСЂРѕСЃС‚Рё
+        const uniqueM3u8 = [...new Set(m3u8List)];
+        const urlsToTry = uniqueM3u8.slice(0, 5);
+
+        for (const url of urlsToTry) {
+          const analysis = await analyzeM3u8(url);
+          if (analysis && analysis.isMaster) {
+            return {
+              mediaUrl: analysis.bestUrl,
+              masterPlaylistUrl: url,
+              allVariants: analysis.variants
+            };
+          }
+        }
+
+        // 2) РќРё РѕРґРёРЅ РЅРµ master вЂ” РёС‰РµРј master РїРѕ РёРјРµРЅРё С„Р°Р№Р»Р°
+        for (const url of m3u8List) {
+          if (isMasterByFilename(url)) {
+            const analysis = await analyzeM3u8(url);
+            if (analysis && analysis.isMaster) {
+              return {
+                mediaUrl: analysis.bestUrl,
+                masterPlaylistUrl: url,
+                allVariants: analysis.variants
+              };
+            }
+          }
+        }
+
+        // 3) РС‰РµРј master РІ С‚РѕР№ Р¶Рµ РґРёСЂРµРєС‚РѕСЂРёРё (РґР»СЏ media playlist)
+        // РР·РІРµСЃС‚РЅС‹Рµ РёРјРµРЅР° master СЂСЏРґРѕРј СЃ media
+        for (const mediaUrl of m3u8List) {
+          try {
+            const mediaObj = new URL(mediaUrl);
+            const pathParts = mediaObj.pathname.split('/');
+            const filename = pathParts.pop();
+            const dir = pathParts.join('/');
+
+            const masterNames = ['master.m3u8', 'index.m3u8', 'playlist.m3u8', 'manifest.m3u8'];
+            for (const name of masterNames) {
+              if (name === filename) continue;
+              const candidateUrl = mediaObj.origin + dir + '/' + name;
+              const analysis = await analyzeM3u8(candidateUrl);
+              if (analysis && analysis.isMaster) {
+                return {
+                  mediaUrl: analysis.bestUrl,
+                  masterPlaylistUrl: candidateUrl,
+                  allVariants: analysis.variants
+                };
+              }
+            }
+          } catch {}
+        }
+
+        // 4) Р’С‹Р±РёСЂР°РµРј media playlist СЃ РЅР°РёРІС‹СЃС€РёРј СЂР°Р·СЂРµС€РµРЅРёРµРј
+        let bestUrl = null;
+        let bestResolution = 0;
+        for (const url of m3u8List) {
+          const res = guessResolution(url);
+          if (res > bestResolution) {
+            bestResolution = res;
+            bestUrl = url;
+          }
+        }
+        if (bestUrl) {
+          return { mediaUrl: bestUrl, masterPlaylistUrl: null };
+        }
+
+        // 5) MP4 fallback
+        if (mp4Urls.size > 0) {
+          return { mediaUrl: [...mp4Urls][0], masterPlaylistUrl: null };
+        }
+
+        return null;
+      }
+    });
+
+    return result?.result || null;
+  } catch {
+    return null;
+  }
+}
+
+async function extractRezkaCdnUrlTextFromPage(tabId) {
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        const looksLikeQualityList = (value) =>
+          typeof value === "string" &&
+          value.includes("[") &&
+          value.includes("]") &&
+          /https?:\/\//i.test(value) &&
+          /(?:m3u8|mp4)/i.test(value);
+
+        const candidates = [];
+
+        const activeEpisode = document.querySelector(".b-simple_episode__item.active[data-cdn_url]");
+        if (activeEpisode) {
+          const url = activeEpisode.getAttribute("data-cdn_url");
+          if (looksLikeQualityList(url)) {
+            candidates.push(url);
+          }
+        }
+
+        document.querySelectorAll("[data-cdn_url]").forEach((node) => {
+          const url = node.getAttribute("data-cdn_url");
+          if (looksLikeQualityList(url)) {
+            candidates.push(url);
+          }
+        });
+
+        // Р’РѕР·СЊРјС‘Рј "СЃР°РјС‹Р№ РёРЅС„РѕСЂРјР°С‚РёРІРЅС‹Р№" (РѕР±С‹С‡РЅРѕ С‚Р°Рј Р±РѕР»СЊС€Рµ РІР°СЂРёР°РЅС‚РѕРІ РєР°С‡РµСЃС‚РІР°).
+        candidates.sort((a, b) => String(b).length - String(a).length);
+        return candidates[0] || null;
+      }
+    });
+
+    return result?.result || null;
+  } catch {
+    return null;
+  }
+}
+
+async function extractSeriesContextFromPage(tabId, pageUrl) {
+  try {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      args: [pageUrl],
+      func: (pageUrlArg) => {
+        const normalizeUrl = (value) => {
+          try {
+            const url = new URL(value, document.baseURI);
+            url.hash = "";
+            return url.href;
+          } catch {
+            return null;
+          }
+        };
+
+        const title =
+          document.querySelector('meta[property="og:title"]')?.content?.trim() ||
+          document.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim() ||
+          document.title.replace(/\s+/g, " ").trim();
+        const currentPageUrl = normalizeUrl(pageUrlArg) || document.location.href;
+        const html = document.documentElement.innerHTML;
+        // РС‰РµРј РєР°Рє initCDNSeriesEvents (СЃРµСЂРёР°Р»С‹), С‚Р°Рє Рё initCDNMovieEvents (С„РёР»СЊРјС‹)
+        const seriesMatch = html.match(/initCDNSeriesEvents\((\d+),\s*(\d+),\s*(\d+),\s*(\d+),/i);
+        const movieMatch = html.match(/initCDNMovieEvents\((\d+),\s*(\d+),\s*(\d+),\s*(\d+),/i);
+        const resolverMatch = seriesMatch || movieMatch;
+        const isMovie = !seriesMatch && !!movieMatch;
+        const favs = document.querySelector("#ctrl_favs")?.value || "";
+        const resolver = resolverMatch
+          ? {
+              provider: "rezka",
+              itemId: Number(resolverMatch[1]),
+              translatorId: Number(resolverMatch[2]),
+              pageUrl: currentPageUrl,
+              origin: new URL(currentPageUrl).origin,
+              favs,
+              contentType: isMovie ? "movie" : "series"
+            }
+          : null;
+
+        const seasonItems = [...document.querySelectorAll("#simple-seasons-tabs .b-simple_season__item")];
+        const episodeLists = [...document.querySelectorAll("#simple-episodes-tabs .b-simple_episodes__list")];
+        // Пробуем разные селекторы для переводчиков (rezka может менять структуру)
+        let translatorItems = [...document.querySelectorAll("#translators-list .b-translator__item")];
+        if (translatorItems.length === 0) {
+          translatorItems = [...document.querySelectorAll(".b-translator__item")];
+        }
+        if (translatorItems.length === 0) {
+          translatorItems = [...document.querySelectorAll("[data-translator_id]")];
+        }
+        const selectedTranslator = document.querySelector("#translators-list .b-translator__item.active");
+        const selectedTranslatorId = selectedTranslator ? Number(selectedTranslator.getAttribute("data-translator_id")) : null;
+        const selectedTranslatorTitle = (selectedTranslator?.getAttribute("title") || selectedTranslator?.textContent || "").replace(/\s+/g, " ").trim();
+
+        if (seasonItems.length > 0 && episodeLists.length > 0) {
+          const seasons = [];
+          const flatEpisodes = [];
+
+          for (const seasonItem of seasonItems) {
+            const seasonId = Number(seasonItem.getAttribute("data-tab_id"));
+            if (!Number.isFinite(seasonId)) continue;
+            const seasonTitle = (seasonItem.textContent || "").replace(/\s+/g, " ").trim();
+
+            const seasonEpisodes = [...document.querySelectorAll(`#simple-episodes-list-${seasonId} .b-simple_episode__item`)];
+            const seasonEpisodeItems = [];
+            for (const episodeItem of seasonEpisodes) {
+              const episodeId = Number(episodeItem.getAttribute("data-episode_id"));
+              if (!Number.isFinite(episodeId)) continue;
+              const episodeTitle = (episodeItem.textContent || "").replace(/\s+/g, " ").trim();
+              const episode = {
+                title: episodeTitle,
+                seasonId,
+                episodeId
+              };
+
+              seasonEpisodeItems.push(episode);
+              flatEpisodes.push(episode);
+            }
+
+            seasons.push({
+              seasonId,
+              title: seasonTitle,
+              episodes: seasonEpisodeItems
+            });
+          }
+
+          if (flatEpisodes.length >= 2) {
+            const activeEpisode = document.querySelector("#simple-episodes-tabs .b-simple_episode__item.active");
+            const activeSeason = document.querySelector("#simple-seasons-tabs .b-simple_season__item.active");
+            const activeSeasonId = activeSeason ? Number(activeSeason.getAttribute("data-tab_id")) : null;
+            const activeEpisodeId = activeEpisode ? Number(activeEpisode.getAttribute("data-episode_id")) : null;
+            const currentEpisodeIndex = flatEpisodes.findIndex(
+              (episode) => episode.seasonId === activeSeasonId && episode.episodeId === activeEpisodeId
+            );
+
+            return {
+              title: title || null,
+              currentPageUrl,
+              currentSeasonId: activeSeasonId,
+              currentEpisodeId: activeEpisodeId,
+              currentEpisodeIndex,
+              seasons,
+              episodes: flatEpisodes,
+              translators: translatorItems
+                .map((item) => {
+                  const translatorId = Number(item.getAttribute("data-translator_id"));
+                  if (!Number.isFinite(translatorId)) return null;
+
+                  return {
+                    translatorId,
+                    title: (item.getAttribute("title") || item.textContent || "").replace(/\s+/g, " ").trim()
+                  };
+                })
+                .filter(Boolean),
+              selectedTranslatorId,
+              selectedTranslatorTitle: selectedTranslatorTitle || null,
+              resolver
+            };
+          }
+        }
+
+        // Р•СЃР»Рё СЌС‚Рѕ rezka, РЅРѕ СЃРµР·РѕРЅРѕРІ/СЌРїРёР·РѕРґРѕРІ РЅРµС‚ (С„РёР»СЊРј, РєР»РёРї, С€РѕСѓ) вЂ” РІСЃС‘ СЂР°РІРЅРѕ РІРµСЂРЅС‘Рј РјРёРЅРёРјР°Р»СЊРЅС‹Р№ РєРѕРЅС‚РµРєСЃС‚,
+        // С‡С‚РѕР±С‹ СЂР°СЃС€РёСЂРµРЅРёРµ РјРѕРіР»Рѕ РІС‹С‚Р°С‰РёС‚СЊ СЃРїРёСЃРѕРє РєР°С‡РµСЃС‚РІ РёР· data-cdn_url.
+        if (resolver) {
+          return {
+            title: title || null,
+            currentPageUrl,
+            currentSeasonId: null,
+            currentEpisodeId: null,
+            currentEpisodeIndex: null,
+            seasons: [],
+            episodes: [],
+            translators: translatorItems
+              .map((item) => {
+                const translatorId = Number(item.getAttribute("data-translator_id"));
+                if (!Number.isFinite(translatorId)) return null;
+                return {
+                  translatorId,
+                  title: (item.getAttribute("title") || item.textContent || "").replace(/\s+/g, " ").trim()
+                };
+              })
+              .filter(Boolean),
+            selectedTranslatorId,
+            selectedTranslatorTitle: selectedTranslatorTitle || null,
+            resolver: {
+              ...resolver,
+              contentType: resolver.contentType || "movie"
+            }
+          };
+        }
+
+        const currentUrl = new URL(currentPageUrl);
+        const currentTitleTokens = (
+          document.querySelector('meta[property="og:title"]')?.content?.trim() ||
+          document.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim() ||
+          document.title.replace(/\s+/g, " ").trim()
+        )
+          .toLowerCase()
+          .split(/[^a-z0-9\u0440-\u044f\u0451]+/i)
+          .map((token) => token.trim())
+          .filter((token) => token.length >= 3)
+          .slice(0, 8);
+        const samePage = (left, right) => {
+          try {
+            const leftUrl = new URL(left);
+            const rightUrl = new URL(right);
+            return (
+              leftUrl.origin === rightUrl.origin &&
+              leftUrl.pathname.replace(/\/+$/, "") === rightUrl.pathname.replace(/\/+$/, "")
+            );
+          } catch {
+            return false;
+          }
+        };
+
+        const selectors = [
+          "a[href]",
+          "li a[href]",
+          "nav a[href]",
+          "article a[href]",
+          "section a[href]",
+          "main a[href]"
+        ];
+
+        const anchors = [...new Set(selectors.flatMap((selector) => [...document.querySelectorAll(selector)]))];
+        const seen = new Set();
+        const episodes = [];
+
+        for (const anchor of anchors) {
+          const rawHref = anchor.getAttribute("href");
+          const href = normalizeUrl(rawHref);
+          if (!href || seen.has(href)) continue;
+
+          const text = (anchor.textContent || "").replace(/\s+/g, " ").trim();
+          if (!text) continue;
+
+          let score = 0;
+          const combined = `${text} ${href}`.toLowerCase();
+          const currentSegments = new URL(currentPageUrl).pathname.split("/").filter(Boolean);
+          const candidateSegments = new URL(href).pathname.split("/").filter(Boolean);
+          const containerText = (anchor.closest("li, article, section, div")?.innerText || "")
+            .replace(/\s+/g, " ")
+            .trim()
+            .toLowerCase();
+          let prefixCount = 0;
+
+          while (prefixCount < currentSegments.length && prefixCount < candidateSegments.length) {
+            if (currentSegments[prefixCount] !== candidateSegments[prefixCount]) break;
+            prefixCount += 1;
+          }
+
+          if (prefixCount < currentSegments.length) continue;
+
+          score += prefixCount * 4;
+
+          const episodeLike =
+            /(season\s*\d+|episode\s*\d+|ep\.?\s*\d+|s\d+\s*e\d+|s\d+e\d+|[\p{Script=Cyrillic}]+\s*\d+)/iu.test(combined) ||
+            /(season\s*\d+|episode\s*\d+|ep\.?\s*\d+|s\d+\s*e\d+|s\d+e\d+|[\p{Script=Cyrillic}]+\s*\d+)/iu.test(containerText);
+
+          if (!episodeLike) continue;
+
+          if (currentTitleTokens.some((token) => combined.includes(token) || containerText.includes(token))) {
+            score += 8;
+          }
+
+          if (/\bseason\b/i.test(combined) || /[\p{Script=Cyrillic}]+\s*\d+/iu.test(combined)) score += 2;
+          if (/\bepisode\b/i.test(combined) || /[\p{Script=Cyrillic}]+\s*\d+/iu.test(combined)) score += 2;
+          if (/\bep\.?\b/i.test(combined)) score += 2;
+          if (/\b\d+\b/.test(text)) score += 1;
+          if (text.length <= 120) score += 1;
+
+          try {
+            const url = new URL(href);
+            if (url.hash) continue;
+            if (url.origin === currentUrl.origin) score += 2;
+            if (samePage(url.href, currentPageUrl)) score += 8;
+          } catch {
+            continue;
+          }
+
+          if (anchor.closest("nav, ul, ol, section, article, main")) {
+            score += 1;
+          }
+
+          if (score < 5) continue;
+
+          episodes.push({ href, text, score });
+          seen.add(href);
+        }
+
+        const episodeItems = episodes.slice(0, 24).map((item) => ({
+          title: item.text,
+          url: item.href
+        }));
+
+        if (episodeItems.length < 2) return null;
+
+        const currentEpisodeIndex = episodeItems.findIndex((episode) => samePage(episode.url, currentPageUrl));
+
+        return {
+          title: title || null,
+          currentPageUrl,
+          currentEpisodeIndex,
+          episodes: episodeItems,
+          seasons: [],
+          translators: [],
+          selectedTranslatorId: null,
+          selectedTranslatorTitle: null,
+          resolver
+        };
+      }
+    });
+
+    return result?.result || null;
+  } catch {
+    return null;
+  }
+}
+
+async function activateTargetEpisodeOnPage(tabId, targetEpisode) {
+  const seasonId = Number(targetEpisode?.seasonId);
+  const episodeId = Number(targetEpisode?.episodeId);
+
+  if (!Number.isFinite(seasonId) || !Number.isFinite(episodeId)) {
+    return false;
+  }
+
+  for (let attempt = 1; attempt <= 6; attempt += 1) {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      args: [{ seasonId, episodeId }],
+      func: (target) => {
+        const seasonButton = document.querySelector(`#simple-seasons-tabs .b-simple_season__item[data-tab_id="${target.seasonId}"]`);
+        const episodeButton = document.querySelector(
+          `#simple-episodes-list-${target.seasonId} .b-simple_episode__item[data-season_id="${target.seasonId}"][data-episode_id="${target.episodeId}"]`
+        );
+
+        if (!episodeButton) {
+          return { ok: false, reason: "episode-missing" };
+        }
+
+        if (seasonButton && !seasonButton.classList.contains("active")) {
+          seasonButton.click();
+          return { ok: false, reason: "season-switch" };
+        }
+
+        if (!episodeButton.classList.contains("active")) {
+          episodeButton.click();
+          return { ok: true };
+        }
+
+        return { ok: true };
+      }
+    });
+
+    if (result?.result?.ok) {
+      return true;
+    }
+
+    await delay(1000);
+  }
+
+  return false;
+}
+
+async function resolvePageToMedia(pageUrl, hostTabId, statusPrefix, targetEpisode = null) {
+  if (targetEpisode?.seriesContext?.resolver?.provider === "rezka") {
+    sendStatus(hostTabId, `Opening page: ${pageUrl}`);
+    sendStatus(hostTabId, "Resolving episode directly");
+    const directResolved = await fetchRezkaEpisodeMedia(targetEpisode.seriesContext, targetEpisode, {
+      translatorId: targetEpisode.selectedTranslatorId,
+      qualityLabel: targetEpisode.selectedQualityLabel
+    });
+
+    if (directResolved?.mediaUrl) {
+      sendStatus(hostTabId, "Media URL captured from direct episode resolve");
+      return directResolved;
+    }
+
+    sendStatus(hostTabId, "Direct episode resolve failed, falling back to page navigation");
+  }
+
+  const tab = await chrome.tabs.create({ url: "about:blank", active: false });
+  const tabId = tab.id;
+  const mediaCapture = waitForMediaUrl(tabId);
+
+  try {
+    sendStatus(hostTabId, `${statusPrefix}: ${pageUrl}`);
+    sendStatus(hostTabId, "Clearing saved playback state");
+    await clearOriginSiteData(pageUrl);
+    await chrome.tabs.update(tabId, { url: pageUrl });
+    await delay(3000);
+
+    const currentTab = await chrome.tabs.get(tabId);
+    const currentPageUrl = typeof currentTab.url === "string" ? currentTab.url : pageUrl;
+
+    if (currentPageUrl.startsWith("chrome-error://")) {
+      sendStatus(hostTabId, "Target page opened as an error page");
+      return null;
+    }
+
+    if (targetEpisode) {
+      sendStatus(hostTabId, `Selecting episode: S${targetEpisode.seasonId} E${targetEpisode.episodeId}`);
+      const activated = await activateTargetEpisodeOnPage(tabId, targetEpisode);
+      if (!activated) {
+        sendError(hostTabId, "Episode selection failed");
+        return null;
+      }
+
+      await delay(2000);
+    }
+
+    sendStatus(hostTabId, "Reading page content for media URLs");
+
+    const seriesContext = await extractSeriesContextFromPage(tabId, currentPageUrl);
+    let mediaUrl = null;
+    let masterUrl = null;
+    let availableQualities = null;
+
+    // Р”Р»СЏ rezka: РЅРµ РїРѕР»Р°РіР°РµРјСЃСЏ РЅР° "РїРµСЂРІСѓСЋ РЅР°Р№РґРµРЅРЅСѓСЋ" СЃСЃС‹Р»РєСѓ (С‡Р°СЃС‚Рѕ СЌС‚Рѕ 360p).
+    // РЎРЅР°С‡Р°Р»Р° РїРѕРїСЂРѕР±СѓРµРј РїРѕР»СѓС‡РёС‚СЊ СЃРїРёСЃРѕРє РєР°С‡РµСЃС‚РІ (data-cdn_url РёР»Рё ajax) Рё РІС‹Р±СЂР°С‚СЊ РјР°РєСЃРёРјСѓРј.
+    if (!targetEpisode) {
+      const isRezka = seriesContext?.resolver?.provider === "rezka" || /rezka/i.test(currentPageUrl);
+      if (isRezka) {
+        // 1) Р•СЃР»Рё СЌС‚Рѕ СЃРµСЂРёР°Р» Рё РёР·РІРµСЃС‚РЅС‹ season/episode вЂ” РїРѕРїСЂРѕР±СѓРµРј РїРѕР»СѓС‡РёС‚СЊ РїСЂСЏРјРѕР№ stream РїРѕ ajax (СЃР°РјС‹Р№ РЅР°РґС‘Р¶РЅС‹Р№ РїСѓС‚СЊ)
+        const resolverItemId = Number(seriesContext?.resolver?.itemId);
+        const currentSeasonId = Number(seriesContext?.currentSeasonId);
+        const currentEpisodeId = Number(seriesContext?.currentEpisodeId);
+        
+        if (Number.isFinite(resolverItemId)) {
+          const directResolved = await fetchRezkaEpisodeMedia(
+            seriesContext,
+            {
+              seasonId: Number.isFinite(currentSeasonId) ? currentSeasonId : 0,
+              episodeId: Number.isFinite(currentEpisodeId) ? currentEpisodeId : 0
+            },
+            {
+              translatorId: seriesContext?.selectedTranslatorId ?? seriesContext?.resolver?.translatorId,
+              qualityLabel: "1080p"
+            }
+          );
+
+          if (directResolved?.mediaUrl) {
+            sendStatus(hostTabId, `Rezka direct stream resolved: ${directResolved.seriesContext?.selectedQualityLabel || 'unknown'}`);
+
+            return {
+              mediaUrl: directResolved.mediaUrl,
+              masterPlaylistUrl: null, // VoidBoost вЂ” single-bitrate HLS per quality token
+              pageUrl: directResolved.pageUrl || currentPageUrl,
+              seriesContext: directResolved.seriesContext || seriesContext || null
+            };
+          }
+        }
+
+        // 2) Fallback: РїРѕРїСЂРѕР±СѓРµРј РІС‹С‚Р°С‰РёС‚СЊ data-cdn_url СЃРѕ СЃС‚СЂР°РЅРёС†С‹ (С‚Р°Рј С‡Р°СЃС‚Рѕ РїРѕР»РЅС‹Р№ СЃРїРёСЃРѕРє РєР°С‡РµСЃС‚РІ)
+        const cdnText = await extractRezkaCdnUrlTextFromPage(tabId);
+        const options = parseRezkaStreamOptions(cdnText || "");
+        const selected = pickRezkaStreamOption(options, "1080p", null);
+        if (selected?.url) {
+          const nextSeriesContext = seriesContext && typeof seriesContext === "object" ? { ...seriesContext } : null;
+          
+          // Try to resolve master playlist
+          const qualityResolved = await resolveBestQualityHls(selected.url);
+          
+          if (nextSeriesContext) {
+            nextSeriesContext.selectedQualityLabel = qualityResolved.url !== selected.url ? "best" : selected.label;
+            nextSeriesContext.availableQualities = qualityResolved.variants || options.map((option) => ({
+              label: option.label,
+              normalizedLabel: option.normalizedLabel
+            }));
+            nextSeriesContext.masterPlaylistUrl = qualityResolved.masterUrl;
+          }
+
+          sendStatus(hostTabId, `Rezka cdn_url resolved: ${qualityResolved.url !== selected.url ? 'best quality from master' : selected.label}`);
+          return {
+            mediaUrl: qualityResolved.url,
+            masterPlaylistUrl: qualityResolved.masterUrl,
+            pageUrl: currentPageUrl,
+            seriesContext: nextSeriesContext
+          };
+        }
+      }
+    }
+
+    if (targetEpisode) {
+      sendStatus(hostTabId, "Sniffing media requests");
+      mediaUrl = await mediaCapture.promise;
+
+      if (!mediaUrl) {
+        sendStatus(hostTabId, "Falling back to page media extraction");
+        const pageResult = await extractMediaUrlFromPage(tabId);
+        if (pageResult) {
+          mediaUrl = pageResult.mediaUrl || pageResult;
+          masterUrl = pageResult.masterPlaylistUrl || null;
+        }
+      }
+    } else {
+      const pageResult = await extractMediaUrlFromPage(tabId);
+      if (pageResult) {
+        const foundMediaUrl = pageResult.mediaUrl || pageResult;
+        const foundMasterUrl = pageResult.masterPlaylistUrl || null;
+        
+        sendStatus(hostTabId, foundMasterUrl ? "Media URL captured from page (master)" : "Media URL captured from page");
+        
+        // Try to resolve to best quality / master playlist
+        const qualityResolved = await resolveBestQualityHls(foundMasterUrl || foundMediaUrl);
+        
+        return {
+          mediaUrl: qualityResolved.url,
+          masterPlaylistUrl: qualityResolved.masterUrl || foundMasterUrl,
+          pageUrl: currentPageUrl,
+          seriesContext: qualityResolved.variants ? {
+            ...(seriesContext || {}),
+            masterPlaylistUrl: qualityResolved.masterUrl || foundMasterUrl,
+            availableQualities: qualityResolved.variants.map(v => ({
+              label: v.label,
+              normalizedLabel: v.label.toLowerCase().replace(/[^a-z0-9]/g, '')
+            }))
+          } : seriesContext
+        };
+      }
+
+      sendStatus(hostTabId, "Sniffing media requests");
+      mediaUrl = await mediaCapture.promise;
+    }
+
+    if (!mediaUrl) {
+      return null;
+    }
+
+    sendStatus(hostTabId, targetEpisode ? "Media URL captured after episode switch" : "Media URL captured from network");
+    
+    // Try to resolve to best quality / master playlist for any found .m3u8
+    let finalMediaUrl = mediaUrl;
+    let finalMasterUrl = null;
+    let finalVariants = null;
+    
+    if (/\.m3u8/i.test(mediaUrl)) {
+      const qualityResolved = await resolveBestQualityHls(mediaUrl);
+      finalMediaUrl = qualityResolved.url;
+      finalMasterUrl = qualityResolved.masterUrl;
+      finalVariants = qualityResolved.variants;
+    }
+    
+    return {
+      mediaUrl: finalMediaUrl,
+      masterPlaylistUrl: finalMasterUrl,
+      pageUrl: currentPageUrl,
+      seriesContext: finalVariants ? {
+        ...(seriesContext || {}),
+        masterPlaylistUrl: finalMasterUrl,
+        availableQualities: finalVariants.map(v => ({
+          label: v.label,
+          normalizedLabel: v.label.toLowerCase().replace(/[^a-z0-9]/g, '')
+        }))
+      } : seriesContext
+    };
+  } finally {
+    mediaCapture.stop();
+    chrome.tabs.remove(tabId).catch(() => {});
+  }
+}
+// Extract real URL from DuckDuckGo redirect (/l/?uddg=...)
+function extractRealDdgUrl(url) {
+  try {
+    const u = new URL(url);
+    if (u.hostname.includes('duckduckgo.com') && u.searchParams.has('uddg')) {
+      return decodeURIComponent(u.searchParams.get('uddg'));
+    }
+  } catch(e) {}
+  return url;
+}
+
+// Forward URL to all UI page tabs
+function forwardToUi(url) {
+  const realUrl = extractRealDdgUrl(url);
+  console.log("[Background] Forwarding to UI:", (realUrl || url).substring(0, 100));
+  chrome.tabs.query({}, (allTabs) => {
+    if (!allTabs) return;
+    allTabs.filter(t => t.status === 'complete' && t.url && t.url.includes('localhost:3000'))
+      .forEach(tab => {
+        chrome.tabs.sendMessage(tab.id, {
+          type: "WT_SEARCH_RESULT_CLICKED",
+          payload: { url: realUrl || url }
+        }).catch(() => {});
+      });
+  });
+}
+
+// Intercept DuckDuckGo redirect requests
+// Instead of blocking, we let the request proceed normally.
+// BUT we forward the real URL to UI so it knows about the click.
+// The popup itself will navigate via the DDG redirect automatically.
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    const url = details.url || '';
+    if (url.includes('/l/?uddg=') || url.includes('uddg=')) {
+      forwardToUi(url);
+    }
+  },
+  { urls: ["*://duckduckgo.com/l/*"] },
+  []
+);
+
+// Sniffer global state (persisted via storage)
+let _snifferActive = false;
+let _searchPopupTabId = null;
+
+// Track search popup tab (opened by window.open from UI page)
+chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
+  if (details.sourceTabId > 0) {
+    chrome.tabs.get(details.sourceTabId, (tab) => {
+      if (tab.url && tab.url.includes('localhost:3000')) {
+        _searchPopupTabId = details.tabId;
+        console.log("[Background] Search popup tab tracked:", _searchPopupTabId);
+      }
+    });
+  }
+});
+
+// Reset popup tab tracking when that tab closes
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === _searchPopupTabId) {
+    _searchPopupTabId = null;
+  }
+});
+
+// Restore sniffer state on startup
+chrome.storage.local.get('snifferActive').then((result) => {
+  _snifferActive = result?.snifferActive === true;
+}).catch(() => {});
+
+// Check if URL is a valid media playlist (not a .ts segment)
+function isValidMediaUrlSniffer(url) {
+  if (!url) return false;
+  // Skip .ts segments
+  if (/\.ts(?:\?|$)/i.test(url)) return false;
+  // Accept .m3u8 and .mp4
+  if (/\.m3u8(?:\?|$)/i.test(url)) return true;
+  if (/\.mp4(?:\?|$)/i.test(url)) return true;
+  return false;
+}
+
+// Sniff media URLs (m3u8/mp4) from sites the user visits in the popup
+// and forward them to our UI page for playback.
+// Only active when user explicitly enables it via the sniffer toggle button.
+// Skip requests from our own page (localhost:3000) to avoid loops.
+const MEDIA_SNIFFER_UI_CACHE = new Set();
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    const tabId = details.tabId;
+    
+    // Always sniff from the search popup (opened via "Search" button)
+    const isSearchPopup = tabId > 0 && tabId === _searchPopupTabId;
+    
+    // Gate: only sniff when user explicitly enabled it (or it's the search popup)
+    if (!_snifferActive && !isSearchPopup) return;
+    
+    const url = details.url || '';
+    if (!isValidMediaUrlSniffer(url)) return;
+    
+    // Skip URLs from our own player (localhost:3000)
+    if (tabId > 0 && MEDIA_SNIFFER_UI_CACHE.has(tabId)) return;
+    
+    console.log("[Background] Media URL sniffed:", url.substring(0, 100));
+    
+    chrome.tabs.query({}, (allTabs) => {
+      if (!allTabs || !allTabs.length) return;
+      const uiTabs = allTabs.filter(t => t.status === 'complete' && t.url && t.url.includes('localhost:3000'));
+      
+      // Cache UI tab IDs to skip them on future requests
+      for (const tab of uiTabs) {
+        MEDIA_SNIFFER_UI_CACHE.add(tab.id);
+      }
+      
+      // Check if this request is from our own UI tab
+      if (uiTabs.some(t => t.id === tabId)) return;
+      
+      for (const tab of uiTabs) {
+        chrome.tabs.sendMessage(tab.id, {
+          type: "WT_MEDIA_FOUND",
+          payload: {
+            roomId: null,
+            mediaUrl: url,
+            masterPlaylistUrl: null,
+            pageUrl: url,
+            seriesContext: null
+          }
+        }).catch(() => {});
+      }
+    });
+  },
+  { urls: ["<all_urls>"] },
+  []
+);
+
+// Forward media URL found by content-script (from XHR interception, video elements, etc.)

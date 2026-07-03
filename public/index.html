@@ -8,7 +8,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="https://cdn.plyr.io/3.8.4/plyr.css" />
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@0.14.17/dist/hls.min.js"></script>
+  <link rel="stylesheet" href="/player-styles.css" />
   <style>
     :root {
       --bg-0: #070b16;
@@ -150,9 +151,84 @@
     .code-chip small { color: var(--muted); font-weight: 600; letter-spacing: 0; }
 
     .topbar-user {
+      position: relative;
       display: flex;
       align-items: center;
       gap: 10px;
+    }
+    .topbar-avatar-btn {
+      padding: 0;
+      border: none;
+      background: transparent;
+      cursor: pointer;
+      border-radius: 999px;
+      display: grid;
+      place-items: center;
+      line-height: 0;
+    }
+    .topbar-user .topbar-avatar-btn:not([class*="vjs-"]) {
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      min-width: 0;
+      min-height: 0;
+      appearance: none;
+    }
+    .topbar-avatar-btn .user-avatar {
+      transition: transform 0.15s ease, box-shadow 0.15s ease, filter 0.15s ease;
+    }
+    .topbar-avatar-btn:hover .user-avatar,
+    .topbar-avatar-btn:focus-visible .user-avatar {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 18px -6px rgba(108, 140, 255, 0.8);
+      filter: brightness(1.08);
+    }
+    .topbar-user-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      right: 0;
+      min-width: 180px;
+      padding: 6px;
+      border-radius: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      z-index: 30;
+    }
+    .topbar-user-menu.hidden { display: none; }
+    .topbar-user-menu button {
+      width: 100%;
+      justify-content: flex-start;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      background: transparent;
+      border: none;
+      color: var(--text);
+    }
+    .topbar-user-menu button:hover:not(:disabled) {
+      background: rgba(108, 140, 255, 0.14);
+    }
+    .topbar-user-menu .icon-btn {
+      width: 100%;
+      height: auto;
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 10px;
+      color: var(--danger);
+      border-radius: 10px;
+      background: transparent;
+      border: none;
+    }
+    .topbar-user-menu .icon-btn:hover:not(:disabled) {
+      background: rgba(248, 113, 113, 0.14);
+    }
+    .topbar-user-menu .icon-btn svg {
+      width: 17px;
+      height: 17px;
     }
 
     #topbarNickDisplay {
@@ -199,7 +275,7 @@
     }
     .help-btn:hover:not(:disabled) { background: rgba(108, 140, 255, 0.2); }
 
-    button {
+    button:not([class*="vjs-"]) {
       font-family: inherit;
       cursor: pointer;
       border: 1px solid var(--border-strong);
@@ -211,23 +287,47 @@
       border-radius: 11px;
       transition: transform 0.08s ease, background 0.15s, border-color 0.15s, opacity 0.15s;
     }
-    button:hover:not(:disabled) { background: rgba(48, 64, 104, 0.7); border-color: var(--border-strong); }
-    button:active:not(:disabled) { transform: translateY(1px); }
-    button:disabled { opacity: 0.45; cursor: not-allowed; }
+    button:not([class*="vjs-"]):hover:not(:disabled) { background: rgba(48, 64, 104, 0.7); border-color: var(--border-strong); }
+    button:not([class*="vjs-"]):active:not(:disabled) { transform: translateY(1px); }
+    button:not([class*="vjs-"]):disabled { opacity: 0.45; cursor: not-allowed; }
 
-    button.primary {
+    button:not([class*="vjs-"]).primary {
       background: linear-gradient(135deg, var(--accent), var(--accent-2));
       border: none;
       color: #fff;
       box-shadow: 0 10px 24px -12px rgba(108, 140, 255, 0.8);
     }
-    button.primary:hover:not(:disabled) { filter: brightness(1.06); background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+    button:not([class*="vjs-"]).primary:hover:not(:disabled) { filter: brightness(1.06); background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
 
-    button.ghost { background: transparent; }
-    button.danger { color: var(--danger); border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.08); }
-    button.danger:hover:not(:disabled) { background: rgba(248, 113, 113, 0.16); }
-    button.link { background: none; border: none; color: var(--accent); padding: 4px 6px; font-weight: 600; font-size: 0.86rem; }
-    button.link:hover:not(:disabled) { background: none; text-decoration: underline; }
+    button:not([class*="vjs-"]).ghost { background: transparent; }
+    button:not([class*="vjs-"]).danger { color: var(--danger); border-color: rgba(248, 113, 113, 0.4); background: rgba(248, 113, 113, 0.08); }
+    button:not([class*="vjs-"]).danger:hover:not(:disabled) { background: rgba(248, 113, 113, 0.16); }
+    button:not([class*="vjs-"]).link { background: none; border: none; color: var(--accent); padding: 4px 6px; font-weight: 600; font-size: 0.86rem; }
+    button:not([class*="vjs-"]).link:hover:not(:disabled) { background: none; text-decoration: underline; }
+    .participant-actions .participant-icon-btn:not([class*="vjs-"]) {
+      width: 18px;
+      height: 18px;
+      padding: 0;
+      border: 0;
+      background: transparent;
+      box-shadow: none;
+      appearance: none;
+    }
+    .participant-actions .participant-icon-btn.settings-btn:not([class*="vjs-"]) {
+      color: var(--text);
+      opacity: 0.82;
+      transition: color 0.15s ease, opacity 0.15s ease;
+    }
+    .participant-actions .participant-icon-btn.settings-btn:hover:not(:disabled),
+    .participant-actions .participant-icon-btn.settings-btn:focus-visible {
+      color: var(--accent);
+      opacity: 1;
+      background: transparent;
+    }
+    .participant-actions .participant-icon-btn.settings-btn svg {
+      width: 20px;
+      height: 20px;
+    }
 
     input[type="text"], input[type="email"], input[type="password"] {
       width: 100%;
@@ -317,7 +417,6 @@
     }
     .hero p { color: var(--muted); font-size: 1rem; max-width: 540px; margin: 0 auto; }
 
-    /* Guest identity card */
     .guest-identity-card {
       margin-bottom: 16px;
     }
@@ -391,6 +490,31 @@
       padding: 6px 10px;
       font-size: 0.82rem;
       border-radius: 999px;
+      display: inline-block;
+      line-height: 0;
+      width: 34px;
+      height: 34px;
+      position: relative;
+      overflow: hidden;
+    }
+    .room-code-toggle svg {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 22px;
+      height: 22px;
+      display: block;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+    .room-rename-btn {
+      padding: 6px 10px;
+      font-size: 0.82rem;
+      border-radius: 999px;
     }
     .badge {
       display: inline-flex; align-items: center; gap: 8px;
@@ -416,31 +540,289 @@
     .dash-side {
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 12px;
       min-width: 0;
       min-height: 0;
       height: auto;
-      min-height: calc(100vh - 160px);
     }
 
     .player-shell {
       position: relative;
-      background: #000;
-      border-radius: var(--radius);
-      overflow: hidden;
-      border: 1px solid var(--border);
-      box-shadow: var(--shadow);
     }
-    video {
+
+    /* Native <video> element — replaces video.js theme */
+    .player-shell video {
       width: 100%;
-      display: block;
+      height: auto;
       aspect-ratio: 16 / 9;
       background: #000;
+      border-radius: 12px;
+      display: block;
+    }
+
+    .player-shell video::-webkit-media-controls-panel {
+      background: linear-gradient(0deg, rgba(0,0,0,0.85) 0%, transparent 100%);
+    }
+
+    /* Settings panel overlay */
+    .player-settings-panel {
+      position: absolute;
+      bottom: 50px;
+      right: 12px;
+      z-index: 20;
+      background: rgba(10, 17, 34, 0.95);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      padding: 0;
+      min-width: 240px;
+      width: max-content;
+      max-width: min(360px, calc(100vw - 40px));
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+      display: none;
+      flex-direction: column;
+      gap: 0;
+      overflow: hidden;
+    }
+
+    .player-settings-panel.is-open {
+      display: flex;
+    }
+
+    /* When moved inside video.js element (for fullscreen compat) */
+    .player-settings-panel.in-vjs-player {
+      position: absolute;
+      bottom: 50px;
+      right: 12px;
+      z-index: 50;
+    }
+
+    .video-js.vjs-fullscreen .player-settings-panel.in-vjs-player {
+      z-index: 2147483647;
+    }
+
+    .player-settings-panel .settings-section {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 0 12px;
+    }
+
+    .player-settings-panel .settings-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .player-settings-panel .settings-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .player-settings-panel .settings-btn {
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.12s, border-color 0.12s;
+      font-family: inherit;
+    }
+
+    .player-settings-panel .settings-btn:hover {
+      background: rgba(255,255,255,0.12);
+    }
+
+    .player-settings-panel .settings-btn.is-active {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-color: transparent;
+      color: #fff;
+    }
+
+    .player-settings-panel .settings-btn.is-active:hover {
+      filter: brightness(1.1);
+    }
+
+    /* Settings nav rows (edge-to-edge) - fill full width of panel */
+    .player-settings-panel .settings-nav-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 0 16px;
+      min-height: 36px;
+      cursor: pointer;
+      user-select: none;
+      color: var(--text);
+      transition: background 0.1s;
+    }
+    .player-settings-panel .settings-nav-row:hover {
+      background: rgba(255, 255, 255, 0.08);
+    }
+    .player-settings-panel .settings-nav-row + .settings-nav-row {
+      border-top: none;
+    }
+    /* First item touches top, last touches bottom */
+    .player-settings-panel .settings-dynamic-menu > .settings-nav-row:first-child {
+      border-radius: 12px 12px 0 0;
+    }
+    .player-settings-panel .settings-dynamic-menu > .settings-nav-row:last-child {
+      border-radius: 0 0 12px 12px;
+    }
+    .player-settings-panel .settings-nav-icon {
+      font-size: 1rem;
+      flex-shrink: 0;
+    }
+    .player-settings-panel .settings-nav-label {
+      flex: 1;
+      font-size: 0.85rem;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .player-settings-panel .settings-nav-value {
+      color: var(--muted);
+      font-size: 0.8rem;
+      font-weight: 600;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .player-settings-panel .settings-nav-back-icon {
+      font-size: 0.9rem;
+      flex-shrink: 0;
+    }
+    .player-settings-panel .settings-sub-header {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 700;
+      padding: 4px 16px;
+    }
+    .player-settings-panel .settings-sub-option {
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+    .player-settings-panel .settings-sub-option.is-active {
+      color: var(--accent);
+      font-weight: 700;
+    }
+    .player-settings-panel .settings-sub-option.is-active .settings-nav-label {
+      color: var(--accent);
+    }
+    .player-settings-panel .settings-sub-empty {
+      font-size: 0.8rem;
+      color: var(--muted);
+      padding: 8px 16px;
+    }
+    .player-settings-panel .settings-dynamic-menu {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .player-settings-panel .settings-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 4px 12px;
+    }
+
+    .quality-indicator {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 10;
+      background: rgba(0, 0, 0, 0.7);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      padding: 6px 12px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #fff;
+      pointer-events: none;
+      user-select: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .quality-indicator .qi-label {
+      color: rgba(255, 255, 255, 0.5);
+      font-weight: 400;
+    }
+    .quality-indicator .qi-requested {
+      color: rgba(255, 255, 255, 0.7);
+    }
+    .quality-indicator .qi-active {
+      color: #6c8cff;
+    }
+    .quality-indicator .qi-sep {
+      color: rgba(255, 255, 255, 0.2);
+    }
+
+    .playback-debug-card {
+      margin-top: 14px;
+    }
+
+    .playback-debug-log {
+      display: grid;
+      gap: 8px;
+      max-height: 180px;
+      overflow: auto;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+
+    .playback-debug-entry {
+      display: grid;
+      gap: 2px;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: rgba(8, 13, 26, 0.34);
+    }
+
+    .playback-debug-entry strong {
+      color: var(--text);
+      font-size: 0.84rem;
+    }
+
+    .playback-debug-entry.is-error strong {
+      color: var(--danger);
+    }
+
+    .playback-debug-entry time {
+      color: rgba(144, 164, 194, 0.72);
+      font-size: 0.75rem;
     }
 
     .search-bar { display: flex; gap: 10px; align-items: stretch; }
     .search-bar input { flex: 1; }
-    .search-bar .help-btn {
+    .sniffer-btn {
+      width: 42px;
+      min-width: 42px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      background: rgba(108, 140, 255, 0.12);
+      border: 1px solid rgba(108, 140, 255, 0.28);
+      color: var(--accent);
+      border-radius: 11px;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, box-shadow 0.15s;
+    }
+    .sniffer-btn:hover:not(:disabled) { background: rgba(108, 140, 255, 0.2); }
+    .sniffer-btn.is-active {
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      border-color: transparent;
+      color: #fff;
+      box-shadow: 0 0 0 3px rgba(108, 140, 255, 0.3), 0 6px 16px -8px rgba(108, 140, 255, 0.9);
+    }
+    .sniffer-btn.is-active:hover:not(:disabled) { filter: brightness(1.06); }
+    .icon-btn.help-btn {
       width: 42px;
       min-width: 42px;
       padding: 0;
@@ -466,11 +848,11 @@
     .media-title-row {
       display: flex;
       align-items: baseline;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: nowrap;
     }
     .media-title {
-      flex: 1 1 auto;
+      flex: 0 1 auto;
       min-width: 0;
       font-size: 1.08rem;
       font-weight: 700;
@@ -482,14 +864,28 @@
     }
     .media-subtitle {
       flex: 0 0 auto;
-      color: var(--muted);
+      color: rgb(105, 122, 150);
       font-size: 0.88rem;
       margin: 0;
       white-space: nowrap;
     }
+    #seriesPanel {
+      position: relative;
+      z-index: 5;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+      overflow: visible;
+      padding: clamp(16px, 2.5vw, 22px) clamp(16px, 2.5vw, 22px) 12px;
+    }
     .media-pickers {
       display: grid;
-      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-columns: repeat(3, 1fr);
       gap: 10px;
     }
     .media-picker {
@@ -497,6 +893,7 @@
       border: 1px solid var(--border);
       border-radius: 12px;
       background: rgba(10, 17, 34, 0.72);
+      overflow: visible;
     }
     .media-picker > summary {
       list-style: none;
@@ -531,14 +928,22 @@
       white-space: nowrap;
     }
     .picker-menu {
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 0;
+      right: 0;
+      z-index: 25;
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      padding: 0 12px 12px;
+      padding: 12px;
+      background: rgba(10, 17, 34, 0.98);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.35);
     }
     .picker-menu.is-hidden { display: none; }
 
-    /* chips for season / translator / quality */
     .chips { display: flex; flex-wrap: wrap; gap: 8px; }
     .chip-button {
       padding: 7px 13px;
@@ -560,7 +965,7 @@
       letter-spacing: 0.1em; color: var(--muted); font-weight: 700;
     }
     #seriesTitle { font-size: 1.1rem; font-weight: 700; margin-bottom: 2px; }
-    #seriesMeta { color: var(--muted); font-size: 0.86rem; margin-bottom: 14px; }
+    #seriesMeta { color: rgb(105, 122, 150); font-size: 0.86rem; margin-bottom: 0; }
 
     .episodes-grid {
       display: grid;
@@ -576,7 +981,6 @@
       border: none; color: #fff;
     }
 
-    /* participants */
     #participantsList {
       display: flex;
       flex-wrap: wrap;
@@ -584,7 +988,7 @@
     }
     .participant-item {
       width: 132px;
-      padding: 12px 10px 11px;
+      padding: 18px 10px 11px;
       border-radius: 12px;
       background: var(--surface-2);
       border: 1px solid var(--border);
@@ -593,6 +997,102 @@
       align-items: center;
       text-align: center;
       position: relative;
+    }
+    .participant-actions {
+      position: absolute;
+      top: 8px;
+      right: 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      align-items: flex-end;
+      z-index: 2;
+    }
+    .participant-icon-btn {
+      width: 25px;
+      height: 25px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      background: transparent;
+      border: none;
+      color: var(--text);
+      flex: 0 0 auto;
+    }
+    .participant-status-icon {
+      display: grid;
+      place-items: center;
+      width: 25px;
+      height: 25px;
+      color: var(--text);
+      background: transparent;
+      border: none;
+    }
+    .participant-icon-btn svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+    .participant-status-icon svg {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      stroke-width: 1.8;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+    }
+    .participant-icon-btn.is-off {
+      color: var(--muted);
+    }
+    .participant-icon-btn.settings-btn {
+      color: var(--text);
+      opacity: 0.82;
+      transition: color 0.15s ease, opacity 0.15s ease;
+    }
+    .participant-icon-btn.settings-btn:hover {
+      color: var(--accent);
+      opacity: 1;
+    }
+    .participant-icon-btn.settings-btn svg {
+      transform: scale(1.02);
+    }
+    .participant-creator-icon {
+      color: #ffd45a;
+    }
+    .participant-access-icon {
+      color: var(--accent);
+    }
+    .participant-menu {
+      position: absolute;
+      top: 36px;
+      right: 8px;
+      min-width: 176px;
+      padding: 6px;
+      border-radius: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      box-shadow: var(--shadow);
+      z-index: 3;
+    }
+    .participant-menu button {
+      width: 100%;
+      text-align: left;
+      padding: 8px 10px;
+      font-size: 0.8rem;
+      border-radius: 9px;
+      border: none;
+      background: transparent;
+    }
+    .participant-menu button:hover:not(:disabled) {
+      background: rgba(108, 140, 255, 0.16);
+    }
+    .participant-name-row .host-badge {
+      display: none;
     }
     .participant-avatar-wrap {
       position: relative;
@@ -611,6 +1111,12 @@
       line-height: 1.2;
       word-break: break-word;
     }
+    .participant-name-editable {
+      cursor: pointer;
+    }
+    .participant-name-editable:hover {
+      text-decoration: underline;
+    }
     .participant-name-row {
       display: flex;
       align-items: center;
@@ -625,10 +1131,10 @@
       width: 18px;
       height: 18px;
       border-radius: 999px;
-      background: rgba(108, 140, 255, 0.18);
-      border: 1px solid var(--border-strong);
-      color: var(--accent);
-      font-size: 0.7rem;
+      background: rgba(255, 208, 84, 0.16);
+      border: 1px solid rgba(255, 208, 84, 0.35);
+      color: #ffd45a;
+      font-size: 0.82rem;
       line-height: 1;
       flex: 0 0 auto;
     }
@@ -641,7 +1147,6 @@
       width: 100%;
     }
 
-    /* chat */
     .chat-card {
       display: flex;
       flex-direction: column;
@@ -679,7 +1184,6 @@
       height: 44px;
     }
 
-    /* playlist */
     .playlist-actions { display: flex; gap: 8px; margin-bottom: 12px; }
     .playlist-actions button { flex: 1; }
     .playlist-item {
@@ -691,7 +1195,6 @@
     .playlist-top button { padding: 6px 12px; font-size: 0.82rem; }
     .playlist-meta { color: var(--muted); font-size: 0.76rem; margin-top: 5px; }
 
-    /* ---------- Rooms page ---------- */
     .rooms-header {
       display: flex; align-items: center; justify-content: space-between;
       flex-wrap: wrap; gap: 14px; margin-bottom: 20px;
@@ -721,7 +1224,6 @@
     .room-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .room-card-actions button { flex: 1; padding: 7px 10px; font-size: 0.82rem; }
 
-    /* auth gate */
     .auth-wrap {
       max-width: 420px; margin: 0 auto;
     }
@@ -763,6 +1265,22 @@
       .nav { display: none; }
     }
 
+    .search-results-widget {
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .search-results-widget.hidden { display: none; }
+    .search-frame {
+      width: 100%;
+      height: 480px;
+      border: none;
+      display: block;
+      background: #fff;
+      border-radius: 0 0 var(--radius) var(--radius);
+    }
+
     ::-webkit-scrollbar { width: 10px; height: 10px; }
     ::-webkit-scrollbar-thumb { background: rgba(108, 140, 255, 0.3); border-radius: 999px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -771,14 +1289,14 @@
 <body>
   <header class="topbar">
     <a class="brand" id="homeLink" href="./">
-      <span class="brand-mark">&gt;</span>
+      <span class="brand-mark">></span>
       <span>Any<b>Together</b></span>
     </a>
     <nav class="nav">
       <a id="roomsLink" href="./?page=rooms">Rooms</a>
     </nav>
     <button id="lastRoomButton" class="last-room-btn hidden" title="Return to last room">
-      Last room &gt;
+      Last room >
     </button>
 
     <span class="topbar-spacer"></span>
@@ -789,22 +1307,25 @@
       </button>
       <div id="topbarUser" class="topbar-user">
         <span id="topbarNickDisplay">Guest</span>
-        <div id="topbarAvatar" class="user-avatar">G</div>
+        <button id="topbarAvatarButton" class="topbar-avatar-btn" type="button" aria-label="Open account menu" aria-expanded="false">
+          <div id="topbarAvatar" class="user-avatar">G</div>
+        </button>
+        <div id="topbarUserMenu" class="topbar-user-menu hidden" role="menu" aria-label="Account menu">
+          <button id="signOutButton" class="icon-btn" title="Sign out" role="menuitem">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <polyline points="16 17 21 12 16 7"/>
+              <line x1="21" y1="12" x2="9" y2="12"/>
+            </svg>
+            <span>Sign out</span>
+          </button>
+        </div>
       </div>
-      <button id="signOutButton" class="icon-btn hidden" title="Sign out">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-          <polyline points="16 17 21 12 16 7"/>
-          <line x1="21" y1="12" x2="9" y2="12"/>
-        </svg>
-      </button>
-      <!-- hidden but keeps its event listener for reconnect -->
       <button id="reconnectButton" class="hidden">R</button>
     </div>
   </header>
 
   <main>
-    <!-- ========================= HOME / JOIN ========================= -->
     <section id="joinView">
       <div class="hero">
         <span class="eyebrow">Watch in perfect sync</span>
@@ -812,7 +1333,6 @@
         <p>Spin up a room, share the code, and AnyTogether keeps everyone's video, chat and playlist locked in step.</p>
       </div>
 
-      <!-- Guest identity: visible when not signed in -->
       <div id="guestIdentityCard" class="card guest-identity-card">
         <div class="guest-identity-inner">
           <div class="field">
@@ -856,12 +1376,12 @@
         </div>
         <div class="card feature">
           <div class="ico">C</div>
-          <h3>Live chat &amp; people</h3>
+          <h3>Live chat & people</h3>
           <p>See who's watching and react together in real time without leaving the player.</p>
         </div>
         <div class="card feature">
           <div class="ico">T</div>
-          <h3>Series &amp; playlist</h3>
+          <h3>Series & playlist</h3>
           <p>Pick seasons, translators and quality, then queue up what to watch next.</p>
         </div>
       </div>
@@ -877,7 +1397,15 @@
             <button id="activeRoomCodeButton" type="button" class="code-chip room-code-chip" title="Copy room code">
               <span id="activeRoomCodeValue" class="code-text">--</span>
             </button>
-            <button id="activeRoomCodeToggleButton" type="button" class="room-code-toggle ghost" title="Show or hide the room code">Hide</button>
+            <button id="activeRoomCodeToggleButton" type="button" class="room-code-toggle ghost" title="Hide room code" aria-label="Hide room code">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M4.5 4.5 19.5 19.5" />
+                <path d="M10.6 10.6a2.2 2.2 0 0 0 2.8 2.8" />
+                <path d="M9.9 5.2A10.5 10.5 0 0 1 12 5c5.5 0 9.5 4.5 10.5 7-0.4 1-1.2 2.2-2.3 3.4" />
+                <path d="M6.3 6.3C3.8 8 2.1 10.9 1.5 12c1 2.5 5 7 10.5 7 1.5 0 2.8-0.2 4-0.6" />
+              </svg>
+            </button>
+            <button id="renameRoomButton" type="button" class="room-rename-btn ghost" title="Rename room" aria-label="Rename room">Rename room</button>
           </div>
           <p id="roomStatus" class="hint" style="margin-top:5px"></p>
         </div>
@@ -907,11 +1435,25 @@
             <div class="search-bar">
               <input id="searchInput" type="text" placeholder="Enter the site name and movie title..." autocomplete="off" />
               <button id="searchButton" class="primary">Search</button>
+              <button id="snifferToggle" type="button" class="sniffer-btn" title="Enable media loading from browser tabs">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                  <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                </svg>
+              </button>
             </div>
             <p id="searchHint" class="hint"></p>
           </div>
 
-          <div id="seriesPanel" class="media-controls hidden">
+          <div id="searchResultsWidget" class="search-results-widget hidden">
+            <div class="section-row">
+              <h3 class="section-title">Search results</h3>
+              <button id="closeSearchWidget" type="button" class="ghost">Close</button>
+            </div>
+            <iframe id="searchResultsFrame" class="search-frame" sandbox="allow-scripts allow-same-origin allow-popups allow-forms allow-top-navigation-by-user-activation" loading="lazy"></iframe>
+          </div>
+
+          <div id="seriesPanel" class="hidden">
             <div class="media-title-row">
               <div id="seriesTitle" class="media-title"></div>
               <div id="seriesMeta" class="media-subtitle"></div>
@@ -919,19 +1461,19 @@
             <div class="media-pickers">
               <div class="series-group">
                 <details id="seasonPicker" class="media-picker">
-                  <summary><span>Season</span><span id="seasonPickerValue" class="picker-value"></span></summary>
+                  <summary><span>Season</span><span id="seasonPickerValue" class="picker-value">-</span></summary>
                   <div id="seasonButtons" class="chips picker-menu"></div>
                 </details>
               </div>
               <div class="series-group">
                 <details id="episodePicker" class="media-picker">
-                  <summary><span>Episode</span><span id="episodePickerValue" class="picker-value"></span></summary>
+                  <summary><span>Episode</span><span id="episodePickerValue" class="picker-value">-</span></summary>
                   <div id="seriesEpisodes" class="chips picker-menu"></div>
                 </details>
               </div>
               <div class="series-group">
                 <details id="translatorPicker" class="media-picker">
-                  <summary><span>Voice</span><span id="translatorPickerValue" class="picker-value"></span></summary>
+                  <summary><span>Voice</span><span id="translatorPickerValue" class="picker-value">-</span></summary>
                   <div id="translatorButtons" class="chips picker-menu"></div>
                 </details>
               </div>
@@ -939,7 +1481,33 @@
           </div>
 
           <div class="player-shell">
-            <video id="video" controls playsinline></video>
+            <video id="player" playsinline></video>
+            <div id="qualityIndicator" class="quality-indicator hidden">
+              <span class="qi-label">Quality</span>
+              <span class="qi-requested" id="qiRequested">-</span>
+              <span class="qi-sep">→</span>
+              <span class="qi-active" id="qiActive">-</span>
+            </div>
+
+            <!-- Custom settings panel -->
+            <div id="playerSettingsPanel" class="player-settings-panel">
+              <div class="settings-section">
+                <span class="settings-label">Quality</span>
+                <div id="settingsQualityRow" class="settings-row"></div>
+              </div>
+              <div class="settings-divider"></div>
+              <div class="settings-section">
+                <span class="settings-label">Speed</span>
+                <div id="settingsSpeedRow" class="settings-row"></div>
+              </div>
+              <div class="settings-divider"></div>
+              <div class="settings-section">
+                <span class="settings-label">Picture-in-Picture</span>
+                <div class="settings-row">
+                  <button id="settingsPipBtn" class="settings-btn" type="button">Enable PiP</button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div class="card">
@@ -965,6 +1533,14 @@
               <input id="chatInput" type="text" placeholder="Write a message..." autocomplete="off" />
               <button id="chatSendButton" type="submit" class="primary">Send</button>
             </form>
+          </div>
+
+          <div class="card playback-debug-card">
+            <div class="section-row">
+              <h3 class="section-title">Playback debug</h3>
+              <button id="clearPlaybackDebugButton" type="button" class="ghost">Clear</button>
+            </div>
+            <div id="playbackDebugLog" class="playback-debug-log" aria-live="polite"></div>
           </div>
         </div>
       </div>
@@ -1025,7 +1601,6 @@
     </section>
   </main>
 
-
   <section id="legacyMediaConsole" class="legacy-media-console" aria-hidden="true" style="display: none;">
     <strong id="connectionState">Disconnected</strong>
     <strong id="activeRole">Guest</strong>
@@ -1050,10 +1625,10 @@
     <div id="memberList"></div>
     <div id="eventLog" aria-live="polite"></div>
     <input id="searchQuery" type="text" />
+    <button id="legacySearchButton" type="button">Send to plugin</button>
   </section>
 
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1/dist/hls.min.js"></script>
-  <script src="https://cdn.plyr.io/3.8.4/plyr.polyfilled.js"></script>
+  <script type="module" src="/player-ui.js"></script>
   <script type="module" src="/app.js"></script>
   <script type="module" src="/interface-ui.js"></script>
 </body>

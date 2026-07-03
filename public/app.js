@@ -12,11 +12,11 @@ const elements = {
   memberList: document.getElementById("memberList"),
   mediaUrl: document.getElementById("mediaUrl"),
   playbackState: document.getElementById("playbackState"),
-  player: document.getElementById("player"),
+  player: document.getElementById("player") || document.getElementById("video"),
   revisionLabel: document.getElementById("revisionLabel"),
   roleSelect: document.getElementById("roleSelect"),
   roomInput: document.getElementById("roomInput"),
-  searchButton: document.getElementById("searchButton"),
+  searchButton: document.getElementById("legacySearchButton") || document.getElementById("searchButton"),
   searchQuery: document.getElementById("searchQuery"),
   seekButton: document.getElementById("seekButton"),
   seekInput: document.getElementById("seekInput"),
@@ -29,16 +29,19 @@ const gestureCommitDelayMs = 200;
 const gestureCommitRetryMs = 60;
 const gestureCommitMaxDelayMs = 650;
 const gestureCommitQuietWindowMs = 90;
+const remoteSeekSettlementTimeoutMs = 3000;
 
 const state = {
   clientId: crypto.randomUUID(),
   connection: null,
+  connectionParams: null,
   currentControl: null,
   currentMediaUrl: "",
   currentRevision: 0,
   isApplyingRemoteState: false,
   isBuffering: false,
   isConnected: false,
+  pendingIntents: [],
   pendingPlaybackState: null,
   pendingRemoteApply: null,
   pendingSeek: null,
@@ -50,6 +53,8 @@ const state = {
   pendingSeekTimer: null,
   pendingSeekObservedSeeked: false,
   pendingSeekRemoteStartedAt: 0,
+  autoplayPending: false,
+  remoteSeekPending: false,
   remoteApplyTimer: null,
   remoteSeekActivityAt: 0,
   programmaticSeekEvents: 0,
@@ -59,6 +64,8 @@ const state = {
   stallRecoveryTimer: null,
   suppressOutgoingUntil: 0,
   hls: null,
+  shakaPlayer: null,
+  shakaUi: null,
   hlsRecoveryAttempts: 0,
   hlsMediaErrorAttempts: 0,
   hlsLastRecoveryAt: 0,
@@ -103,7 +110,8 @@ function logEvent(title, detail = "") {
   heading.textContent = title;
 
   const time = document.createElement("time");
-  time.textContent = new Date().toLocaleTimeString();
+  const timestamp = new Date();
+  time.textContent = timestamp.toLocaleTimeString();
 
   entry.append(heading);
 
@@ -116,6 +124,13 @@ function logEvent(title, detail = "") {
 
   entry.append(time);
   elements.eventLog.prepend(entry);
+  window.dispatchEvent(new CustomEvent("anytogether:sync-log", {
+    detail: {
+      title,
+      detail: detailText,
+      timestamp: timestamp.toISOString()
+    }
+  }));
 }
 
 function setConnectionLabel(label) {
@@ -178,6 +193,7 @@ function clearRemoteSeekSettlement() {
   state.pendingSeekIsRemote = false;
   state.pendingSeekObservedSeeked = false;
   state.pendingSeekRemoteStartedAt = 0;
+  state.remoteSeekPending = false;
 }
 
 function beginRemoteSeekSettlement() {
@@ -198,6 +214,30 @@ function attemptRemoteSeekSettlement(trigger = "seeked") {
   const now = performance.now();
   const startedAt = state.pendingSeekRemoteStartedAt || now;
   const ageMs = now - startedAt;
+
+  // Hard timeout: force settlement after remoteSeekSettlementTimeoutMs regardless of state
+  if (ageMs >= remoteSeekSettlementTimeoutMs) {
+    const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
+    const nextPlaybackState = state.pendingPlaybackState;
+    logEvent("Remote seek force settled", {
+      trigger,
+      ageMs: Math.round(ageMs).toString(),
+      currentTime: currentTime.toFixed(2)
+    });
+
+    clearRemoteSeekSettlement();
+    state.remoteSeekActivityAt = Date.now();
+    state.pendingSeek = null;
+    state.pendingPlaybackState = null;
+    state.programmaticSeekEvents = 0;
+
+    resumeStreamBuffering(currentTime);
+
+    if (typeof nextPlaybackState === "boolean") {
+      applyPlaybackState(nextPlaybackState);
+    }
+    return true;
+  }
 
   if (!state.pendingSeekObservedSeeked && ageMs < gestureCommitMaxDelayMs) {
     return false;
@@ -261,7 +301,20 @@ function attemptPendingSeekCommit(trigger = "timer") {
     return false;
   }
 
+  // Don't commit local seek while remote seek settlement is active
+  if (state.remoteSeekPending) {
+    schedulePendingSeekCommit(gestureCommitRetryMs);
+    return false;
+  }
+
   const now = performance.now();
+
+  // Don't send paused state with seek if we just received remote activity (< 500ms)
+  // This prevents a local pause coalesced into seek from overriding a fresh remote play
+  if (state.remoteSeekActivityAt > 0 && now - state.remoteSeekActivityAt < 500) {
+    state.pendingSeekPaused = undefined;
+  }
+
   const startedAt = state.pendingSeekCommitStartedAt || now;
   const lastUpdatedAt = state.pendingSeekLastUpdatedAt || startedAt;
   const ageMs = now - startedAt;
@@ -378,6 +431,116 @@ function isHlsSource(url) {
   return /\.m3u8(?:\?|$)/i.test(url);
 }
 
+
+function getSourceType(url) {
+  if (isHlsSource(url)) {
+    return "application/x-mpegURL";
+  }
+
+  if (/\.mp4(?:\?|$)/i.test(url)) {
+    return "video/mp4";
+  }
+
+  return undefined;
+}
+
+function getShakaContainer() {
+  return elements.player.closest(".player-shell") || elements.player.parentElement;
+}
+
+function configureShakaUi(ui) {
+  ui.configure({
+    addSeekBar: true,
+    addBigPlayButton: true,
+    controlPanelElements: [
+      "play_pause",
+      "mute",
+      "volume",
+      "time_and_duration",
+      "spacer",
+      "overflow_menu",
+      "picture_in_picture",
+      "fullscreen"
+    ],
+    overflowMenuButtons: [
+      "quality",
+      "playback_rate",
+      "picture_in_picture",
+      "captions"
+    ]
+  });
+}
+
+async function initializeShakaPlayer() {
+  if (state.shakaPlayer) {
+    return state.shakaPlayer;
+  }
+
+  if (!window.shaka?.Player || !window.shaka?.ui?.Overlay) {
+    return null;
+  }
+
+  if (typeof window.shaka.polyfill?.installAll === "function") {
+    window.shaka.polyfill.installAll();
+  }
+
+  const player = new window.shaka.Player();
+  await player.attach(elements.player);
+
+  player.configure({
+    streaming: {
+      lowLatencyMode: true,
+      rebufferingGoal: 2,
+      bufferingGoal: 20
+    }
+  });
+
+  player.addEventListener("error", (event) => {
+    const error = event.detail;
+    logEvent("Shaka player error", {
+      code: error?.code || "unknown",
+      category: error?.category || "unknown",
+      severity: error?.severity || "unknown",
+      message: error?.message || "unknown"
+    });
+  });
+
+  const ui = new window.shaka.ui.Overlay(player, getShakaContainer(), elements.player);
+  configureShakaUi(ui);
+
+  state.shakaPlayer = player;
+  state.shakaUi = ui;
+
+  return player;
+}
+
+async function loadPlayerSource(url, forceReload = false) {
+  const player = await initializeShakaPlayer();
+
+  if (player) {
+    try {
+      await player.load(url);
+      return;
+    } catch (error) {
+      logEvent("Shaka load failed", {
+        sourceUrl: url,
+        code: error?.code || "unknown",
+        message: error?.message || "unknown"
+      });
+    }
+  }
+
+  const type = getSourceType(url);
+  if (type) {
+    elements.player.setAttribute("type", type);
+  }
+
+  elements.player.src = url;
+  if (forceReload || isHlsSource(url)) {
+    elements.player.load();
+  }
+}
+
 function destroyHls() {
   clearStallRecoveryTimer();
 
@@ -442,19 +605,7 @@ function rebuildPlaybackPipeline(reason, startPosition = elements.player.current
   state.remoteSeekActivityAt = 0;
   clearPendingSeekCommitTimer();
 
-  if (isHlsSource(sourceUrl) && window.Hls) {
-    const hls = new window.Hls({
-      lowLatencyMode: true
-    });
-
-    attachHlsListeners(hls);
-    hls.loadSource(sourceUrl);
-    hls.attachMedia(elements.player);
-    state.hls = hls;
-  } else {
-    elements.player.src = sourceUrl;
-    elements.player.load();
-  }
+  void loadPlayerSource(sourceUrl, true);
 
   state.pendingSeek = Number.isFinite(startPosition) ? Math.max(0, startPosition) : 0;
   state.pendingPlaybackState = elements.player.paused;
@@ -600,27 +751,17 @@ function loadSource(url, options = {}) {
   state.programmaticPauseEvents = 0;
   clearPendingSeekCommitTimer();
 
-  if (isHlsSource(nextUrl) && window.Hls) {
-    const hls = new window.Hls({
-      lowLatencyMode: true
-    });
-
-    attachHlsListeners(hls);
-    hls.loadSource(nextUrl);
-    hls.attachMedia(elements.player);
-    state.hls = hls;
-  } else {
-    elements.player.src = nextUrl;
-    if (forceReload) {
-      elements.player.load();
-    }
-  }
+  void loadPlayerSource(nextUrl, forceReload);
 
   logEvent("Media source loaded", {
     reason: options.reason || "manual",
     sourceUrl: nextUrl
   });
   setPlaybackState();
+  // Force update the play/pause button icon in custom UI
+  if (window.__updatePlayButton) {
+    window.__updatePlayButton();
+  }
   return true;
 }
 
@@ -643,6 +784,60 @@ function applyPlaybackState(paused) {
       state.programmaticPlayEvents -= 1;
     }
   });
+}
+
+function requestProgrammaticAutoplay() {
+  state.autoplayPending = true;
+  if (elements.player && elements.player.readyState >= 1) {
+    void startProgrammaticPlayback();
+  }
+}
+
+async function startProgrammaticPlayback() {
+  if (!elements.player) {
+    return;
+  }
+
+  state.autoplayPending = false;
+  markProgrammaticPlaybackChange(false);
+
+  try {
+    await elements.player.play();
+  } catch {
+    if (state.programmaticPlayEvents > 0) {
+      state.programmaticPlayEvents -= 1;
+    }
+  }
+}
+
+// --- Quality & Translation request handling ---
+function handleQualityOrTranslationRequest(message) {
+  // Ignore our own echo
+  if (message.clientId === state.clientId) {
+    return;
+  }
+
+  if (message.requestedQualityLabel || message.requestedTranslatorId || message.requestedSeasonId || message.requestedEpisodeId) {
+    logEvent("Processing media request", {
+      quality: message.requestedQualityLabel || "unchanged",
+      translatorId: message.requestedTranslatorId || "unchanged",
+      seasonId: message.requestedSeasonId || "unchanged",
+      episodeId: message.requestedEpisodeId || "unchanged",
+      requestToken: message.requestToken || "none"
+    });
+    
+    // Dispatch custom event for interface-ui.js to pick up
+    window.dispatchEvent(new CustomEvent("anytogether:media-request", {
+      detail: {
+        requestedSeasonId: message.requestedSeasonId ? Number(message.requestedSeasonId) : null,
+        requestedEpisodeId: message.requestedEpisodeId ? Number(message.requestedEpisodeId) : null,
+        requestedQualityLabel: message.requestedQualityLabel || null,
+        requestedTranslatorId: message.requestedTranslatorId ? Number(message.requestedTranslatorId) : null,
+        requestedBy: message.clientId,
+        requestToken: message.requestToken || null
+      }
+    }));
+  }
 }
 
 function applyRemoteState(snapshot) {
@@ -680,7 +875,7 @@ function applyRemoteState(snapshot) {
   state.seekGestureActive = false;
 
   state.isApplyingRemoteState = true;
-  suppressOutgoingEvents(1200);
+  suppressOutgoingEvents(250);
 
   try {
     const mediaUrl = typeof snapshot.mediaUrl === "string" ? snapshot.mediaUrl.trim() : "";
@@ -711,14 +906,17 @@ function applyRemoteState(snapshot) {
 
     if (currentTime !== null) {
       const playerTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
-      if (Math.abs(playerTime - currentTime) > 0.35) {
+      const timeDiff = Math.abs(playerTime - currentTime);
+      
+      if (timeDiff > 0.2 || state.pendingSeekIsRemote) {
         beginRemoteSeekSettlement();
+        state.remoteSeekPending = true;
         if (typeof snapshot.paused === "boolean") {
           state.pendingPlaybackState = snapshot.paused;
         }
 
         if (elements.player.readyState >= 1 && !elements.player.seeking) {
-          markProgrammaticSeek();
+          markProgrammaticSeek(5);
           elements.player.currentTime = currentTime;
           state.pendingSeek = null;
         } else {
@@ -743,6 +941,12 @@ function applyRemoteState(snapshot) {
 }
 
 function scheduleRemoteSnapshot(snapshot) {
+  // Cancel any pending timer to ensure only the freshest snapshot is applied
+  if (state.remoteApplyTimer) {
+    clearTimeout(state.remoteApplyTimer);
+    state.remoteApplyTimer = null;
+  }
+
   state.pendingRemoteApply = snapshot;
   logEvent("Remote snapshot queued", {
     revision: typeof snapshot?.revision === "number" ? String(snapshot.revision) : "unknown",
@@ -753,25 +957,38 @@ function scheduleRemoteSnapshot(snapshot) {
     paused: typeof snapshot?.paused === "boolean" ? String(snapshot.paused) : "unchanged"
   });
 
-  if (state.remoteApplyTimer) {
-    return;
-  }
-
   state.remoteApplyTimer = setTimeout(() => {
     state.remoteApplyTimer = null;
     const nextSnapshot = state.pendingRemoteApply;
     state.pendingRemoteApply = null;
     applyRemoteState(nextSnapshot);
-  }, 80);
+  }, 40);
 }
 
 function sendMessage(payload) {
   if (!state.connection || state.connection.readyState !== WebSocket.OPEN) {
+    // Queue the message to be sent once WebSocket connects
+    state.pendingIntents.push(payload);
+    logEvent("Message queued", {
+      action: payload.action || payload.type || "unknown"
+    });
     return false;
   }
 
   state.connection.send(JSON.stringify(payload));
   return true;
+}
+
+function flushPendingIntents() {
+  if (!state.connection || state.connection.readyState !== WebSocket.OPEN) return;
+  
+  while (state.pendingIntents.length > 0) {
+    const payload = state.pendingIntents.shift();
+    state.connection.send(JSON.stringify(payload));
+    logEvent("Queued message sent", {
+      action: payload.action || payload.type || "unknown"
+    });
+  }
 }
 
 function intentPayloadSummary(action, payload) {
@@ -800,7 +1017,15 @@ function intentPayloadSummary(action, payload) {
 }
 
 function sendPlayerIntent(action, payload = {}, options = {}) {
-  if (!options.force && !canBroadcastLocalChange()) {
+  // Play and pause always go through, bypassing suppression and remoteSeekPending
+  if (action === "play" || action === "pause") {
+    // skip canBroadcastLocalChange check
+  } else if (!options.force && !canBroadcastLocalChange()) {
+    return false;
+  }
+
+  // Don't send seek while remote seek settlement is active
+  if (action === "seek" && state.remoteSeekPending && !options.force) {
     return false;
   }
 
@@ -841,6 +1066,13 @@ function sendPlayerIntent(action, payload = {}, options = {}) {
 function commitSeek(targetTime, paused = undefined, source = "seek") {
   const numericTarget = Math.max(0, Number.isFinite(targetTime) ? targetTime : 0);
   const now = performance.now();
+  const hasSameTarget = state.pendingSeekTarget !== null && Math.abs(state.pendingSeekTarget - numericTarget) < 0.05;
+  const hasSamePaused = typeof paused !== "boolean" || state.pendingSeekPaused === paused;
+
+  if (hasSameTarget && hasSamePaused) {
+    state.pendingSeekLastUpdatedAt = now;
+    return;
+  }
 
   if (state.pendingSeekTarget === null && state.pendingSeekTimer === null) {
     state.pendingSeekCommitStartedAt = now;
@@ -896,14 +1128,45 @@ function finalizeLocalSeek() {
   setPlaybackState();
 }
 
+let _wsReconnectCount = 0;
+const WS_MAX_RECONNECT = 3;
+
 function connectRoom() {
+  const nextRoom = elements.roomInput.value.trim() || "lobby";
+  const nextRole = elements.roleSelect.value;
+  const nextName = elements.displayName.value.trim() || "Guest";
+
+  if (
+    state.connection &&
+    state.connectionParams &&
+    state.connectionParams.room === nextRoom &&
+    state.connectionParams.role === nextRole &&
+    state.connectionParams.name === nextName &&
+    (state.connection.readyState === WebSocket.OPEN || state.connection.readyState === WebSocket.CONNECTING)
+  ) {
+    return;
+  }
+
   if (state.connection) {
     state.connection.close();
   }
 
-  state.room = elements.roomInput.value.trim() || "lobby";
-  state.role = elements.roleSelect.value;
-  const name = elements.displayName.value.trim() || "Guest";
+  // Limit reconnect attempts to prevent infinite loop in console
+  _wsReconnectCount++;
+  if (_wsReconnectCount > WS_MAX_RECONNECT) {
+    setConnectionLabel("Server offline");
+    logEvent("Connection limited", "Max reconnect attempts reached. Refresh to retry.");
+    return;
+  }
+
+  state.room = nextRoom;
+  state.role = nextRole;
+  const name = nextName;
+  state.connectionParams = {
+    room: nextRoom,
+    role: nextRole,
+    name: nextName
+  };
 
   elements.activeRole.textContent = state.role.charAt(0).toUpperCase() + state.role.slice(1);
   elements.activeRoom.textContent = state.room;
@@ -918,6 +1181,12 @@ function connectRoom() {
     }
 
     state.isConnected = true;
+    state.connectionParams = {
+      room: state.room,
+      role: state.role,
+      name
+    };
+    _wsReconnectCount = 0;
     setConnectionLabel("Connected");
     logEvent("Connected", {
       room: state.room,
@@ -930,6 +1199,8 @@ function connectRoom() {
       name,
       role: state.role
     });
+
+    flushPendingIntents();
 
     if (state.role === "guest") {
       sendMessage({ type: "request-sync" });
@@ -950,6 +1221,7 @@ function connectRoom() {
     }
 
     state.isConnected = false;
+    state.connectionParams = null;
     setConnectionLabel("Disconnected");
     logEvent("Disconnected", {
       code: event.code,
@@ -1051,8 +1323,65 @@ function connectRoom() {
     if (message.type === "chat") {
       logEvent(`${message.name} said`, message.text);
     }
+
+    // Handle quality/translation requests forwarded by server
+    if (message.type === "media-request") {
+      handleQualityOrTranslationRequest(message);
+      return;
+    }
   });
 }
+
+function sendQualityRequest(qualityLabel) {
+  const requestToken = crypto.randomUUID();
+  sendMessage({
+    type: "media-request",
+    roomId: state.room,
+    clientId: state.clientId,
+    requestedQualityLabel: qualityLabel,
+    requestToken
+  });
+  logEvent("Quality request sent", { qualityLabel, requestToken });
+}
+
+function sendTranslationRequest(translatorId) {
+  const requestToken = crypto.randomUUID();
+  sendMessage({
+    type: "media-request",
+    roomId: state.room,
+    clientId: state.clientId,
+    requestedTranslatorId: Number(translatorId),
+    requestToken
+  });
+  logEvent("Translation request sent", { translatorId: Number(translatorId), requestToken });
+}
+
+function sendMediaRequest(params) {
+  const requestToken = params.requestToken || crypto.randomUUID();
+  sendMessage({
+    type: "media-request",
+    roomId: state.room,
+    clientId: state.clientId,
+    requestedSeasonId: params.requestedSeasonId || null,
+    requestedEpisodeId: params.requestedEpisodeId || null,
+    requestedTranslatorId: params.requestedTranslatorId || null,
+    requestedQualityLabel: params.requestedQualityLabel || null,
+    requestToken
+  });
+  logEvent("Media request sent", {
+    seasonId: params.requestedSeasonId,
+    episodeId: params.requestedEpisodeId,
+    translatorId: params.requestedTranslatorId,
+    qualityLabel: params.requestedQualityLabel,
+    requestToken
+  });
+}
+
+// Expose functions for interface-ui.js
+window.__sendQualityRequest = sendQualityRequest;
+window.__sendTranslationRequest = sendTranslationRequest;
+window.__sendMediaRequest = sendMediaRequest;
+window.__anyTogetherRequestAutoplay = requestProgrammaticAutoplay;
 
 function renderMembers(members) {
   elements.memberList.innerHTML = "";
@@ -1110,6 +1439,14 @@ function loadManualMedia() {
     return;
   }
 
+  if (state.currentMediaUrl === url) {
+    logEvent("Manual media ignored", {
+      reason: "same source already loaded",
+      sourceUrl: url
+    });
+    return;
+  }
+
   const wasPaused = elements.player.paused;
   const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
 
@@ -1148,6 +1485,14 @@ function handlePluginMessage(event) {
   const { type, mediaUrl, title, originUrl, error } = event.data;
 
   if (type === `${pluginRequestPrefix}:search-result` && mediaUrl) {
+    if (state.currentMediaUrl === mediaUrl) {
+      logEvent("Plugin result ignored", {
+        reason: "same source already loaded",
+        sourceUrl: mediaUrl
+      });
+      return;
+    }
+
     setBridgeState("Plugin response received", title || mediaUrl);
 
     const wasPaused = elements.player.paused;
@@ -1197,8 +1542,13 @@ function handleWaitingLikeEvent() {
   scheduleStallRecovery("waiting");
 }
 
+void initializeShakaPlayer();
+
+
 elements.connectButton.addEventListener("click", connectRoom);
-elements.searchButton.addEventListener("click", requestPluginSearch);
+if (elements.searchButton) {
+  elements.searchButton.addEventListener("click", requestPluginSearch);
+}
 elements.loadMediaButton.addEventListener("click", loadManualMedia);
 elements.seekButton.addEventListener("click", () => {
   elements.player.currentTime = Math.max(0, Number(elements.seekInput.value) || 0);
@@ -1208,7 +1558,7 @@ elements.syncButton.addEventListener("click", () => sendMessage({ type: "request
 elements.player.addEventListener("play", () => {
   const isProgrammaticPlay = consumeProgrammaticPlaybackEvent(false);
 
-  if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
+  if (state.seekGestureActive || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
     if (!isProgrammaticPlay) {
       commitSeek(elements.player.currentTime, false, "play");
     }
@@ -1224,17 +1574,16 @@ elements.player.addEventListener("play", () => {
     return;
   }
 
-  if (canBroadcastLocalChange()) {
-    sendPlayerIntent("play", {
-      currentTime: elements.player.currentTime
-    });
-  }
+  // Play intent always sent (sendPlayerIntent bypasses suppression for play/pause)
+  sendPlayerIntent("play", {
+    currentTime: elements.player.currentTime
+  });
 });
 
 elements.player.addEventListener("pause", () => {
   const isProgrammaticPause = consumeProgrammaticPlaybackEvent(true);
 
-  if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
+  if (state.seekGestureActive || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
     if (isProgrammaticPause) {
       handleHlsPlayingActivity();
     } else {
@@ -1252,11 +1601,10 @@ elements.player.addEventListener("pause", () => {
     return;
   }
 
-  if (canBroadcastLocalChange()) {
-    sendPlayerIntent("pause", {
-      currentTime: elements.player.currentTime
-    });
-  }
+  // Pause intent always sent (sendPlayerIntent bypasses suppression for play/pause)
+  sendPlayerIntent("pause", {
+    currentTime: elements.player.currentTime
+  });
 });
 
 elements.player.addEventListener("seeking", () => {
@@ -1289,6 +1637,10 @@ elements.player.addEventListener("loadedmetadata", () => {
 
   if (state.pendingPlaybackState !== null && !state.pendingSeekIsRemote) {
     applyPlaybackState(state.pendingPlaybackState);
+  }
+
+  if (state.autoplayPending) {
+    void startProgrammaticPlayback();
   }
 
   handleHlsPlayingActivity();
@@ -1338,3 +1690,359 @@ setBridgeState(
 renderMembers([]);
 setPlaybackState();
 logEvent("Network pattern ready", `Example request matcher: ${webRequestPattern}`);
+
+const settingsPanel = document.getElementById("playerSettingsPanel");
+const settingsQualityRow = document.getElementById("settingsQualityRow");
+const settingsSpeedRow = document.getElementById("settingsSpeedRow");
+const settingsPipBtn = document.getElementById("settingsPipBtn");
+const settingsSpeeds = [0.5, 0.75, 1, 1.25, 1.5, 2];
+
+let settingsOpen = false;
+let settingsView = null;
+let originalQualitySection = null;
+let originalSpeedSection = null;
+let originalPipSection = null;
+let originalDividerOne = null;
+let originalDividerTwo = null;
+let settingsPanelBound = false;
+
+function getOriginalSections() {
+  if (!settingsPanel) {
+    return {
+      quality: null,
+      speed: null,
+      pip: null,
+      dividerOne: null,
+      dividerTwo: null
+    };
+  }
+
+  if (!originalQualitySection) {
+    const sections = settingsPanel.querySelectorAll(".settings-section");
+    const dividers = settingsPanel.querySelectorAll(".settings-divider");
+    originalQualitySection = sections[0] || null;
+    originalSpeedSection = sections[1] || null;
+    originalPipSection = sections[2] || null;
+    originalDividerOne = dividers[0] || null;
+    originalDividerTwo = dividers[1] || null;
+  }
+
+  return {
+    quality: originalQualitySection,
+    speed: originalSpeedSection,
+    pip: originalPipSection,
+    dividerOne: originalDividerOne,
+    dividerTwo: originalDividerTwo
+  };
+}
+
+function hideOriginalSections() {
+  const sections = getOriginalSections();
+  if (sections.quality) sections.quality.style.display = "none";
+  if (sections.speed) sections.speed.style.display = "none";
+  if (sections.pip) sections.pip.style.display = "none";
+  if (sections.dividerOne) sections.dividerOne.style.display = "none";
+  if (sections.dividerTwo) sections.dividerTwo.style.display = "none";
+}
+
+function showOriginalSections() {
+  const sections = getOriginalSections();
+  if (sections.quality) sections.quality.style.display = "";
+  if (sections.speed) sections.speed.style.display = "";
+  if (sections.pip) sections.pip.style.display = "";
+  if (sections.dividerOne) sections.dividerOne.style.display = "";
+  if (sections.dividerTwo) sections.dividerTwo.style.display = "";
+}
+
+function removeDynamicMenus() {
+  if (!settingsPanel) return;
+  settingsPanel.querySelectorAll(".settings-dynamic-menu").forEach((menu) => menu.remove());
+}
+
+function getCurrentSpeedLabel() {
+  const speed = elements.player ? elements.player.playbackRate : 1;
+  return speed === 1 ? "Normal" : `${speed}x`;
+}
+
+function getCurrentQualityLabel() {
+  const getActive = window.__settingsGetActiveQualityLabel;
+  const activeLabel = typeof getActive === "function" ? getActive() : null;
+  if (activeLabel) {
+    return activeLabel;
+  }
+
+  const getQualities = window.__settingsGetAvailableQualities;
+  const qualities = typeof getQualities === "function" ? getQualities() : [];
+  return qualities.length > 0 ? qualities[0].label : null;
+}
+
+function getCurrentPipLabel() {
+  return document.pictureInPictureElement ? "On" : "Off";
+}
+
+function updateSettingsPipBtn() {
+  if (!settingsPipBtn) return;
+
+  if (document.pictureInPictureElement) {
+    settingsPipBtn.textContent = "Exit PiP";
+    settingsPipBtn.classList.add("is-active");
+  } else {
+    settingsPipBtn.textContent = "Enable PiP";
+    settingsPipBtn.classList.remove("is-active");
+  }
+}
+
+function showMainMenu() {
+  if (!settingsPanel) return;
+
+  settingsView = null;
+  removeDynamicMenus();
+  hideOriginalSections();
+
+  const menu = document.createElement("div");
+  menu.className = "settings-dynamic-menu";
+  menu.style.cssText = "display:flex;flex-direction:column;";
+
+  const items = [
+    { id: "speed", label: "Speed", icon: "⏱" },
+    { id: "quality", label: "Quality", icon: "🎬" },
+    { id: "pip", label: "Picture-in-Picture", icon: "🗖" }
+  ];
+
+  items.forEach((item) => {
+    const row = document.createElement("div");
+    row.className = "settings-nav-row";
+
+    let valueText = "";
+    if (item.id === "speed") {
+      valueText = getCurrentSpeedLabel();
+    } else if (item.id === "quality") {
+      valueText = getCurrentQualityLabel();
+    } else if (item.id === "pip") {
+      valueText = getCurrentPipLabel();
+    }
+
+    row.innerHTML = `<span class="settings-nav-icon">${item.icon}</span><span class="settings-nav-label">${item.label}</span><span class="settings-nav-value">${valueText || ""}</span>`;
+    row.addEventListener("click", (event) => {
+      event.stopPropagation();
+
+      if (item.id === "pip") {
+        if (document.pictureInPictureElement) {
+          document.exitPictureInPicture().catch(() => {});
+        } else if (elements.player && typeof elements.player.requestPictureInPicture === "function") {
+          elements.player.requestPictureInPicture().catch(() => {});
+        }
+        setTimeout(showMainMenu, 300);
+        return;
+      }
+
+      showSubMenu(item.id);
+    });
+
+    menu.appendChild(row);
+  });
+
+  settingsPanel.appendChild(menu);
+}
+
+function showSubMenu(type) {
+  if (!settingsPanel) return;
+
+  settingsView = type;
+  removeDynamicMenus();
+  hideOriginalSections();
+
+  const menu = document.createElement("div");
+  menu.className = "settings-dynamic-menu";
+  menu.style.cssText = "display:flex;flex-direction:column;";
+
+  const back = document.createElement("div");
+  back.className = "settings-nav-row";
+  back.innerHTML = '<span class="settings-nav-back-icon">❮</span><span class="settings-nav-label">Back</span>';
+  back.addEventListener("click", (event) => {
+    event.stopPropagation();
+    showMainMenu();
+  });
+  menu.appendChild(back);
+
+  const label = document.createElement("div");
+  label.className = "settings-sub-header";
+  label.textContent = type === "speed" ? "Speed" : "Quality";
+  menu.appendChild(label);
+
+  if (type === "speed") {
+    const currentSpeed = elements.player ? elements.player.playbackRate : 1;
+    settingsSpeeds.forEach((speed) => {
+      const button = document.createElement("div");
+      button.className = "settings-nav-row settings-sub-option" + (Math.abs(speed - currentSpeed) < 0.01 ? " is-active" : "");
+      const speedLabel = speed === 1 ? "Normal" : `${speed}x`;
+      button.innerHTML = `<span class="settings-nav-label">${speedLabel}</span>`;
+      button.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (elements.player) {
+          elements.player.playbackRate = speed;
+        }
+        settingsOpen = false;
+        settingsPanel.classList.remove("is-open");
+        removeDynamicMenus();
+        showOriginalSections();
+      });
+      menu.appendChild(button);
+    });
+  } else {
+    const getQualities = window.__settingsGetAvailableQualities;
+    const getActive = window.__settingsGetActiveQualityLabel;
+    const setQuality = window.__settingsSetQualityLabel;
+    const activeLabel = typeof getActive === "function" ? getActive() : null;
+    const qualities = typeof getQualities === "function" ? getQualities() : [];
+
+    if (!qualities || qualities.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "settings-sub-empty";
+      empty.textContent = "No qualities available";
+      menu.appendChild(empty);
+    } else {
+      qualities.forEach((quality) => {
+        const button = document.createElement("div");
+        button.className = "settings-nav-row settings-sub-option" + (quality.label === activeLabel ? " is-active" : "");
+        button.innerHTML = `<span class="settings-nav-label">${quality.label}</span>`;
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          if (typeof setQuality === "function") {
+            setQuality(quality.label);
+          }
+          settingsOpen = false;
+          settingsPanel.classList.remove("is-open");
+          removeDynamicMenus();
+          showOriginalSections();
+        });
+        menu.appendChild(button);
+      });
+    }
+  }
+
+  settingsPanel.appendChild(menu);
+}
+
+function populateSettingsQuality() {
+  if (!settingsQualityRow) return;
+
+  const getQualities = window.__settingsGetAvailableQualities;
+  const getActive = window.__settingsGetActiveQualityLabel;
+  const setQuality = window.__settingsSetQualityLabel;
+
+  if (typeof getQualities !== "function") {
+    settingsQualityRow.textContent = "No qualities available";
+    return;
+  }
+
+  const qualities = getQualities();
+  const activeLabel = typeof getActive === "function" ? getActive() : null;
+  settingsQualityRow.textContent = "";
+
+  if (!qualities || qualities.length === 0) {
+    settingsQualityRow.textContent = "No qualities";
+    return;
+  }
+
+  qualities.forEach((quality) => {
+    const button = document.createElement("button");
+    button.className = "settings-btn";
+    button.textContent = quality.label;
+    if (quality.label === activeLabel) {
+      button.classList.add("is-active");
+    }
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (typeof setQuality === "function") {
+        setQuality(quality.label);
+      }
+      populateSettingsQuality();
+    });
+    settingsQualityRow.appendChild(button);
+  });
+}
+
+function populateSettingsSpeed() {
+  if (!settingsSpeedRow) return;
+
+  settingsSpeedRow.textContent = "";
+  const currentSpeed = elements.player ? elements.player.playbackRate : 1;
+
+  settingsSpeeds.forEach((speed) => {
+    const button = document.createElement("button");
+    button.className = "settings-btn";
+    button.textContent = speed === 1 ? "Normal" : `${speed}x`;
+    if (Math.abs(speed - currentSpeed) < 0.01) {
+      button.classList.add("is-active");
+    }
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (elements.player) {
+        elements.player.playbackRate = speed;
+      }
+      populateSettingsSpeed();
+    });
+    settingsSpeedRow.appendChild(button);
+  });
+}
+
+function setupSettingsPanel() {
+  if (!settingsPanel || settingsPanelBound) return;
+
+  settingsPanelBound = true;
+  updateSettingsPipBtn();
+
+  if (settingsPipBtn) {
+    settingsPipBtn.addEventListener("click", async (event) => {
+      event.stopPropagation();
+      try {
+        if (document.pictureInPictureElement) {
+          await document.exitPictureInPicture();
+        } else if (elements.player && typeof elements.player.requestPictureInPicture === "function") {
+          await elements.player.requestPictureInPicture();
+        }
+      } catch (error) {
+        logEvent("PiP error", error.message);
+      }
+      updateSettingsPipBtn();
+    });
+  }
+
+  document.addEventListener("click", (event) => {
+    if (settingsOpen &&
+      !event.target.closest(".settings-btn") &&
+      !event.target.closest(".player-settings-panel")) {
+      settingsOpen = false;
+      settingsPanel.classList.remove("is-open");
+      removeDynamicMenus();
+      showOriginalSections();
+    }
+  });
+
+  document.addEventListener("enterpictureinpicture", updateSettingsPipBtn);
+  document.addEventListener("leavepictureinpicture", updateSettingsPipBtn);
+}
+
+function toggleSettingsPanel() {
+  if (!settingsPanel) return;
+
+  settingsOpen = !settingsOpen;
+  if (settingsOpen) {
+    settingsPanel.classList.add("is-open");
+    settingsView = null;
+    populateSettingsQuality();
+    populateSettingsSpeed();
+    updateSettingsPipBtn();
+    removeDynamicMenus();
+    showMainMenu();
+  } else {
+    settingsPanel.classList.remove("is-open");
+    removeDynamicMenus();
+    showOriginalSections();
+  }
+}
+
+window.toggleSettingsPanel = toggleSettingsPanel;
+
+setupSettingsPanel();

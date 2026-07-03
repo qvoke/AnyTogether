@@ -1,0 +1,384 @@
+/* ========== Кастомный UI плеера в стиле video.js для hls.js ========== */
+
+.player-shell {
+  position: relative;
+  border-radius: 22px;
+  overflow: hidden;
+}
+
+.player-shell video {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #020507;
+  border-radius: 22px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: block;
+}
+
+/* Скрываем нативные контролы браузера */
+.player-shell video::-webkit-media-controls {
+  display: none !important;
+}
+.player-shell video::-webkit-media-controls-enclosure {
+  display: none !important;
+}
+.player-shell video::-webkit-media-controls-panel {
+  display: none !important;
+}
+
+/* Контейнер кастомных контролов */
+.custom-player-controls {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  background: linear-gradient(0deg, rgba(0,0,0,0.85) 0%, transparent 100%);
+  border-radius: 0 0 22px 22px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+/* Показываем контролы при наведении на плеер или при фокусе */
+.player-shell:hover .custom-player-controls,
+.player-shell:focus-within .custom-player-controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.custom-player-controls:hover {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Левая часть (play + громкость) — уменьшенный gap между кнопками */
+.controls-left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* Центр (прогресс-бар) */
+.controls-center {
+  flex: 1;
+  min-width: 0;
+  padding: 0 2px;
+  transition: max-width 0.2s ease;
+  max-width: 100%;
+}
+
+/* Правая часть (время, настройки, fullscreen) */
+.controls-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Время */
+.time-display {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.time-sep {
+  color: rgba(255,255,255,0.35);
+}
+
+
+/* Кнопки — переопределяем любые глобальные стили button */
+.player-shell .ctrl-btn {
+  all: unset;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px;
+  opacity: 0.85;
+  transition: opacity 0.15s;
+  line-height: 0;
+  box-sizing: content-box;
+}
+
+.player-shell .ctrl-btn:hover {
+  opacity: 1;
+  background: none !important;
+  border: none !important;
+  transform: none !important;
+}
+
+.player-shell .ctrl-btn svg {
+  width: 17px;
+  height: 17px;
+  display: block;
+}
+
+/* Прогресс-бар */
+.progress-container {
+  width: 100%;
+  padding: 4px 0;
+  cursor: pointer;
+}
+
+.progress-bar {
+  position: relative;
+  width: 100%;
+  height: 6px;
+  background: rgba(255,255,255,0.15);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* Буферизированная часть (серая полоса под fill) */
+.buffer-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: rgba(255,255,255,0.1);
+  border-radius: 3px;
+  transition: width 0.2s ease;
+  pointer-events: none;
+}
+
+.progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.1s linear;
+  pointer-events: none;
+}
+
+/* Handle (круглая точка) — видна всегда */
+.progress-handle {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border: 2px solid var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+  pointer-events: none;
+  transition: opacity 0.15s;
+}
+
+.progress-bar:not(.seeking) .progress-handle {
+  opacity: 0;
+}
+
+.progress-bar:hover .progress-handle,
+.progress-bar.seeking .progress-handle {
+  opacity: 1;
+}
+
+/* Когда пользователь тянет ползунок — fill становится синим (ожидание загрузки) */
+.progress-bar.seeking .progress-fill {
+  background: #6c8cff;
+}
+
+/* Громкость — показываем полоску только при наведении */
+.volume-container {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.volume-bar {
+  width: 0;
+  height: 4px;
+  background: rgba(255,255,255,0.2);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: width 0.2s ease;
+  overflow: hidden;
+}
+
+.volume-container:hover .volume-bar {
+  width: 60px;
+}
+
+/* Когда volume-bar расширяется, сужаем прогресс-бар */
+.volume-container:hover ~ .controls-center,
+.volume-container:hover + * + .controls-center {
+  max-width: calc(100% - 52px);
+}
+
+.volume-fill {
+  height: 100%;
+  background: #fff;
+  border-radius: 2px;
+  transition: width 0.1s;
+}
+
+/* Меню качества — привязано к плееру */
+.player-shell {
+  /* для абсолютного позиционирования меню */
+}
+
+.quality-menu-overlay {
+  position: absolute;
+  bottom: 50px;
+  right: 12px;
+  z-index: 20;
+  background: rgba(10, 17, 34, 0.95);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  padding: 8px;
+  min-width: 140px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+}
+
+.quality-menu-overlay .quality-menu-header {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 700;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+}
+
+.quality-menu-overlay .quality-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: left;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.quality-menu-overlay .quality-menu-item:hover {
+  background: rgba(255,255,255,0.08);
+}
+
+.quality-menu-overlay .quality-menu-item.active {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+/* ========== Спиннер загрузки по центру ========== */
+.player-center-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+.player-center-spinner.visible {
+  opacity: 1;
+}
+
+/* ========== Центральный overlay для временных значков (play/pause) ========== */
+.player-center-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+.player-center-overlay.visible {
+  opacity: 1;
+}
+.player-center-overlay .center-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  background: rgba(0,0,0,0.6);
+  border-radius: 50%;
+}
+
+/* Индикатор качества */
+.quality-indicator {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #fff;
+  pointer-events: none;
+  user-select: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quality-indicator .qi-label {
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 400;
+}
+
+.quality-indicator .qi-requested {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.quality-indicator .qi-active {
+  color: #6c8cff;
+}
+
+.quality-indicator .qi-sep {
+  color: rgba(255, 255, 255, 0.2);
+}
+
+/* Fullscreen режим: video на весь экран */
+.player-shell.is-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  background: #000;
+}
+
+.player-shell.is-fullscreen video {
+  width: 100%;
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 0;
+  border: none;
+}
+
+.player-shell.is-fullscreen .custom-player-controls {
+  border-radius: 0;
+}

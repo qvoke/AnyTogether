@@ -3,7 +3,15 @@
   "name": "WatchTogether Meta Search",
   "version": "0.1.0",
   "description": "Meta-search helper for legal public media streams.",
-  "permissions": ["tabs", "webRequest", "scripting", "storage", "browsingData"],
+  "permissions": [
+    "tabs",
+    "webRequest",
+    "webNavigation",
+    "scripting",
+    "storage",
+    "browsingData",
+    "declarativeNetRequest"
+  ],
   "host_permissions": [
     "<all_urls>",
     "http://localhost:3000/*",
@@ -11,6 +19,15 @@
     "https://html.duckduckgo.com/*",
     "https://lite.duckduckgo.com/*"
   ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_1",
+        "enabled": true,
+        "path": "rules/remove-frame-options.json"
+      }
+    ]
+  },
   "background": {
     "service_worker": "src/background.js",
     "type": "module"
