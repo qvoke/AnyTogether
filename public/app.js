@@ -59,6 +59,8 @@ const state = {
   stallRecoveryTimer: null,
   suppressOutgoingUntil: 0,
   hls: null,
+  shakaPlayer: null,
+  shakaUi: null,
   hlsRecoveryAttempts: 0,
   hlsMediaErrorAttempts: 0,
   hlsLastRecoveryAt: 0,
@@ -386,6 +388,116 @@ function isHlsSource(url) {
   return /\.m3u8(?:\?|$)/i.test(url);
 }
 
+
+function getSourceType(url) {
+  if (isHlsSource(url)) {
+    return "application/x-mpegURL";
+  }
+
+  if (/\.mp4(?:\?|$)/i.test(url)) {
+    return "video/mp4";
+  }
+
+  return undefined;
+}
+
+function getShakaContainer() {
+  return elements.player.closest(".player-shell") || elements.player.parentElement;
+}
+
+function configureShakaUi(ui) {
+  ui.configure({
+    addSeekBar: true,
+    addBigPlayButton: true,
+    controlPanelElements: [
+      "play_pause",
+      "mute",
+      "volume",
+      "time_and_duration",
+      "spacer",
+      "overflow_menu",
+      "picture_in_picture",
+      "fullscreen"
+    ],
+    overflowMenuButtons: [
+      "quality",
+      "playback_rate",
+      "picture_in_picture",
+      "captions"
+    ]
+  });
+}
+
+async function initializeShakaPlayer() {
+  if (state.shakaPlayer) {
+    return state.shakaPlayer;
+  }
+
+  if (!window.shaka?.Player || !window.shaka?.ui?.Overlay) {
+    return null;
+  }
+
+  if (typeof window.shaka.polyfill?.installAll === "function") {
+    window.shaka.polyfill.installAll();
+  }
+
+  const player = new window.shaka.Player();
+  await player.attach(elements.player);
+
+  player.configure({
+    streaming: {
+      lowLatencyMode: true,
+      rebufferingGoal: 2,
+      bufferingGoal: 20
+    }
+  });
+
+  player.addEventListener("error", (event) => {
+    const error = event.detail;
+    logEvent("Shaka player error", {
+      code: error?.code || "unknown",
+      category: error?.category || "unknown",
+      severity: error?.severity || "unknown",
+      message: error?.message || "unknown"
+    });
+  });
+
+  const ui = new window.shaka.ui.Overlay(player, getShakaContainer(), elements.player);
+  configureShakaUi(ui);
+
+  state.shakaPlayer = player;
+  state.shakaUi = ui;
+
+  return player;
+}
+
+async function loadPlayerSource(url, forceReload = false) {
+  const player = await initializeShakaPlayer();
+
+  if (player) {
+    try {
+      await player.load(url);
+      return;
+    } catch (error) {
+      logEvent("Shaka load failed", {
+        sourceUrl: url,
+        code: error?.code || "unknown",
+        message: error?.message || "unknown"
+      });
+    }
+  }
+
+  const type = getSourceType(url);
+  if (type) {
+    elements.player.setAttribute("type", type);
+  }
+
+  elements.player.src = url;
+  if (forceReload || isHlsSource(url)) {
+    elements.player.load();
+  }
+}
+
 function destroyHls() {
   clearStallRecoveryTimer();
 
@@ -450,19 +562,7 @@ function rebuildPlaybackPipeline(reason, startPosition = elements.player.current
   state.remoteSeekActivityAt = 0;
   clearPendingSeekCommitTimer();
 
-  if (isHlsSource(sourceUrl) && window.Hls) {
-    const hls = new window.Hls({
-      lowLatencyMode: true
-    });
-
-    attachHlsListeners(hls);
-    hls.loadSource(sourceUrl);
-    hls.attachMedia(elements.player);
-    state.hls = hls;
-  } else {
-    elements.player.src = sourceUrl;
-    elements.player.load();
-  }
+  void loadPlayerSource(sourceUrl, true);
 
   state.pendingSeek = Number.isFinite(startPosition) ? Math.max(0, startPosition) : 0;
   state.pendingPlaybackState = elements.player.paused;
@@ -608,21 +708,7 @@ function loadSource(url, options = {}) {
   state.programmaticPauseEvents = 0;
   clearPendingSeekCommitTimer();
 
-  if (isHlsSource(nextUrl) && window.Hls) {
-    const hls = new window.Hls({
-      lowLatencyMode: true
-    });
-
-    attachHlsListeners(hls);
-    hls.loadSource(nextUrl);
-    hls.attachMedia(elements.player);
-    state.hls = hls;
-  } else {
-    elements.player.src = nextUrl;
-    if (forceReload) {
-      elements.player.load();
-    }
-  }
+  void loadPlayerSource(nextUrl, forceReload);
 
   logEvent("Media source loaded", {
     reason: options.reason || "manual",
@@ -1204,6 +1290,9 @@ function handleWaitingLikeEvent() {
   state.isBuffering = true;
   scheduleStallRecovery("waiting");
 }
+
+void initializeShakaPlayer();
+
 
 elements.connectButton.addEventListener("click", connectRoom);
 if (elements.searchButton) {

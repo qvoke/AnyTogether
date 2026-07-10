@@ -132,6 +132,7 @@ const state = {
   hls: null,
   connected: false,
   player: null,
+  shakaUi: null,
   authToken: loadStoredValue(STORAGE_KEYS.authToken) || null,
   currentUser: null,
   authMode: requestedAuthMode === "signup" ? "signup" : "signin",
@@ -1311,25 +1312,87 @@ function getParticipantInitials(participant) {
     .toUpperCase();
 }
 
-function parseQualityValue(label) {
-  const value = Number.parseInt(String(label || "").replace(/[^0-9]/g, ""), 10);
-  return Number.isFinite(value) ? value : null;
+function isHlsSource(url) {
+  return /\.m3u8(?:\?|$)/i.test(String(url || ""));
 }
 
-function getPlayerQualityOptionsFromLevels(levels) {
-  return Array.from(
-    new Set(
-      (Array.isArray(levels) ? levels : [])
-        .map((level) => Number(level?.height))
-        .filter((height) => Number.isFinite(height) && height > 0)
-    )
-  ).sort((a, b) => a - b);
+function getSourceType(url) {
+  if (isHlsSource(url)) {
+    return "application/x-mpegURL";
+  }
+
+  if (/\.mp4(?:\?|$)/i.test(String(url || ""))) {
+    return "video/mp4";
+  }
+
+  return undefined;
+}
+
+function getShakaContainer() {
+  return video.closest(".player-shell") || video.parentElement;
+}
+
+function configureShakaUi(ui) {
+  ui.configure({
+    addSeekBar: true,
+    addBigPlayButton: true,
+    controlPanelElements: [
+      "play_pause",
+      "mute",
+      "volume",
+      "time_and_duration",
+      "spacer",
+      "overflow_menu",
+      "picture_in_picture",
+      "fullscreen"
+    ],
+    overflowMenuButtons: [
+      "quality",
+      "playback_rate",
+      "picture_in_picture",
+      "captions"
+    ]
+  });
+}
+
+async function initializePlayer() {
+  if (state.player) return state.player;
+  if (!window.shaka?.Player || !window.shaka?.ui?.Overlay) return null;
+
+  if (typeof window.shaka.polyfill?.installAll === "function") {
+    window.shaka.polyfill.installAll();
+  }
+
+  const player = new window.shaka.Player();
+  await player.attach(video);
+  player.configure({
+    streaming: {
+      lowLatencyMode: true,
+      rebufferingGoal: 2,
+      bufferingGoal: 20
+    }
+  });
+
+  player.addEventListener("error", (event) => {
+    const error = event.detail;
+    console.warn("Shaka player error", error);
+  });
+
+  const ui = new window.shaka.ui.Overlay(player, getShakaContainer(), video);
+  configureShakaUi(ui);
+
+  state.player = player;
+  state.shakaUi = ui;
+  return player;
 }
 
 function destroyPlayer() {
-  if (state.player) {
-    state.player.destroy();
-    state.player = null;
+  if (!state.player) return;
+
+  try {
+    void state.player.unload();
+  } catch (error) {
+    console.warn("Shaka unload failed", error);
   }
 }
 
@@ -1338,71 +1401,6 @@ function destroyMediaEngine() {
     state.hls.destroy();
     state.hls = null;
   }
-}
-
-function applyPlayerQuality(levelValue) {
-  const hls = state.hls;
-  if (!hls) return;
-
-  const numericValue = Number(levelValue);
-  if (!Number.isFinite(numericValue)) return;
-
-  const levelIndex = hls.levels.findIndex((level) => Number(level.height) === numericValue);
-  if (levelIndex >= 0) {
-    hls.currentLevel = levelIndex;
-    hls.loadLevel = levelIndex;
-  }
-}
-
-function initializePlayer(qualityOptions = [], onQualityChange = null) {
-  if (!window.Plyr) return;
-  destroyPlayer();
-
-  const roomState = getActiveRoomState();
-  const availableValues = Array.isArray(qualityOptions) ? qualityOptions : [];
-  const selectedQuality = parseQualityValue(roomState?.ui?.qualityLabel);
-  const defaultQuality = Number.isFinite(selectedQuality)
-    ? selectedQuality
-    : availableValues.length
-      ? availableValues[availableValues.length - 1]
-      : undefined;
-
-  const options = {
-    controls: [
-      "play-large",
-      "play",
-      "progress",
-      "current-time",
-      "mute",
-      "volume",
-      "captions",
-      "settings",
-      "pip",
-      "airplay",
-      "fullscreen"
-    ],
-    settings: ["captions", "quality", "speed", "loop"],
-    quality: availableValues.length
-      ? {
-          default: defaultQuality,
-          options: availableValues,
-          forced: true,
-          onChange: (quality) => {
-            if (typeof onQualityChange === "function") {
-              onQualityChange(quality);
-            }
-          }
-        }
-      : undefined,
-    i18n: {
-      qualityLabel: {
-        0: "Auto"
-      }
-    }
-  };
-
-  state.player = new window.Plyr(video, options);
-  return state.player;
 }
 
 function updateSearchControls() {
@@ -1793,61 +1791,37 @@ function sendJoinMessage(roomId) {
   return true;
 }
 
-function loadMedia(url) {
-  destroyPlayer();
+async function loadMedia(url) {
   destroyMediaEngine();
 
-  video.removeAttribute("src");
-  video.load();
+  const mediaUrl = String(url || "").trim();
+  if (!mediaUrl) return;
 
   const roomState = getActiveRoomState();
+  const player = await initializePlayer();
 
-  if (url.toLowerCase().includes(".m3u8") && window.Hls?.isSupported()) {
-    state.hls = new window.Hls();
-    state.hls.attachMedia(video);
-    state.hls.on(window.Hls.Events.ERROR, (_event, data) => {
-      if (!data?.fatal) return;
-
-      if (data.type === window.Hls.ErrorTypes.NETWORK_ERROR) {
-        state.hls.startLoad();
-        return;
-      }
-
-      if (data.type === window.Hls.ErrorTypes.MEDIA_ERROR) {
-        state.hls.recoverMediaError();
-        return;
-      }
-
-      clearMedia();
-    });
-
-    state.hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-      const qualityOptions = getPlayerQualityOptionsFromLevels(state.hls?.levels);
-      const syncQuality = (quality) => {
-        applyPlayerQuality(quality);
-        if (roomState?.ui) {
-          roomState.ui.qualityLabel = `${quality}p`;
-        }
-      };
-
-      initializePlayer(qualityOptions, syncQuality);
-
-      const selectedQuality = parseQualityValue(roomState?.ui?.qualityLabel);
-      if (Number.isFinite(selectedQuality) && qualityOptions.includes(selectedQuality)) {
-        applyPlayerQuality(selectedQuality);
-        if (state.player) {
-          state.player.quality = selectedQuality;
-        }
-      }
-
-      applyPlaybackState(roomState?.currentPlayback || { state: "paused", time: 0 });
-    });
-    state.hls.loadSource(url);
+  if (player) {
+    try {
+      await player.load(mediaUrl);
+    } catch (error) {
+      console.warn("Shaka load failed", error);
+      const type = getSourceType(mediaUrl);
+      if (type) video.setAttribute("type", type);
+      video.src = mediaUrl;
+      video.load();
+    }
   } else {
-    video.src = url;
+    const type = getSourceType(mediaUrl);
+    if (type) video.setAttribute("type", type);
+    video.src = mediaUrl;
     video.load();
-    initializePlayer();
-    applyPlaybackState(roomState?.currentPlayback || { state: "paused", time: 0 });
+  }
+
+  const playback = roomState?.currentPlayback || { state: "paused", time: 0 };
+  if (video.readyState >= 1) {
+    applyPlaybackState(playback);
+  } else {
+    video.addEventListener("loadedmetadata", () => applyPlaybackState(playback), { once: true });
   }
 }
 
@@ -2475,6 +2449,7 @@ async function start() {
   ensureVisibility();
   updateSearchControls();
   bindUi();
+  await initializePlayer();
   renderAll();
   connectWs();
   await fetchRoomsDirectory();
@@ -2509,6 +2484,7 @@ async function start() {
     }
   });
 }
+
 
 video.addEventListener("play", () => {
   if (applyingRemoteState) return;
