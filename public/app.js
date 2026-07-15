@@ -1442,6 +1442,21 @@ function connectRoom() {
       }
 
       clearPendingSeekCommitTimer();
+      const shouldRetrySeek = message.reason === "control-lease-held" &&
+        message.action === "seek" &&
+        Number.isFinite(message.currentTime);
+
+      if (shouldRetrySeek) {
+        state.pendingSeekTarget = Math.max(0, message.currentTime);
+        state.pendingSeekPaused = typeof message.paused === "boolean" ? message.paused : undefined;
+        state.pendingSeekCommitStartedAt = performance.now();
+        state.pendingSeekLastUpdatedAt = performance.now() - gestureCommitMaxDelayMs;
+        const leaseUntil = Number(message.control?.leaseUntil);
+        const retryDelay = Number.isFinite(leaseUntil)
+          ? Math.max(gestureCommitRetryMs, leaseUntil - Date.now() + 25)
+          : gestureCommitRetryMs;
+        schedulePendingSeekCommit(retryDelay);
+      }
 
       if (message.control) {
         updateControlState(message.control, "rejected");
@@ -1452,7 +1467,7 @@ function connectRoom() {
         reason: message.reason
       });
 
-      if (message.snapshot) {
+      if (message.snapshot && !shouldRetrySeek) {
         scheduleRemoteSnapshot(message.snapshot);
       }
 

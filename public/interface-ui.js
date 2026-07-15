@@ -4016,11 +4016,8 @@ function connectWs() {
     }
     syncProfile();
 
-    pendingRoomJoins.forEach((roomId) => {
-      sendJoinMessage(roomId);
-    });
-
-    state.joinedRooms.forEach((roomId) => {
+    const roomsToJoin = new Set([...pendingRoomJoins, ...state.joinedRooms]);
+    roomsToJoin.forEach((roomId) => {
       sendJoinMessage(roomId);
     });
 
