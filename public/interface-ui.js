@@ -14,7 +14,8 @@ const STORAGE_KEYS = {
   role: "watchTogether.role",
   authToken: "watchTogether.authToken",
   backendBaseUrl: "watchTogether.backendBaseUrl",
-  clientId: "watchTogether.clientId"
+  clientId: "watchTogether.clientId",
+  language: "watchTogether.language"
 };
 const GUEST_NICKNAME_KEY = "watchTogether.guestNickname";
 const ROOM_UI_STORAGE_PREFIX = "watchTogether.roomUi.";
@@ -152,6 +153,12 @@ const refreshRoomsButton = document.getElementById("refreshRoomsButton");
 const roomsCreateButton = document.getElementById("roomsCreateButton");
 const roomsJoinInput = document.getElementById("roomsJoinInput");
 const roomsJoinButton = document.getElementById("roomsJoinButton");
+const roomsHeaderTitle = document.getElementById("roomsHeaderTitle");
+const languageMenuButton = document.getElementById("languageMenuButton");
+const languageMenuLabel = document.getElementById("languageMenuLabel");
+const languageMenuDropdown = document.getElementById("languageMenuDropdown");
+const languageEnglishButton = document.getElementById("languageEnglishButton");
+const languageRussianButton = document.getElementById("languageRussianButton");
 
 const topbarUser = document.getElementById("topbarUser");
 const topbarNickDisplay = document.getElementById("topbarNickDisplay");
@@ -167,6 +174,8 @@ const state = {
   authToken: loadStoredValue(STORAGE_KEYS.authToken) || null,
   currentUser: null,
   authMode: requestedAuthMode === "signup" ? "signup" : "signin",
+  language: normalizeLanguage(loadStoredValue(STORAGE_KEYS.language) || navigator.language),
+  languageMenuOpen: false,
   joinedRooms: loadJoinedRooms(),
   activeRoomId: queryRoom || loadStoredValue(STORAGE_KEYS.activeRoomId) || null,
   accountRoomCodes: [],
@@ -187,7 +196,6 @@ const state = {
 let _snifferEnabled = false;
 let loadedMediaKey = null;
 let pendingSearchStatusTimer = null;
-let roomCodeHidden = false;
 const pendingRoomJoins = new Set();
 // Store the hash parameters (#t:56-s:2-e:1) so they can be applied after the series loads.
 let _pendingRezkaHash = null;
@@ -195,15 +203,217 @@ let _lastLoadedMediaKey = "";
 let _lastLoadBlockedUntil = 0;
 let _lastLoadHadContext = false;
 
-function resetLastLoadedMediaGuard() {
-  _lastLoadedMediaKey = "";
-  _lastLoadBlockedUntil = 0;
-  _lastLoadHadContext = false;
-}
 let _lastSyncActiveRoomAt = 0;
 let _searchPopupWindow = null;
 const LOAD_BLOCK_DURATION_MS = 5000;
 const SYNC_BLOCK_DURATION_MS = 2000;
+
+const I18N = {
+  en: {
+    title: "AnyTogether - Watch in sync",
+    description: "Create a room, drop a stream and watch it together - synchronised playback, live chat and a shared playlist.",
+    rooms: "Rooms",
+    lastRoom: "Last room",
+    returnLastRoom: "Return to last room",
+    signOut: "Sign out",
+    selectLanguage: "Select site language",
+    room: "Room",
+    language: "Language",
+    english: "English",
+    russian: "Russian",
+    openRoom: "Open active room",
+    homeEyebrow: "Watch in perfect sync",
+    homeTitle: "Press play together,\nwherever you are.",
+    homeDescription: "Spin up a room, share the code, and AnyTogether keeps everyone's video, chat and playlist locked in step.",
+    nicknameLabel: "Your nickname",
+    nicknamePlaceholder: "e.g. Alex",
+    signIn: "Sign in",
+    signUp: "Sign up",
+    startRoomTitle: "Start a new room",
+    startRoomDescription: "You'll become the host and can search, queue media and control playback for everyone.",
+    createRoom: "Create a room",
+    copyRoomCode: "Copy room code",
+    joinCodeTitle: "Join with a code",
+    roomCodeLabel: "Room code",
+    roomCodePlaceholder: "e.g. AB12CD",
+    joinRoom: "Join room",
+    joinedRoomsTitle: "Your rooms",
+    refresh: "Refresh",
+    loadingRooms: "Loading rooms...",
+    noRoomsLinked: "No rooms are linked to your account yet.",
+    roomsSubtitle: "Keep your rooms in one place and pick up right where you left off.",
+    open: "Open",
+    leave: "Leave",
+    renameRoom: "Rename room",
+    deleteRoom: "Delete room",
+    showRoomCode: "Show room code",
+    hideRoomCode: "Hide room code",
+    noRoomSelected: "No room selected",
+    joinRoomDashboard: "Join a room to unlock the dashboard.",
+    enterRoomCode: "Enter a room code",
+    joinOrCreateRoomFirst: "Join or create a room first.",
+    session: "Session",
+    unknown: "Unknown",
+    guest: "Guest",
+    signedInAs: "Signed in as {name}",
+    signedIn: "Signed in",
+    notSignedIn: "Not signed in",
+    authTitle: "Sign in to AnyTogether",
+    authPrompt: "Or sign in with",
+    displayName: "Display name",
+    emailOrName: "Email or name",
+    emailLabel: "Email",
+    passwordLabel: "Password",
+    forgotPassword: "Forgot password?",
+    noAccountSignUp: "No account? Sign up",
+    signInWithEmail: "Or sign in with email",
+    signUpWithEmail: "Or sign up with email",
+    backToSignIn: "Back to sign in",
+    enterYourEmail: "Enter your email",
+    enterYourEmailOrName: "Enter your email or name",
+    yourName: "Your name",
+    yourPassword: "Your password",
+    google: "Google",
+    apple: "Apple",
+    searchTitle: "Find something to watch",
+    searchHelp: "Searches the public web, opens likely result pages, and asks the extension to extract a playable media URL.",
+    searchPlaceholder: "Enter the site name and movie title...",
+    search: "Search",
+    searchResults: "Search results",
+    close: "Close",
+    participants: "Participants",
+    playlist: "Playlist",
+    addCurrent: "Add current",
+    suggest: "Suggest",
+    chat: "Chat",
+    playbackDebug: "Playback debug",
+    clear: "Clear",
+    writeMessage: "Write a message...",
+    send: "Send",
+    quality: "Quality",
+    speed: "Speed",
+    pip: "Picture-in-Picture",
+    enablePip: "Enable PiP",
+    play: "Play",
+    system: "System",
+    playlistEmpty: "Playlist is empty.",
+    playlistItem: "Playlist item",
+    featurePlaybackTitle: "Synced playback",
+    featurePlaybackDescription: "Play, pause and seek are mirrored instantly across every participant in the room.",
+    featureChatTitle: "Live chat & people",
+    featureChatDescription: "See who's watching and react together in real time without leaving the player.",
+    featurePlaylistTitle: "Series & playlist",
+    featurePlaylistDescription: "Pick seasons, translators and quality, then queue up what to watch next.",
+    memberOne: "user",
+    memberOther: "users",
+    playlistOne: "playlist item",
+    playlistOther: "playlist items",
+    noMedia: "No media"
+  },
+  ru: {
+    title: "AnyTogether - просмотр вместе",
+    description: "Создайте комнату, откройте поток и смотрите вместе - синхронное воспроизведение, чат и общий плейлист.",
+    rooms: "Комнаты",
+    lastRoom: "Последняя комната",
+    returnLastRoom: "Вернуться в последнюю комнату",
+    signOut: "Выйти",
+    selectLanguage: "Выберите язык сайта",
+    room: "Комната",
+    language: "Язык",
+    english: "Английский",
+    russian: "Русский",
+    openRoom: "Открыть активную комнату",
+    homeEyebrow: "Смотрите в полной синхронизации",
+    homeTitle: "Нажимайте play вместе,\nгде бы вы ни были.",
+    homeDescription: "Создайте комнату, поделитесь кодом, и AnyTogether синхронизирует видео, чат и плейлист для всех.",
+    nicknameLabel: "Ваш никнейм",
+    nicknamePlaceholder: "например, Alex",
+    signIn: "Войти",
+    signUp: "Регистрация",
+    startRoomTitle: "Создать новую комнату",
+    startRoomDescription: "Вы станете хозяином комнаты и сможете искать, добавлять медиа и управлять воспроизведением для всех.",
+    createRoom: "Создать комнату",
+    copyRoomCode: "Скопировать код комнаты",
+    joinCodeTitle: "Присоединиться по коду",
+    roomCodeLabel: "Код комнаты",
+    roomCodePlaceholder: "например, AB12CD",
+    joinRoom: "Присоединиться",
+    joinedRoomsTitle: "Ваши комнаты",
+    refresh: "Обновить",
+    loadingRooms: "Загрузка комнат...",
+    noRoomsLinked: "К вашей учетной записи пока не привязано ни одной комнаты.",
+    roomsSubtitle: "Храните комнаты в одном месте и возвращайтесь туда, где остановились.",
+    open: "Открыть",
+    leave: "Покинуть",
+    renameRoom: "Переименовать комнату",
+    deleteRoom: "Удалить комнату",
+    showRoomCode: "Показать код комнаты",
+    hideRoomCode: "Скрыть код комнаты",
+    noRoomSelected: "Комната не выбрана",
+    joinRoomDashboard: "Присоединитесь к комнате, чтобы открыть панель.",
+    enterRoomCode: "Введите код комнаты",
+    joinOrCreateRoomFirst: "Сначала присоединитесь к комнате или создайте её.",
+    session: "Сессия",
+    unknown: "Неизвестно",
+    guest: "Гость",
+    signedInAs: "Вход выполнен как {name}",
+    signedIn: "Вход выполнен",
+    notSignedIn: "Не выполнен вход",
+    authTitle: "Войдите в AnyTogether",
+    authPrompt: "Или войдите через",
+    displayName: "Отображаемое имя",
+    emailOrName: "Email или имя",
+    emailLabel: "Email",
+    passwordLabel: "Пароль",
+    forgotPassword: "Забыли пароль?",
+    noAccountSignUp: "Нет аккаунта? Зарегистрируйтесь",
+    signInWithEmail: "Или войдите по email",
+    signUpWithEmail: "Или зарегистрируйтесь по email",
+    backToSignIn: "Назад к входу",
+    enterYourEmail: "Введите email",
+    enterYourEmailOrName: "Введите email или имя",
+    yourName: "Ваше имя",
+    yourPassword: "Ваш пароль",
+    google: "Google",
+    apple: "Apple",
+    searchTitle: "Найти, что посмотреть",
+    searchHelp: "Ищет в открытом вебе, открывает подходящие страницы и просит расширение извлечь воспроизводимый медиа-URL.",
+    searchPlaceholder: "Введите название сайта и фильма...",
+    search: "Поиск",
+    searchResults: "Результаты поиска",
+    close: "Закрыть",
+    participants: "Участники",
+    playlist: "Плейлист",
+    addCurrent: "Добавить текущее",
+    suggest: "Предложить",
+    chat: "Чат",
+    playbackDebug: "Отладка воспроизведения",
+    clear: "Очистить",
+    writeMessage: "Напишите сообщение...",
+    send: "Отправить",
+    quality: "Качество",
+    speed: "Скорость",
+    pip: "Картинка в картинке",
+    enablePip: "Включить PiP",
+    play: "Воспроизвести",
+    system: "Система",
+    playlistEmpty: "Плейлист пуст.",
+    playlistItem: "Элемент плейлиста",
+    featurePlaybackTitle: "Синхронное воспроизведение",
+    featurePlaybackDescription: "Play, pause и seek мгновенно повторяются у всех участников комнаты.",
+    featureChatTitle: "Живой чат и люди",
+    featureChatDescription: "Смотрите, кто смотрит, и реагируйте вместе в реальном времени, не уходя из плеера.",
+    featurePlaylistTitle: "Сериалы и плейлист",
+    featurePlaylistDescription: "Выбирайте сезоны, переводчиков и качество, затем добавляйте, что смотреть дальше.",
+    memberOne: "участник",
+    memberFew: "участника",
+    memberMany: "участников",
+    playlistOne: "элемент плейлиста",
+    playlistFew: "элемента плейлиста",
+    playlistMany: "элементов плейлиста",
+    noMedia: "Нет медиа"
+  }
+};
 
 {
   const storedNickname = loadStoredValue(STORAGE_KEYS.nickname);
@@ -242,6 +452,73 @@ function loadCookieValue(name) {
     }
   }
   return null;
+}
+
+function normalizeLanguage(value) {
+  const language = String(value || "").toLowerCase();
+  return language.startsWith("ru") ? "ru" : "en";
+}
+
+function translate(key, params = {}) {
+  const language = state.language || "en";
+  const dictionary = I18N[language] || I18N.en;
+  const fallback = I18N.en[key] || key;
+  const template = dictionary[key] || fallback;
+
+  return String(template).replace(/\{(\w+)\}/g, (_, name) => {
+    const value = params[name];
+    return value == null ? "" : String(value);
+  });
+}
+
+function pluralize(count, forms) {
+  if ((state.language || "en") !== "ru") {
+    return count === 1 ? forms.one : forms.other;
+  }
+
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+
+  if (mod10 === 1 && mod100 !== 11) return forms.one;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return forms.few;
+  return forms.many;
+}
+
+function getTranslatedCountLabel(count, key) {
+  if ((state.language || "en") === "ru") {
+    return `${count} ${pluralize(count, {
+      one: I18N.ru[`${key}One`],
+      few: I18N.ru[`${key}Few`],
+      many: I18N.ru[`${key}Many`]
+    })}`;
+  }
+
+  return `${count} ${pluralize(count, {
+    one: I18N.en[`${key}One`],
+    other: I18N.en[`${key}Other`]
+  })}`;
+}
+
+function setLanguage(language) {
+  const nextLanguage = normalizeLanguage(language);
+  if (state.language === nextLanguage) {
+    updateLanguageDependentText();
+    return;
+  }
+
+  state.language = nextLanguage;
+  storeValue(STORAGE_KEYS.language, nextLanguage);
+  updateLanguageDependentText();
+  renderAll();
+  if (pageMode === "rooms") {
+    renderRoomsAuthGate();
+    renderRoomsDirectory();
+  }
+}
+
+function setLanguageMenuOpen(nextOpen) {
+  state.languageMenuOpen = Boolean(nextOpen);
+  renderTopbarUser();
 }
 
 function resolveBackendBaseUrl(value) {
@@ -371,7 +648,8 @@ function loadRoomUiState(roomId) {
       seasonId: Number.isFinite(Number(parsed.seasonId)) ? Number(parsed.seasonId) : null,
       episodeId: Number.isFinite(Number(parsed.episodeId)) ? Number(parsed.episodeId) : null,
       translatorId: Number.isFinite(Number(parsed.translatorId)) ? Number(parsed.translatorId) : null,
-      qualityLabel: typeof parsed.qualityLabel === "string" && parsed.qualityLabel ? parsed.qualityLabel : null
+      qualityLabel: typeof parsed.qualityLabel === "string" && parsed.qualityLabel ? parsed.qualityLabel : null,
+      codeHidden: Boolean(parsed.codeHidden)
     };
   } catch {
     return null;
@@ -386,7 +664,8 @@ function saveRoomUiState(roomId, ui) {
     seasonId: Number.isFinite(Number(ui?.seasonId)) ? Number(ui.seasonId) : null,
     episodeId: Number.isFinite(Number(ui?.episodeId)) ? Number(ui.episodeId) : null,
     translatorId: Number.isFinite(Number(ui?.translatorId)) ? Number(ui.translatorId) : null,
-    qualityLabel: typeof ui?.qualityLabel === "string" && ui.qualityLabel ? ui.qualityLabel : null
+    qualityLabel: typeof ui?.qualityLabel === "string" && ui.qualityLabel ? ui.qualityLabel : null,
+    codeHidden: Boolean(ui?.codeHidden)
   };
 
   try {
@@ -745,7 +1024,7 @@ function ensureRoomState(roomId) {
 
   const fallback = {
     code: roomId,
-    title: `Room ${roomId}`,
+    title: "Room",
     createdAt: Date.now(),
     sessionStartedAt: Date.now(),
     memberCount: 0,
@@ -774,7 +1053,7 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
   const previousSeriesContext = existing.currentMedia?.seriesContext || null;
 
   existing.code = snapshot.code || roomId;
-  existing.title = snapshot.title || existing.title || `Room ${roomId}`;
+  existing.title = snapshot.title || existing.title || "Room";
   existing.createdAt = Number.isFinite(snapshot.createdAt) ? snapshot.createdAt : existing.createdAt;
   existing.sessionStartedAt = Number.isFinite(snapshot.sessionStartedAt)
     ? snapshot.sessionStartedAt
@@ -875,16 +1154,6 @@ function setPendingEpisodeSelection(roomState, targetEpisode, lockMs = 12000) {
   const episodeId = Number(targetEpisode?.episodeId);
   if (!Number.isFinite(seasonId) || !Number.isFinite(episodeId)) return;
   roomState.ui = roomState.ui || createDefaultUi(roomState.currentMedia?.seriesContext || null);
-  const existingPending = getPendingEpisodeSelection(roomState);
-  const existingLockedUntil = Number(roomState.ui._pendingEpisodeLockedUntil || 0);
-  if (
-    existingPending &&
-    Number.isFinite(existingLockedUntil) &&
-    existingLockedUntil > Date.now() &&
-    (existingPending.seasonId !== seasonId || existingPending.episodeId !== episodeId)
-  ) {
-    return;
-  }
   roomState.ui._pendingEpisodeTarget = {
     seasonId,
     episodeId,
@@ -954,7 +1223,8 @@ function mergeUiFromSeriesContext(roomState, seriesContext, previousSeriesContex
           ? seriesContext.selectedQualityLabel
           : (currentUi.qualityLabel && qualities.some((quality) => quality.label === currentUi.qualityLabel)
             ? currentUi.qualityLabel
-            : defaultUi.qualityLabel)
+            : defaultUi.qualityLabel),
+      codeHidden: Boolean(currentUi.codeHidden)
     };
   }
 
@@ -999,7 +1269,8 @@ function mergeUiFromSeriesContext(roomState, seriesContext, previousSeriesContex
     seasonId,
     episodeId,
     translatorId,
-    qualityLabel
+    qualityLabel,
+    codeHidden: Boolean(currentUi.codeHidden)
   };
 }
 
@@ -1011,8 +1282,15 @@ function sanitizeRoomUi(roomState) {
   const pendingEpisode = getPendingEpisodeSelection(roomState);
 
   if (!roomState.ui) {
-    roomState.ui = createDefaultUi(seriesContext);
+    roomState.ui = {
+      ...createDefaultUi(seriesContext),
+      codeHidden: Boolean(loadRoomUiState(roomState.code)?.codeHidden)
+    };
     return;
+  }
+
+  if (typeof roomState.ui.codeHidden !== "boolean") {
+    roomState.ui.codeHidden = Boolean(loadRoomUiState(roomState.code)?.codeHidden);
   }
 
   if (pendingEpisode) {
@@ -1056,6 +1334,35 @@ function getActiveUiState() {
   return getActiveRoomState()?.ui || createDefaultUi(getActiveSeriesContext());
 }
 
+function getRoomCodeHidden(roomId) {
+  const normalized = normalizeRoomCode(roomId);
+  if (!normalized) return false;
+
+  const roomState = state.roomStates.get(normalized);
+  if (typeof roomState?.ui?.codeHidden === "boolean") {
+    return roomState.ui.codeHidden;
+  }
+
+  return Boolean(loadRoomUiState(normalized)?.codeHidden);
+}
+
+function setRoomCodeHidden(roomId, nextHidden) {
+  const normalized = normalizeRoomCode(roomId);
+  if (!normalized) return;
+
+  const hidden = Boolean(nextHidden);
+  const roomState = state.roomStates.get(normalized);
+  if (roomState) {
+    roomState.ui = roomState.ui || createDefaultUi(roomState.currentMedia?.seriesContext || null);
+    roomState.ui.codeHidden = hidden;
+    saveRoomUiState(normalized, roomState.ui);
+    return;
+  }
+
+  const existing = loadRoomUiState(normalized) || {};
+  saveRoomUiState(normalized, { ...existing, codeHidden: hidden });
+}
+
 function formatDuration(durationMs) {
   const totalSeconds = Math.max(0, Math.floor(durationMs / 1000));
   const hours = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
@@ -1073,14 +1380,166 @@ function formatClock(timestamp) {
 }
 
 function formatRelativeTime(timestamp) {
-  if (!Number.isFinite(timestamp)) return "Unknown";
+  if (!Number.isFinite(timestamp)) return translate("unknown");
 
   const delta = Date.now() - timestamp;
-  if (delta < 0) return "Just now";
-  if (delta < 60 * 1000) return `${Math.max(1, Math.floor(delta / 1000))}s ago`;
-  if (delta < 60 * 60 * 1000) return `${Math.floor(delta / (60 * 1000))}m ago`;
-  if (delta < 24 * 60 * 60 * 1000) return `${Math.floor(delta / (60 * 60 * 1000))}h ago`;
-  return `${Math.floor(delta / (24 * 60 * 60 * 1000))}d ago`;
+  const relativeTimeFormat = new Intl.RelativeTimeFormat(state.language || "en", {
+    numeric: "auto"
+  });
+
+  if (delta <= 10 * 1000) return relativeTimeFormat.format(0, "second");
+  if (delta < 60 * 1000) return relativeTimeFormat.format(-Math.floor(delta / 1000), "second");
+  if (delta < 60 * 60 * 1000) return relativeTimeFormat.format(-Math.floor(delta / (60 * 1000)), "minute");
+  if (delta < 24 * 60 * 60 * 1000) return relativeTimeFormat.format(-Math.floor(delta / (60 * 60 * 1000)), "hour");
+  return relativeTimeFormat.format(-Math.floor(delta / (24 * 60 * 60 * 1000)), "day");
+}
+
+function updateLanguageDependentText() {
+  document.documentElement.lang = state.language || "en";
+
+  document.title = translate("title");
+  const description = document.querySelector('meta[name="description"]');
+  if (description) {
+    description.setAttribute("content", translate("description"));
+  }
+
+  homeLink.textContent = "";
+  const brandMark = document.createElement("span");
+  brandMark.className = "brand-mark";
+  brandMark.textContent = ">";
+  const brandText = document.createElement("span");
+  brandText.innerHTML = "Any<b>Together</b>";
+  homeLink.appendChild(brandMark);
+  homeLink.appendChild(brandText);
+
+  roomsLink.textContent = translate("rooms");
+  lastRoomButton.title = translate("returnLastRoom");
+  lastRoomButton.innerHTML = `${translate("lastRoom")} &gt;`;
+  topbarRoomCodeButton.title = translate("openRoom");
+  topbarRoomCodeButton.querySelector("small").textContent = translate("room");
+  signOutButton.title = translate("signOut");
+  signOutButton.querySelector("span").textContent = translate("signOut");
+
+  authTitle.textContent = translate("authTitle");
+  authPrompt.textContent = translate("authPrompt");
+  authNameField.querySelector("label").textContent = translate("displayName");
+  authNameInput.placeholder = translate("yourName");
+  const authIdentifierLabel = authIdentifierField?.querySelector("label");
+  if (authIdentifierLabel) authIdentifierLabel.textContent = translate("emailOrName");
+  authIdentifierInput.placeholder = translate("enterYourEmailOrName");
+  authEmailField.querySelector("label").textContent = translate("emailLabel");
+  authEmailInput.placeholder = "you@example.com";
+  authPasswordInput.placeholder = translate("yourPassword");
+  forgotPasswordButton.textContent = translate("forgotPassword");
+  authToggleButton.textContent = state.authMode === "signup" ? translate("backToSignIn") : translate("noAccountSignUp");
+  authSubmitButton.textContent = state.authMode === "signup" ? translate("signUp") : translate("signIn");
+  googleSignInButton.textContent = translate("google");
+  appleSignInButton.textContent = translate("apple");
+  if (languageMenuButton) {
+    languageMenuButton.title = translate("selectLanguage");
+    languageMenuButton.setAttribute("aria-label", translate("selectLanguage"));
+  }
+  if (languageMenuLabel) {
+    languageMenuLabel.textContent = translate("language");
+  }
+  if (languageEnglishButton) {
+    languageEnglishButton.textContent = translate("english");
+    languageEnglishButton.classList.toggle("is-active", state.language === "en");
+  }
+  if (languageRussianButton) {
+    languageRussianButton.textContent = translate("russian");
+    languageRussianButton.classList.toggle("is-active", state.language === "ru");
+  }
+
+  roomsHeaderTitle.textContent = translate("joinedRoomsTitle");
+  roomsJoinInput.placeholder = translate("roomCodePlaceholder");
+  roomsJoinButton.textContent = translate("joinRoom");
+  roomsCreateButton.textContent = translate("createRoom");
+  refreshRoomsButton.textContent = translate("refresh");
+  refreshRoomsButton.title = translate("refresh");
+
+  roomsAuthGate.querySelector("h2").textContent = translate("authTitle");
+  roomsAuthGate.querySelector(".auth-sub").textContent = translate("roomsSubtitle");
+
+  const hero = joinView.querySelector(".hero");
+  hero.querySelector(".eyebrow").textContent = translate("homeEyebrow");
+  hero.querySelector("h1").innerHTML = translate("homeTitle").replace(/\n/g, "<br />");
+  hero.querySelector("p").textContent = translate("homeDescription");
+
+  guestIdentityCard.querySelector("label").textContent = translate("nicknameLabel");
+  nicknameInput.placeholder = translate("nicknamePlaceholder");
+  homeSignInButton.textContent = translate("signIn");
+  homeSignUpButton.textContent = translate("signUp");
+
+  const homeCards = joinView.querySelectorAll(".home-grid .card.stack");
+  if (homeCards[0]) {
+    homeCards[0].querySelector(".section-title").textContent = translate("startRoomTitle");
+    homeCards[0].querySelector(".status").textContent = translate("startRoomDescription");
+    homeCards[0].querySelector("#createRoomButton").textContent = translate("createRoom");
+  }
+  createdRoomCodeButton.title = translate("copyRoomCode");
+  createdRoomCodeButton.querySelector("small").textContent = translate("room");
+  if (homeCards[1]) {
+    homeCards[1].querySelector(".section-title").textContent = translate("joinCodeTitle");
+    homeCards[1].querySelector("label").textContent = translate("roomCodeLabel");
+  }
+  roomCodeInput.placeholder = translate("roomCodePlaceholder");
+  joinRoomButton.textContent = translate("joinRoom");
+
+  joinView.querySelectorAll(".feature").forEach((feature, index) => {
+    const title = feature.querySelector("h3");
+    const descriptionNode = feature.querySelector("p");
+    if (index === 0) {
+      title.textContent = translate("featurePlaybackTitle");
+      descriptionNode.textContent = translate("featurePlaybackDescription");
+    } else if (index === 1) {
+      title.textContent = translate("featureChatTitle");
+      descriptionNode.textContent = translate("featureChatDescription");
+    } else {
+      title.textContent = translate("featurePlaylistTitle");
+      descriptionNode.textContent = translate("featurePlaylistDescription");
+    }
+  });
+
+  const dashboardTitles = dashboardView.querySelectorAll(".section-title");
+  if (dashboardTitles[0]) dashboardTitles[0].textContent = translate("searchTitle");
+  if (dashboardTitles[1]) dashboardTitles[1].textContent = translate("participants");
+  if (dashboardTitles[2]) dashboardTitles[2].textContent = translate("playlist");
+  if (dashboardTitles[3]) dashboardTitles[3].textContent = translate("chat");
+  if (dashboardTitles[4]) dashboardTitles[4].textContent = translate("playbackDebug");
+
+  searchHelpButton.title = translate("searchHelp");
+  searchHelpButton.setAttribute("aria-label", translate("searchHelp"));
+  searchInput.placeholder = translate("searchPlaceholder");
+  searchButton.textContent = translate("search");
+  closeSearchWidget.textContent = translate("close");
+  addToPlaylistButton.textContent = translate("addCurrent");
+  suggestButton.textContent = translate("suggest");
+  chatInput.placeholder = translate("writeMessage");
+  chatSendButton.textContent = translate("send");
+  clearPlaybackDebugButton.textContent = translate("clear");
+  leaveRoomButton.textContent = translate("leave");
+  deleteActiveRoomButton.title = translate("deleteRoom");
+  deleteActiveRoomButton.setAttribute("aria-label", translate("deleteRoom"));
+  renameRoomButton.textContent = translate("renameRoom");
+  activeRoomCodeButton.title = translate("copyRoomCode");
+  if (activeRoomCodeToggleButton) {
+    const roomCode = getActiveRoomState()?.code || "";
+    const hidden = getRoomCodeHidden(roomCode);
+    activeRoomCodeToggleButton.title = hidden ? translate("showRoomCode") : translate("hideRoomCode");
+    activeRoomCodeToggleButton.setAttribute("aria-label", hidden ? translate("showRoomCode") : translate("hideRoomCode"));
+  }
+
+  const searchResultsTitle = searchResultsWidget?.querySelector(".section-title");
+  if (searchResultsTitle) {
+    searchResultsTitle.textContent = translate("searchResults");
+  }
+
+  if (pageMode === "rooms") {
+    renderRoomsAuthGate();
+  } else {
+    renderAuthMode();
+  }
 }
 
 function updateTopbarRoomBadges() {
@@ -1106,6 +1565,7 @@ function updateCurrentMediaBadge() {
 function updateActiveRoomCodeControls() {
   const roomState = getActiveRoomState();
   const roomCode = roomState?.code || "";
+  const hidden = getRoomCodeHidden(roomCode);
 
   if (!activeRoomCodeButton || !activeRoomCodeValue || !activeRoomCodeToggleButton) return;
 
@@ -1114,34 +1574,34 @@ function updateActiveRoomCodeControls() {
     activeRoomCodeToggleButton.classList.add("hidden");
     activeRoomCodeValue.textContent = "--";
     activeRoomCodeButton.classList.remove("is-blurred");
-    roomCodeHidden = false;
     return;
   }
 
   activeRoomCodeButton.classList.remove("hidden");
   activeRoomCodeToggleButton.classList.remove("hidden");
   activeRoomCodeValue.textContent = roomCode;
-  activeRoomCodeButton.classList.toggle("is-blurred", roomCodeHidden);
-  activeRoomCodeToggleButton.innerHTML = createInlineIcon(roomCodeHidden ? "eye-off" : "eye");
+  activeRoomCodeButton.classList.toggle("is-blurred", hidden);
+  activeRoomCodeToggleButton.innerHTML = createInlineIcon(hidden ? "eye-off" : "eye");
   activeRoomCodeToggleButton.setAttribute(
     "aria-label",
-    roomCodeHidden ? "Show room code" : "Hide room code"
+    hidden ? translate("showRoomCode") : translate("hideRoomCode")
   );
-  activeRoomCodeToggleButton.title = roomCodeHidden ? "Show room code" : "Hide room code";
+  activeRoomCodeToggleButton.title = hidden ? translate("showRoomCode") : translate("hideRoomCode");
+  activeRoomCodeButton.title = translate("copyRoomCode");
 }
 
 function updateActiveRoomHeader() {
   const roomState = getActiveRoomState();
 
   if (!roomState) {
-    activeRoomTitle.textContent = "No room selected";
-    roomStatus.textContent = "Join a room to unlock the dashboard.";
+    activeRoomTitle.textContent = translate("noRoomSelected");
+    roomStatus.textContent = translate("joinRoomDashboard");
     roomStatus.classList.remove("hidden");
     updateActiveRoomCodeControls();
     return;
   }
 
-  activeRoomTitle.textContent = roomState.title || `Room ${roomState.code}`;
+  activeRoomTitle.textContent = roomState.title || "Room";
   roomStatus.textContent = "";
   roomStatus.classList.add("hidden");
   updateActiveRoomCodeControls();
@@ -1157,11 +1617,19 @@ function renderTopbarUser() {
   if (topbarUserMenu) topbarUserMenu.classList.toggle("hidden", !(signedIn && state.topbarMenuOpen));
   if (!signedIn) {
     state.topbarMenuOpen = false;
+    state.languageMenuOpen = false;
+  }
+  if (languageMenuButton) {
+    languageMenuButton.setAttribute("aria-expanded", String(signedIn && state.topbarMenuOpen && state.languageMenuOpen));
+  }
+  if (languageMenuDropdown) {
+    languageMenuDropdown.classList.toggle("hidden", !(signedIn && state.topbarMenuOpen && state.languageMenuOpen));
   }
 }
 
 function closeTopbarMenu() {
   state.topbarMenuOpen = false;
+  state.languageMenuOpen = false;
   renderTopbarUser();
 }
 
@@ -1258,14 +1726,17 @@ function setAuthStatus(message, isError = false) {
 function renderAuthMode() {
   const isSignup = state.authMode === "signup";
 
-  authTitle.textContent = isSignup ? "Sign up" : "Sign in to AnyTogether";
-  authPrompt.textContent = isSignup ? "Or sign up with email" : "Or sign in with email";
+  authTitle.textContent = isSignup ? translate("signUp") : translate("authTitle");
+  authPrompt.textContent = isSignup ? translate("signUpWithEmail") : translate("signInWithEmail");
   authIdentifierField?.classList.toggle("hidden", isSignup);
   authNameField.classList.toggle("hidden", !isSignup);
   authEmailField.classList.toggle("hidden", !isSignup);
-  authSubmitButton.textContent = isSignup ? "Sign up" : "Sign in";
-  authToggleButton.textContent = isSignup ? "Back to sign in" : "No account? Sign up";
-  authIdentifierInput.placeholder = isSignup ? "Enter your email" : "Enter your email or name";
+  authSubmitButton.textContent = isSignup ? translate("signUp") : translate("signIn");
+  authToggleButton.textContent = isSignup ? translate("backToSignIn") : translate("noAccountSignUp");
+  authIdentifierInput.placeholder = isSignup ? translate("enterYourEmail") : translate("enterYourEmailOrName");
+  authNameInput.placeholder = translate("yourName");
+  authEmailInput.placeholder = "you@example.com";
+  authPasswordInput.placeholder = translate("yourPassword");
   authPasswordInput.autocomplete = isSignup ? "new-password" : "current-password";
   if (!isSignup) {
     authNameInput.value = "";
@@ -1283,10 +1754,12 @@ function renderRoomsAuthGate() {
   roomsHeader.classList.toggle("hidden", !signedIn);
   roomsSignedInBar.classList.toggle("hidden", !signedIn);
   if (signedIn) {
-    signedInName.textContent = state.currentUser?.displayName ? `Signed in as ${state.currentUser.displayName}` : "Signed in";
+    signedInName.textContent = state.currentUser?.displayName
+      ? translate("signedInAs", { name: state.currentUser.displayName })
+      : translate("signedIn");
     roomsGrid.classList.remove("hidden");
   } else {
-    signedInName.textContent = "Not signed in";
+    signedInName.textContent = translate("notSignedIn");
     roomsGrid.classList.add("hidden");
   }
 
@@ -1722,7 +2195,6 @@ function applyRoomSnapshot(roomId, snapshot) {
 
   const activeRoomChanged = state.activeRoomId === roomId;
   if (activeRoomChanged) {
-    resetLastLoadedMediaGuard();
     refreshActiveRoom();
   }
 
@@ -1830,7 +2302,7 @@ function renderParticipants() {
 
     const name = document.createElement("div");
     name.className = "participant-name";
-    name.textContent = participant.nickname || "Guest";
+    name.textContent = participant.nickname || translate("guest");
     if (isSelf) {
       name.classList.add("participant-name-editable");
       name.title = "Click to rename";
@@ -1960,7 +2432,7 @@ function renderChat() {
 
     const author = document.createElement("div");
     author.className = "chat-author";
-    author.textContent = message.author?.nickname || "System";
+    author.textContent = message.author?.nickname || translate("system");
 
     const meta = document.createElement("div");
     meta.className = "chat-meta";
@@ -1988,7 +2460,7 @@ function renderPlaylist() {
   if (!roomState?.playlist?.length) {
     const placeholder = document.createElement("div");
     placeholder.className = "status";
-    placeholder.textContent = "Playlist is empty.";
+    placeholder.textContent = translate("playlistEmpty");
     playlistList.appendChild(placeholder);
     return;
   }
@@ -2002,11 +2474,11 @@ function renderPlaylist() {
 
     const title = document.createElement("div");
     title.className = "playlist-name";
-    title.textContent = item.title || item.mediaUrl || "Playlist item";
+    title.textContent = item.title || item.mediaUrl || translate("playlistItem");
 
     const action = document.createElement("button");
     action.type = "button";
-    action.textContent = "Play";
+    action.textContent = translate("play");
     action.addEventListener("click", () => {
       sendWs({
         type: "playlist:activate",
@@ -2021,7 +2493,7 @@ function renderPlaylist() {
 
     const meta = document.createElement("div");
     meta.className = "playlist-meta";
-    const addedBy = item.addedBy?.nickname || "Unknown";
+    const addedBy = item.addedBy?.nickname || translate("unknown");
     meta.textContent = `${addedBy} - ${formatRelativeTime(item.addedAt)}`;
 
     card.appendChild(top);
@@ -2041,7 +2513,7 @@ function renderRoomsDirectory() {
   if (state.loadingRooms) {
     const loading = document.createElement("div");
     loading.className = "status";
-    loading.textContent = "Loading rooms...";
+    loading.textContent = translate("loadingRooms");
     roomsGrid.appendChild(loading);
     return;
   }
@@ -2049,7 +2521,7 @@ function renderRoomsDirectory() {
   if (!state.roomsDirectory.length) {
     const empty = document.createElement("div");
     empty.className = "status";
-    empty.textContent = "No rooms are linked to your account yet.";
+    empty.textContent = translate("noRoomsLinked");
     roomsGrid.appendChild(empty);
     return;
   }
@@ -2064,63 +2536,101 @@ function renderRoomsDirectory() {
     const titleBlock = document.createElement("div");
     titleBlock.className = "card-title";
 
+    const titleRow = document.createElement("div");
+    titleRow.className = "room-card-title-row";
+
     const title = document.createElement("div");
     title.className = "room-card-title";
-    title.textContent = room.title || `Room ${room.code}`;
+    title.textContent = room.title || "Room";
+    title.setAttribute("title", room.title || "Room");
+    title.style.minWidth = "0";
 
-    const meta = document.createElement("div");
-    meta.className = "room-card-meta";
-    const currentMedia = room.currentMediaTitle || "No media";
+    const codeButton = document.createElement("button");
+    codeButton.type = "button";
+    codeButton.className = "code-chip room-code-chip room-card-code-button";
+    codeButton.title = translate("copyRoomCode");
+    codeButton.setAttribute("aria-label", translate("copyRoomCode"));
+    const hidden = getRoomCodeHidden(room.code);
+    codeButton.classList.toggle("is-blurred", hidden);
+    const codeText = document.createElement("span");
+    codeText.className = "code-text";
+    codeText.textContent = room.code;
+    codeButton.appendChild(codeText);
+    codeButton.addEventListener("click", () => copyToClipboard(room.code));
+
+    const codeToggleButton = document.createElement("button");
+    codeToggleButton.type = "button";
+    codeToggleButton.className = "room-code-toggle ghost room-card-code-toggle";
+    codeToggleButton.title = hidden ? translate("showRoomCode") : translate("hideRoomCode");
+    codeToggleButton.setAttribute("aria-label", hidden ? translate("showRoomCode") : translate("hideRoomCode"));
+    codeToggleButton.innerHTML = createInlineIcon(hidden ? "eye-off" : "eye");
+    codeToggleButton.addEventListener("click", () => {
+      setRoomCodeHidden(room.code, !getRoomCodeHidden(room.code));
+      renderRoomsDirectory();
+      if (state.activeRoomId === room.code) {
+        updateActiveRoomCodeControls();
+      }
+    });
+
+    titleRow.appendChild(title);
+    titleRow.appendChild(codeButton);
+    titleRow.appendChild(codeToggleButton);
+    titleBlock.appendChild(titleRow);
+
+    const metaRow = document.createElement("div");
+    metaRow.className = "room-card-meta-row";
     const memberCount = room.memberCount || 0;
-    const playlistCount = room.playlistCount || 0;
-    meta.textContent = `${memberCount} ${memberCount === 1 ? "user" : "users"} - ${playlistCount} playlist items - ${currentMedia}`;
-
-    titleBlock.appendChild(title);
-    titleBlock.appendChild(meta);
+    const session = document.createElement("div");
+    session.className = "room-card-session";
+    session.dataset.sessionStartedAt = String(room.sessionStartedAt || Date.now());
+    session.dataset.memberLabel = getTranslatedCountLabel(memberCount, "member");
+    session.dataset.sessionLabel = translate("session");
+    session.textContent = `${session.dataset.memberLabel} - ${session.dataset.sessionLabel} ${formatDuration(Date.now() - room.sessionStartedAt)}`;
+    metaRow.appendChild(session);
+    titleBlock.appendChild(metaRow);
 
     top.appendChild(titleBlock);
 
     const actions = document.createElement("div");
     actions.className = "room-card-actions";
 
-    const primaryButton = document.createElement("button");
-    primaryButton.type = "button";
-    primaryButton.textContent = "Open";
-    primaryButton.addEventListener("click", () => {
+    const primaryActions = document.createElement("div");
+    primaryActions.className = "room-card-actions-primary";
+
+    const openButton = document.createElement("button");
+    openButton.type = "button";
+    openButton.textContent = translate("open");
+    openButton.addEventListener("click", () => {
       window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(room.code)}`);
     });
 
-    const copyButton = document.createElement("button");
-    copyButton.type = "button";
-    copyButton.textContent = "Copy code";
-    copyButton.addEventListener("click", () => copyToClipboard(room.code));
-
-    actions.appendChild(primaryButton);
-    actions.appendChild(copyButton);
-
     const leaveButton = document.createElement("button");
     leaveButton.type = "button";
-    leaveButton.textContent = "Leave";
+    leaveButton.textContent = translate("leave");
     leaveButton.addEventListener("click", () => leaveRoom(room.code));
-    actions.appendChild(leaveButton);
+    primaryActions.appendChild(openButton);
+    primaryActions.appendChild(leaveButton);
+    actions.appendChild(primaryActions);
 
-    const status = document.createElement("div");
-    status.className = "status";
-    status.dataset.sessionStartedAt = String(room.sessionStartedAt || Date.now());
-    status.dataset.lastUpdatedAt = String(room.lastUpdatedAt || Date.now());
-    const sessionSpan = document.createElement("span");
-    sessionSpan.className = "room-card-session";
-    sessionSpan.textContent = `Session ${formatDuration(Date.now() - room.sessionStartedAt)}`;
-    const updatedSpan = document.createElement("span");
-    updatedSpan.className = "room-card-updated";
-    updatedSpan.textContent = `Updated ${formatRelativeTime(room.lastUpdatedAt)}`;
-    status.appendChild(sessionSpan);
-    status.appendChild(document.createTextNode(" - "));
-    status.appendChild(updatedSpan);
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "room-card-delete-button danger";
+    deleteButton.title = translate("deleteRoom");
+    deleteButton.setAttribute("aria-label", translate("deleteRoom"));
+    deleteButton.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 6h18"></path>
+        <path d="M8 6V4h8v2"></path>
+        <path d="M6 6l1 14h10l1-14"></path>
+        <path d="M10 11v6"></path>
+        <path d="M14 11v6"></path>
+      </svg>
+    `;
+    deleteButton.addEventListener("click", () => deleteRoom(room.code));
+    actions.appendChild(deleteButton);
 
     card.appendChild(top);
     card.appendChild(actions);
-    card.appendChild(status);
     roomsGrid.appendChild(card);
   });
 }
@@ -2128,17 +2638,14 @@ function renderRoomsDirectory() {
 function updateRoomsDirectoryClock() {
   if (pageMode !== "rooms" || !roomsGrid || roomsGrid.classList.contains("hidden")) return;
 
-  roomsGrid.querySelectorAll(".status[data-session-started-at]").forEach((status) => {
-    const startedAt = Number(status.dataset.sessionStartedAt);
-    const updatedAt = Number(status.dataset.lastUpdatedAt);
-    const sessionSpan = status.querySelector(".room-card-session");
-    const updatedSpan = status.querySelector(".room-card-updated");
-
-    if (sessionSpan && Number.isFinite(startedAt)) {
-      sessionSpan.textContent = `Session ${formatDuration(Date.now() - startedAt)}`;
-    }
-    if (updatedSpan && Number.isFinite(updatedAt)) {
-      updatedSpan.textContent = `Updated ${formatRelativeTime(updatedAt)}`;
+  roomsGrid.querySelectorAll(".room-card-session[data-session-started-at]").forEach((session) => {
+    const startedAt = Number(session.dataset.sessionStartedAt);
+    if (Number.isFinite(startedAt)) {
+      const memberLabel = session.dataset.memberLabel || "";
+      const sessionLabel = session.dataset.sessionLabel || translate("session");
+      session.textContent = memberLabel
+        ? `${memberLabel} - ${sessionLabel} ${formatDuration(Date.now() - startedAt)}`
+        : `${sessionLabel} ${formatDuration(Date.now() - startedAt)}`;
     }
   });
 }
@@ -2163,7 +2670,7 @@ function renderAll() {
 }
 
 function getParticipantInitials(participant) {
-  const source = String(participant?.nickname || participant?.displayName || "Guest").trim();
+  const source = String(participant?.nickname || participant?.displayName || translate("guest")).trim();
   if (!source) return "G";
 
   const pieces = source.split(/\s+/).filter(Boolean);
@@ -2302,7 +2809,7 @@ function isDirectMediaUrl(value) {
 function loadDirectMediaUrl(mediaUrl) {
   const roomId = state.activeRoomId;
   if (!roomId) {
-    setSearchHint("Join or create a room first.", true);
+    setSearchHint(translate("joinOrCreateRoomFirst"), true);
     return false;
   }
 
@@ -2317,7 +2824,7 @@ function loadDirectMediaUrl(mediaUrl) {
 }
 
 function clearMedia() {
-  resetLastLoadedMediaGuard();
+  loadedMediaKey = null;
   const mediaUrlInput = document.getElementById("mediaUrl");
   if (mediaUrlInput) {
     mediaUrlInput.value = "";
@@ -2561,7 +3068,8 @@ async function deleteRoom(roomId) {
   const normalized = normalizeRoomCode(roomId);
   if (!normalized) return;
 
-  if (!canCurrentUserManageParticipants(getActiveRoomState())) {
+  const roomState = getRoomState(normalized);
+  if (roomState && !canCurrentUserManageParticipants(roomState)) {
     setRoomStatus("Only the creator can delete a room.", true);
     return;
   }
@@ -2852,7 +3360,7 @@ async function createRoom() {
 async function handleRoomJoin(roomCode, options = {}) {
   const normalized = normalizeRoomCode(roomCode);
   if (!normalized) {
-    setJoinHint("Enter a room code", true);
+    setJoinHint(translate("enterRoomCode"), true);
     return false;
   }
 
@@ -2992,7 +3500,8 @@ function getEpisodeTargetForRequest(targetEpisode) {
   if (!targetEpisode) return null;
   return {
     seasonId: targetEpisode.seasonId,
-    episodeId: targetEpisode.episodeId
+    episodeId: targetEpisode.episodeId,
+    title: targetEpisode.title || null
   };
 }
 
@@ -3046,7 +3555,7 @@ function requestEpisodeResolution(targetEpisode, overrides = {}) {
 function sendSearchToExtension(query) {
   const roomId = state.activeRoomId;
   if (!roomId) {
-    setSearchHint("Join or create a room first.", true);
+    setSearchHint(translate("joinOrCreateRoomFirst"), true);
     return;
   }
 
@@ -3094,7 +3603,7 @@ function sendSearchToExtension(query) {
 function sendUrlToExtensionForResolution(url) {
   const roomId = state.activeRoomId;
   if (!roomId) {
-    setSearchHint("Join or create a room first.", true);
+    setSearchHint(translate("joinOrCreateRoomFirst"), true);
     return;
   }
 
@@ -3384,7 +3893,7 @@ function connectWs() {
 function handleRoomJoinInput(input) {
   const roomCode = normalizeRoomCode(input.value);
   if (!roomCode) {
-    setJoinHint("Enter a room code", true);
+    setJoinHint(translate("enterRoomCode"), true);
     return;
   }
 
@@ -3395,7 +3904,7 @@ function handleRoomJoinInput(input) {
 function handleRoomsJoinInput() {
   const roomCode = normalizeRoomCode(roomsJoinInput.value);
   if (!roomCode) {
-    setJoinHint("Enter a room code", true);
+    setJoinHint(translate("enterRoomCode"), true);
     return;
   }
 
@@ -3460,7 +3969,26 @@ function bindUi() {
     event.stopPropagation();
     if (!isAuthenticated()) return;
     state.topbarMenuOpen = !state.topbarMenuOpen;
+    if (!state.topbarMenuOpen) {
+      state.languageMenuOpen = false;
+    }
     renderTopbarUser();
+  });
+  languageMenuButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!isAuthenticated() || !state.topbarMenuOpen) return;
+    state.languageMenuOpen = !state.languageMenuOpen;
+    renderTopbarUser();
+  });
+  languageEnglishButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setLanguage("en");
+    setLanguageMenuOpen(false);
+  });
+  languageRussianButton?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    setLanguage("ru");
+    setLanguageMenuOpen(false);
   });
   lastRoomButton?.addEventListener("click", () => {
     const roomCode = lastRoomButton.getAttribute("data-room") || state.activeRoomId || state.joinedRooms[0];
@@ -3479,8 +4007,12 @@ function bindUi() {
     }
   });
   activeRoomCodeToggleButton?.addEventListener("click", () => {
-    roomCodeHidden = !roomCodeHidden;
+    if (!state.activeRoomId) return;
+    setRoomCodeHidden(state.activeRoomId, !getRoomCodeHidden(state.activeRoomId));
     updateActiveRoomCodeControls();
+    if (pageMode === "rooms") {
+      renderRoomsDirectory();
+    }
   });
   document.addEventListener("click", (event) => {
     if (state.topbarMenuOpen && !event.target.closest(".topbar-user")) {
@@ -3699,6 +4231,7 @@ async function start() {
   await hydrateAuthSession();
   autoJoinStoredRooms();
   updateRoomCodeInputs();
+  updateLanguageDependentText();
   ensureVisibility();
   updateSearchControls();
   bindUi();
@@ -3727,7 +4260,9 @@ async function start() {
       if (!event.data?.type || !event.data?.type.startsWith("WT_")) return;
     }
 
-    console.log("[Interface UI] Message received:", event.data?.type);
+    if (event.data?.type) {
+      console.log("[Interface UI] Message received:", event.data.type);
+    }
     if (event.data?.type === PAGE_EVENT_SERIES_CONTEXT_FOUND) {
       const payload = event.data?.payload || {};
       const roomId = normalizeRoomCode(payload.roomId) || state.activeRoomId;
@@ -3804,6 +4339,18 @@ async function start() {
         title: payload.title || payload.seriesContext?.title || null
       }, !payload.mediaUrl);
 
+      const isExtensionSource =
+        /^chrome-extension:\/\//i.test(String(payload.pageUrl || "")) ||
+        /^chrome-extension:\/\//i.test(String(payload.sourcePageUrl || ""));
+      if (!incomingRoomId && isExtensionSource) {
+        appendPlaybackDebugEntry("Ignoring extension-origin media event", {
+          pageUrl: payload.pageUrl || null,
+          sourcePageUrl: payload.sourcePageUrl || null,
+          mediaUrl: String(payload.mediaUrl || "").substring(0, 80)
+        });
+        return;
+      }
+
       let effectiveRoomId = incomingRoomId;
       if (!effectiveRoomId) {
         if (!payload.mediaUrl) return;
@@ -3825,26 +4372,46 @@ async function start() {
       }
 
       const now = Date.now();
-      
-      // Treat the payload as contextual only when it exposes seasons or episodes.
-      const hasSeriesContext = payload.seriesContext && 
+
+      const hasSeriesContext = payload.seriesContext &&
         (Array.isArray(payload.seriesContext.seasons) || Array.isArray(payload.seriesContext.episodes));
-      
-      // Allow a contextual payload to replace a previous context-free load.
-      // If the same contextual URL arrives again, ignore it.
+      const pendingEpisode = getPendingEpisodeSelection(roomState);
+      const payloadSeasonId = Number(payload.seriesContext?.currentSeasonId);
+      const payloadEpisodeId = Number(payload.seriesContext?.currentEpisodeId);
+      const payloadMatchesPendingEpisode =
+        pendingEpisode &&
+        Number.isFinite(payloadSeasonId) &&
+        Number.isFinite(payloadEpisodeId) &&
+        pendingEpisode.seasonId === payloadSeasonId &&
+        pendingEpisode.episodeId === payloadEpisodeId;
+
+      if (pendingEpisode && !payloadMatchesPendingEpisode) {
+        appendPlaybackDebugEntry("Ignoring media while episode switch is pending", {
+          pendingSeasonId: pendingEpisode.seasonId,
+          pendingEpisodeId: pendingEpisode.episodeId,
+          payloadSeasonId: Number.isFinite(payloadSeasonId) ? payloadSeasonId : null,
+          payloadEpisodeId: Number.isFinite(payloadEpisodeId) ? payloadEpisodeId : null,
+          hasSeriesContext: hasSeriesContext ? "yes" : "no",
+          url: mediaUrl.substring(0, 80)
+        });
+        return;
+      }
+
+      if (payloadMatchesPendingEpisode) {
+        _lastLoadBlockedUntil = 0;
+      }
+
       if (mediaUrl === _lastLoadedMediaKey) {
         if (_lastLoadHadContext) {
           appendPlaybackDebugEntry("Ignoring duplicate media URL (already loaded with context)", { url: mediaUrl.substring(0, 80) });
           return;
         }
-        // The same URL first arrived without context and now carries context, so allow the refresh.
         if (hasSeriesContext) {
           appendPlaybackDebugEntry("Replacing URL with series context", { url: mediaUrl.substring(0, 80) });
           _lastLoadBlockedUntil = 0;
         }
       }
-      
-      // Throttle repeated loads within a 5 second window unless the guard was cleared above.
+
       if (now < _lastLoadBlockedUntil) {
         appendPlaybackDebugEntry("Load throttled (5s window)", { url: mediaUrl.substring(0, 80), remainingMs: _lastLoadBlockedUntil - now });
         return;
@@ -3905,47 +4472,6 @@ async function start() {
         });
       }
 
-      const resolveSourcePageUrl = payload.sourcePageUrl || payload.pageUrl || null;
-      const looksLikeStreamUrl = /(?:stream|crimson|red|indigo)\.voidboost\.cc|\.m3u8(?:\?|$)|\.mp4(?:\?|$)/i.test(resolveSourcePageUrl || "");
-
-      if (payload.seriesContext == null && resolveSourcePageUrl && /rezka/i.test(resolveSourcePageUrl) && !looksLikeStreamUrl) {
-          const currentRs = getRoomState(effectiveRoomId);
-        if (
-          currentRs?.ui &&
-          !currentRs.currentMedia?.seriesContext &&
-          currentRs.ui._seriesContextRefreshRequestedFor !== resolveSourcePageUrl
-        ) {
-          currentRs.ui._seriesContextRefreshRequestedFor = resolveSourcePageUrl;
-          appendPlaybackDebugEntry("Series context refresh requested", {
-            pageUrl: resolveSourcePageUrl.substring(0, 80)
-          });
-          sendUrlToExtensionForResolution(resolveSourcePageUrl);
-        }
-      }
-
-      // Only retry quality selection for context-free Rezka loads.
-      // When the popup already provided a full series context, the media is already resolved.
-      if (!selectedLabel && !payload.seriesContext) {
-        try {
-          const roomState = getRoomState(effectiveRoomId);
-          const resolverProvider = roomState?.currentMedia?.seriesContext?.resolver?.provider || null;
-          if (currentRole === "host" && resolverProvider === "rezka") {
-            roomState.ui = roomState.ui || {};
-            const pageUrl = roomState.currentMedia?.pageUrl || roomState.currentMedia?.mediaUrl || "";
-            if (pageUrl && roomState.ui._autoQualityRequestedFor !== pageUrl) {
-              roomState.ui._autoQualityRequestedFor = pageUrl;
-              roomState.ui.qualityLabel = "1080p";
-              const episode = getSelectedEpisodeForActions();
-              if (episode) {
-                requestEpisodeResolution(episode, {
-                  translatorId: roomState.ui.translatorId,
-                  qualityLabel: roomState.ui.qualityLabel
-                });
-              }
-            }
-          }
-        } catch {}
-      }
       return;
     }
 

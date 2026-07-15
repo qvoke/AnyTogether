@@ -5,9 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "node server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "validate:configs": "node scripts/validate-parser-configs.js"
   },
   "dependencies": {
     "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "ajv": "^8.20.0"
   }
 }

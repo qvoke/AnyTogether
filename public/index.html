@@ -134,6 +134,21 @@
       gap: 10px;
     }
 
+    .language-select {
+      min-width: 118px;
+      border-radius: 10px;
+      border: 1px solid var(--border-strong);
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text);
+      padding: 7px 10px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .language-select option {
+      background: var(--bg-1);
+      color: var(--text);
+    }
+
     .code-chip {
       display: inline-flex;
       align-items: center;
@@ -191,9 +206,9 @@
       min-width: 180px;
       padding: 6px;
       border-radius: 14px;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      box-shadow: var(--shadow);
+      background: rgba(11, 18, 35, 0.98);
+      border: 1px solid rgba(108, 140, 255, 0.18);
+      box-shadow: 0 18px 42px -24px rgba(0, 0, 0, 0.85);
       z-index: 30;
     }
     .topbar-user-menu.hidden { display: none; }
@@ -229,6 +244,52 @@
     .topbar-user-menu .icon-btn svg {
       width: 17px;
       height: 17px;
+    }
+    .topbar-user-menu .menu-section {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .topbar-user-menu .menu-toggle {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: flex-start;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 10px;
+      background: transparent;
+      border: none;
+      color: var(--text);
+    }
+    .topbar-user-menu .menu-toggle:hover:not(:disabled) {
+      background: rgba(108, 140, 255, 0.14);
+    }
+    .topbar-user-menu .menu-toggle svg {
+      width: 17px;
+      height: 17px;
+      flex-shrink: 0;
+    }
+    .topbar-user-menu .menu-dropdown {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding-left: 4px;
+    }
+    .topbar-user-menu .menu-dropdown.hidden {
+      display: none;
+    }
+    .topbar-user-menu .menu-dropdown button {
+      padding: 7px 10px;
+      border-radius: 8px;
+      justify-content: flex-start;
+      background: transparent;
+      border: 1px solid transparent;
+    }
+    .topbar-user-menu .menu-dropdown button.is-active {
+      background: rgba(108, 140, 255, 0.16);
+      border-color: rgba(108, 140, 255, 0.28);
     }
 
     #topbarNickDisplay {
@@ -1219,10 +1280,149 @@
     }
     .room-card:hover { transform: translateY(-3px); border-color: var(--border-strong); }
     .room-card-top { display: flex; justify-content: space-between; gap: 10px; }
-    .room-card-title { font-weight: 700; font-size: 1rem; }
-    .room-card-meta { color: var(--muted); font-size: 0.8rem; margin-top: 4px; }
-    .room-card-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-    .room-card-actions button { flex: 1; padding: 7px 10px; font-size: 0.82rem; }
+    .room-card-top > .card-title {
+      flex: 1 1 auto;
+      min-width: 0;
+      width: 100%;
+    }
+    .room-card-title-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      flex-wrap: nowrap;
+      margin-bottom: 12px;
+    }
+    .room-card-title {
+      font-weight: 700;
+      font-size: 1rem;
+      min-width: 0;
+      flex: 1 1 auto;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .room-card-code-button {
+      height: 32px;
+      min-height: 32px;
+      width: 103px;
+      min-width: 103px;
+      max-width: 103px;
+      flex: 0 0 103px;
+      padding: 0 6px;
+      font-size: 0.82rem;
+      letter-spacing: 0.08em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      box-sizing: border-box;
+    }
+    .room-card-code-button .code-text {
+      flex: 0 1 auto;
+      text-align: center;
+      max-width: 16ch;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .room-card-meta-row {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+      gap: 10px;
+      margin-top: 0;
+    }
+    .room-card-session {
+      color: var(--muted);
+      font-size: 0.8rem;
+      min-width: 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .room-card-code-toggle {
+      width: 34px;
+      height: 34px;
+      min-width: 34px;
+      padding: 0;
+      border-radius: 10px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+    }
+    .room-card-code-toggle svg {
+      width: 16px;
+      height: 16px;
+    }
+    .room-card-actions {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+      width: 100%;
+    }
+    .room-card-actions-primary {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      min-width: 0;
+      flex: 1 1 auto;
+    }
+    .room-card-actions button {
+      min-width: 0;
+      height: 32px;
+      min-height: 32px;
+      padding: 0 10px;
+      font-size: 0.82rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      line-height: 1;
+    }
+    .room-card-actions-primary button {
+      flex: 1 1 0;
+      width: 0;
+      max-width: 100%;
+    }
+    .room-card-actions .room-card-delete-button {
+      flex: 0 0 auto;
+    }
+    .room-card-delete-button {
+      width: 34px;
+      height: 34px;
+      min-width: 34px;
+      padding: 0;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 0;
+      flex: 0 0 auto;
+    }
+    .room-card-actions .room-card-delete-button {
+      overflow: visible;
+    }
+    .room-card-actions .room-card-delete-button svg {
+      width: 16px !important;
+      height: 16px !important;
+      display: block !important;
+      transform: scale(1.35);
+      transform-origin: center;
+      stroke-width: 2.2;
+    }
+    #deleteActiveRoomButton svg {
+      width: 18px;
+      height: 18px;
+      display: block;
+      flex: 0 0 auto;
+      stroke: currentColor;
+      fill: none;
+      opacity: 1;
+    }
+    #deleteActiveRoomButton {
+      color: var(--danger);
+    }
 
     .auth-wrap {
       max-width: 420px; margin: 0 auto;
@@ -1311,6 +1511,21 @@
           <div id="topbarAvatar" class="user-avatar">G</div>
         </button>
         <div id="topbarUserMenu" class="topbar-user-menu hidden" role="menu" aria-label="Account menu">
+          <div class="menu-section">
+            <button id="languageMenuButton" class="menu-toggle" type="button" title="Select site language" aria-haspopup="true" aria-expanded="false" role="menuitem">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="9"></circle>
+                <path d="M3 12h18"></path>
+                <path d="M12 3a15 15 0 0 1 0 18"></path>
+                <path d="M12 3a15 15 0 0 0 0 18"></path>
+              </svg>
+              <span id="languageMenuLabel">Language</span>
+            </button>
+            <div id="languageMenuDropdown" class="menu-dropdown hidden" role="menu" aria-label="Language options">
+              <button id="languageEnglishButton" type="button" role="menuitem">English</button>
+              <button id="languageRussianButton" type="button" role="menuitem">Russian</button>
+            </div>
+          </div>
           <button id="signOutButton" class="icon-btn" title="Sign out" role="menuitem">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
@@ -1410,7 +1625,15 @@
           <p id="roomStatus" class="hint" style="margin-top:5px"></p>
         </div>
         <button id="leaveRoomButton" class="ghost">Leave</button>
-        <button id="deleteActiveRoomButton" class="danger hidden">Delete room</button>
+        <button id="deleteActiveRoomButton" type="button" class="room-card-delete-button danger hidden" title="Delete room" aria-label="Delete room">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 6h18" />
+            <path d="M8 6V4h8v2" />
+            <path d="M6 6l1 14h10l1-14" />
+            <path d="M10 11v6" />
+            <path d="M14 11v6" />
+          </svg>
+        </button>
       </div>
 
       <div class="dash-grid">
@@ -1585,7 +1808,7 @@
       </div>
 
       <div id="roomsHeader" class="rooms-header hidden">
-        <h2>Your rooms</h2>
+        <h2 id="roomsHeaderTitle">Your rooms</h2>
         <div class="rooms-toolbar">
           <div id="roomsSignedInBar" class="signed-in-bar hidden">
             <span id="signedInName">Not signed in</span>

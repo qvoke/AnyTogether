@@ -34,7 +34,6 @@ const remoteSeekSettlementTimeoutMs = 3000;
 const state = {
   clientId: crypto.randomUUID(),
   connection: null,
-  connectionParams: null,
   currentControl: null,
   currentMediaUrl: "",
   currentRevision: 0,
@@ -298,6 +297,11 @@ function schedulePendingSeekCommit(delayMs = gestureCommitDelayMs) {
 
 function attemptPendingSeekCommit(trigger = "timer") {
   if (state.pendingSeekTarget === null) {
+    return false;
+  }
+
+  if (!state.connection || state.connection.readyState !== WebSocket.OPEN) {
+    schedulePendingSeekCommit(gestureCommitRetryMs);
     return false;
   }
 
@@ -1132,20 +1136,6 @@ let _wsReconnectCount = 0;
 const WS_MAX_RECONNECT = 3;
 
 function connectRoom() {
-  const nextRoom = elements.roomInput.value.trim() || "lobby";
-  const nextRole = elements.roleSelect.value;
-  const nextName = elements.displayName.value.trim() || "Guest";
-
-  if (
-    state.connection &&
-    state.connectionParams &&
-    state.connectionParams.room === nextRoom &&
-    state.connectionParams.role === nextRole &&
-    state.connectionParams.name === nextName &&
-    (state.connection.readyState === WebSocket.OPEN || state.connection.readyState === WebSocket.CONNECTING)
-  ) {
-    return;
-  }
 
   if (state.connection) {
     state.connection.close();
@@ -1159,14 +1149,9 @@ function connectRoom() {
     return;
   }
 
-  state.room = nextRoom;
-  state.role = nextRole;
-  const name = nextName;
-  state.connectionParams = {
-    room: nextRoom,
-    role: nextRole,
-    name: nextName
-  };
+  state.room = elements.roomInput.value.trim() || "lobby";
+  state.role = elements.roleSelect.value;
+  const name = elements.displayName.value.trim() || "Guest";
 
   elements.activeRole.textContent = state.role.charAt(0).toUpperCase() + state.role.slice(1);
   elements.activeRoom.textContent = state.room;
@@ -1181,11 +1166,6 @@ function connectRoom() {
     }
 
     state.isConnected = true;
-    state.connectionParams = {
-      room: state.room,
-      role: state.role,
-      name
-    };
     _wsReconnectCount = 0;
     setConnectionLabel("Connected");
     logEvent("Connected", {
@@ -1221,7 +1201,6 @@ function connectRoom() {
     }
 
     state.isConnected = false;
-    state.connectionParams = null;
     setConnectionLabel("Disconnected");
     logEvent("Disconnected", {
       code: event.code,
@@ -1558,7 +1537,7 @@ elements.syncButton.addEventListener("click", () => sendMessage({ type: "request
 elements.player.addEventListener("play", () => {
   const isProgrammaticPlay = consumeProgrammaticPlaybackEvent(false);
 
-  if (state.seekGestureActive || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
+  if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
     if (!isProgrammaticPlay) {
       commitSeek(elements.player.currentTime, false, "play");
     }
@@ -1583,7 +1562,7 @@ elements.player.addEventListener("play", () => {
 elements.player.addEventListener("pause", () => {
   const isProgrammaticPause = consumeProgrammaticPlaybackEvent(true);
 
-  if (state.seekGestureActive || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
+  if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
     if (isProgrammaticPause) {
       handleHlsPlayingActivity();
     } else {

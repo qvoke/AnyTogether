@@ -1,0 +1,145 @@
+[
+  {
+    "id": "rezka",
+    "priority": 100,
+    "domains": ["rezka", "voidboost"],
+    "pathPatterns": [".*"],
+    "fields": {
+      "title": [
+        { "type": "jsonLd", "paths": ["name", "headline", "mainEntity.name"] },
+        { "type": "meta", "selectors": ["meta[property=\"og:title\"]", "meta[name=\"twitter:title\"]"], "attribute": "content" },
+        { "type": "dom", "selectors": ["h1"] },
+        { "type": "documentTitle", "patterns": ["^(.*?)\\s*(?:watch|online|season|episode|$)"] }
+      ]
+    },
+    "seriesContext": [
+      {
+        "type": "structuredDom",
+        "provider": "rezka",
+        "resolverPattern": "initCDNSeriesEvents\\((\\d+),\\s*(\\d+),\\s*(\\d+),\\s*(\\d+),",
+        "seasons": {
+          "selector": "#simple-seasons-tabs .b-simple_season__item",
+          "idAttribute": "data-tab_id"
+        },
+        "episodes": {
+          "selectorTemplate": "#simple-episodes-list-{seasonId} .b-simple_episode__item",
+          "idAttribute": "data-episode_id"
+        },
+        "translators": {
+          "selector": "#translators-list .b-translator__item",
+          "idAttribute": "data-translator_id",
+          "titleAttribute": "title"
+        },
+        "favoritesSelector": "#ctrl_favs"
+      },
+      { "type": "customPicker" },
+      { "type": "jsonLd" },
+      { "type": "linkCollection" },
+      { "type": "attributeCollection" }
+    ],
+    "directResolvers": [
+      {
+        "type": "ajaxStreamList",
+        "provider": "rezka",
+        "method": "POST",
+        "url": "/ajax/get_cdn_series/",
+        "timestampQuery": "t",
+        "headers": {
+          "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+          "X-Requested-With": "XMLHttpRequest"
+        },
+        "body": {
+          "id": "$resolver.itemId",
+          "translator_id": "$selectedTranslatorId",
+          "season": "$target.seasonId",
+          "episode": "$target.episodeId",
+          "favs": "$resolver.favs",
+          "action": "get_stream"
+        },
+        "response": {
+          "streamListPath": "url",
+          "qualityPath": "quality",
+          "defaultQualityPath": "default_quality"
+        }
+      }
+    ],
+    "mediaExtraction": [
+      { "type": "rezkaAjax" },
+      { "type": "domVideo" },
+      { "type": "networkSniff" },
+      { "type": "pageExtract" }
+    ],
+    "episodeActivation": {
+      "seasonSelectorTemplate": "#simple-seasons-tabs .b-simple_season__item[data-tab_id=\"{seasonId}\"]",
+      "episodeSelectorTemplate": "#simple-episodes-list-{seasonId} .b-simple_episode__item[data-season_id=\"{seasonId}\"][data-episode_id=\"{episodeId}\"]",
+      "activeSelector": ".active",
+      "clickDelayMs": 1000,
+      "attempts": 6
+    }
+  },
+  {
+    "id": "kinogo",
+    "priority": 90,
+    "domains": ["kinogo.", "sevstar"],
+    "pathPatterns": [".*"],
+    "fields": {
+      "title": [
+        { "type": "jsonLd", "paths": ["name", "headline"] },
+        { "type": "meta", "selectors": ["meta[property=\"og:title\"]", "meta[name=\"twitter:title\"]"], "attribute": "content" },
+        { "type": "dom", "selectors": ["h1", ".title", ".post-title"] },
+        { "type": "documentTitle", "patterns": ["^(.*?)\\s*(?:watch|online|$)"] }
+      ]
+    },
+    "seriesContext": [
+      {
+        "type": "hdvbMePicker",
+        "seasonSelector": "hdvbplayer[me^=\"x-\"], hdvbplayer[me^=\"head_x-\"]",
+        "episodeSelector": "hdvbplayer[me^=\"xx-\"], hdvbplayer[me^=\"head_xx-\"]",
+        "translatorSelector": "hdvbplayer[me^=\"xxx-\"], hdvbplayer[me^=\"head_xxx-\"]",
+        "activeStylePattern": "rgb\\(0,\\s*173,\\s*239\\)",
+        "seasonMePattern": "^(?:head_)?x-\\d+-(\\d+)$",
+        "episodeMePattern": "^(?:head_)?xx-\\d+-(\\d+)-\\d+-\\d+-(\\d+)$",
+        "translatorMePattern": "^(?:head_)?xxx-\\d+-(\\d+)-\\d+-\\d+-(\\d+)-(\\d+)-"
+      }
+    ],
+    "directResolvers": [],
+    "mediaExtraction": [
+      { "type": "domVideo" },
+      { "type": "networkSniff" },
+      { "type": "pageExtract" }
+    ],
+    "episodeActivation": {
+      "seasonSelectorTemplate": "hdvbplayer[me^=\"x-\"][me$=\"-{seasonId}\"], hdvbplayer[me^=\"head_x-\"][me$=\"-{seasonId}\"]",
+      "episodeSelectorTemplate": "hdvbplayer[me^=\"xx-\"][me*=\"-{seasonId}-\"][me$=\"-{episodeId}\"], hdvbplayer[me^=\"head_xx-\"][me*=\"-{seasonId}-\"][me$=\"-{episodeId}\"]",
+      "activeSelector": "[style*=\"0, 173, 239\"]",
+      "clickDelayMs": 500,
+      "attempts": 4
+    }
+  },
+  {
+    "id": "generic",
+    "priority": 0,
+    "domains": [],
+    "pathPatterns": [".*"],
+    "fields": {
+      "title": [
+        { "type": "jsonLd", "paths": ["name", "headline", "mainEntity.name"] },
+        { "type": "meta", "selectors": ["meta[property=\"og:title\"]", "meta[name=\"twitter:title\"]"], "attribute": "content" },
+        { "type": "dom", "selectors": ["h1"] },
+        { "type": "documentTitle" }
+      ]
+    },
+    "seriesContext": [
+      { "type": "customPicker" },
+      { "type": "jsonLd" },
+      { "type": "linkCollection" },
+      { "type": "attributeCollection" }
+    ],
+    "directResolvers": [],
+    "mediaExtraction": [
+      { "type": "domVideo" },
+      { "type": "networkSniff" },
+      { "type": "pageExtract" }
+    ]
+  }
+]
