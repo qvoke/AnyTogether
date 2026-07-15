@@ -779,5 +779,5 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
   }
 
   return null;
-          
+
 }

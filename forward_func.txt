@@ -327,7 +327,7 @@ function guessResolutionFromFilename(filename) {
 // Р’С‹Р±РёСЂР°РµС‚ РЅР°РёР»СѓС‡С€РёР№ .m3u8 РёР· СЃРїРёСЃРєР° РїРѕ РёРјРµРЅРё С„Р°Р№Р»Р°
 function pickBestM3u8ByFilename(urls) {
   if (!urls || urls.length === 0) return null;
-  
+
   // РЎРѕСЂС‚РёСЂСѓРµРј: СЃРЅР°С‡Р°Р»Р° master РїРѕ РёРјРµРЅРё, РїРѕС‚РѕРј media РїРѕ СѓР±С‹РІР°РЅРёСЋ СЂР°Р·СЂРµС€РµРЅРёСЏ
   const scored = urls.map(url => {
     const filename = url.split('/').pop() || '';
@@ -335,7 +335,7 @@ function pickBestM3u8ByFilename(urls) {
     const resolution = isMaster ? 99999 : guessResolutionFromFilename(filename);
     return { url, filename, isMaster, resolution, score: isMaster ? 100000 + resolution : resolution };
   });
-  
+
   scored.sort((a, b) => b.score - a.score);
   return scored[0];
 }
@@ -577,11 +577,11 @@ function waitForMediaUrl(tabId, timeoutMs = 15000) {
     const collectedUrls = [];
     const timeoutId = setTimeout(async () => {
       chrome.webRequest.onBeforeRequest.removeListener(listener);
-      
+
       // РћС‚С„РёР»СЊС‚СЂРѕРІС‹РІР°РµРј .m3u8 вЂ” СЃСЂРµРґРё РЅРёС… РёС‰РµРј master
       const m3u8Urls = [...new Set(collectedUrls.filter(url => /\.m3u8/i.test(url)))];
       const mp4Urls = [...new Set(collectedUrls.filter(url => /\.mp4/i.test(url)))];
-      
+
       // 1. РЎРЅР°С‡Р°Р»Р° РїСЂРѕР±СѓРµРј РєР°Р¶РґС‹Р№ .m3u8 вЂ” РјРѕР¶РµС‚ Р±С‹С‚СЊ master playlist
       if (m3u8Urls.length > 0) {
         // РџСЂРѕР±СѓРµРј Р·Р°РіСЂСѓР·РёС‚СЊ РєР°Р¶РґС‹Р№ .m3u8 Рё РїСЂРѕРІРµСЂРёС‚СЊ, РЅРµ master Р»Рё РѕРЅ
@@ -606,13 +606,13 @@ function waitForMediaUrl(tabId, timeoutMs = 15000) {
         resolve(m3u8Urls[0]);
         return;
       }
-      
+
       // 2. .mp4 С„Р°Р№Р»С‹
       if (mp4Urls.length > 0) {
         resolve(mp4Urls[0]);
         return;
       }
-      
+
       resolve(null);
     }, timeoutMs);
 
@@ -705,11 +705,11 @@ async function extractMediaUrlFromPage(tabId) {
               }
               return { isMaster: true, bestUrl: url, variants: [] };
             }
-            
+
             if (isMediaPlaylist(text)) {
               return { isMaster: false, bestUrl: url, variants: null };
             }
-            
+
             return null;
           } catch {
             return null;
@@ -1268,7 +1268,7 @@ async function resolvePageToMedia(pageUrl, hostTabId, statusPrefix, targetEpisod
         const resolverItemId = Number(seriesContext?.resolver?.itemId);
         const currentSeasonId = Number(seriesContext?.currentSeasonId);
         const currentEpisodeId = Number(seriesContext?.currentEpisodeId);
-        
+
         if (Number.isFinite(resolverItemId)) {
           const directResolved = await fetchRezkaEpisodeMedia(
             seriesContext,
@@ -1300,10 +1300,10 @@ async function resolvePageToMedia(pageUrl, hostTabId, statusPrefix, targetEpisod
         const selected = pickRezkaStreamOption(options, "1080p", null);
         if (selected?.url) {
           const nextSeriesContext = seriesContext && typeof seriesContext === "object" ? { ...seriesContext } : null;
-          
+
           // Try to resolve master playlist
           const qualityResolved = await resolveBestQualityHls(selected.url);
-          
+
           if (nextSeriesContext) {
             nextSeriesContext.selectedQualityLabel = qualityResolved.url !== selected.url ? "best" : selected.label;
             nextSeriesContext.availableQualities = qualityResolved.variants || options.map((option) => ({
@@ -1341,12 +1341,12 @@ async function resolvePageToMedia(pageUrl, hostTabId, statusPrefix, targetEpisod
       if (pageResult) {
         const foundMediaUrl = pageResult.mediaUrl || pageResult;
         const foundMasterUrl = pageResult.masterPlaylistUrl || null;
-        
+
         sendStatus(hostTabId, foundMasterUrl ? "Media URL captured from page (master)" : "Media URL captured from page");
-        
+
         // Try to resolve to best quality / master playlist
         const qualityResolved = await resolveBestQualityHls(foundMasterUrl || foundMediaUrl);
-        
+
         return {
           mediaUrl: qualityResolved.url,
           masterPlaylistUrl: qualityResolved.masterUrl || foundMasterUrl,
@@ -1371,19 +1371,19 @@ async function resolvePageToMedia(pageUrl, hostTabId, statusPrefix, targetEpisod
     }
 
     sendStatus(hostTabId, targetEpisode ? "Media URL captured after episode switch" : "Media URL captured from network");
-    
+
     // Try to resolve to best quality / master playlist for any found .m3u8
     let finalMediaUrl = mediaUrl;
     let finalMasterUrl = null;
     let finalVariants = null;
-    
+
     if (/\.m3u8/i.test(mediaUrl)) {
       const qualityResolved = await resolveBestQualityHls(mediaUrl);
       finalMediaUrl = qualityResolved.url;
       finalMasterUrl = qualityResolved.masterUrl;
       finalVariants = qualityResolved.variants;
     }
-    
+
     return {
       mediaUrl: finalMediaUrl,
       masterPlaylistUrl: finalMasterUrl,
@@ -1491,33 +1491,33 @@ const MEDIA_SNIFFER_UI_CACHE = new Set();
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     const tabId = details.tabId;
-    
+
     // Always sniff from the search popup (opened via "Search" button)
     const isSearchPopup = tabId > 0 && tabId === _searchPopupTabId;
-    
+
     // Gate: only sniff when user explicitly enabled it (or it's the search popup)
     if (!_snifferActive && !isSearchPopup) return;
-    
+
     const url = details.url || '';
     if (!isValidMediaUrlSniffer(url)) return;
-    
+
     // Skip URLs from our own player (localhost:3000)
     if (tabId > 0 && MEDIA_SNIFFER_UI_CACHE.has(tabId)) return;
-    
+
     console.log("[Background] Media URL sniffed:", url.substring(0, 100));
-    
+
     chrome.tabs.query({}, (allTabs) => {
       if (!allTabs || !allTabs.length) return;
       const uiTabs = allTabs.filter(t => t.status === 'complete' && t.url && t.url.includes('localhost:3000'));
-      
+
       // Cache UI tab IDs to skip them on future requests
       for (const tab of uiTabs) {
         MEDIA_SNIFFER_UI_CACHE.add(tab.id);
       }
-      
+
       // Check if this request is from our own UI tab
       if (uiTabs.some(t => t.id === tabId)) return;
-      
+
       for (const tab of uiTabs) {
         chrome.tabs.sendMessage(tab.id, {
           type: "WT_MEDIA_FOUND",

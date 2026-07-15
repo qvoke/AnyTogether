@@ -128,14 +128,14 @@ const SEARCH_POPUP_WINDOW_NAME = "AnyTogetherSearch";
     _lastMediaUrl = mediaUrl;
     const key = mediaUrl.substring(0, 80);
     const meaningfulSeriesContext = isSeriesContextPayload(seriesContext) ? seriesContext : null;
-    
+
     if (_monitoredUrls.has(key)) {
       return;
     }
     _monitoredUrls.add(key);
-    
+
     console.log("[AnyTogether CS] Media URL:", mediaUrl.substring(0, 100));
-    
+
     const data = {
       type: "WT_MEDIA_FOUND",
       timestamp: Date.now(),
@@ -148,7 +148,7 @@ const SEARCH_POPUP_WINDOW_NAME = "AnyTogetherSearch";
           seriesContext: meaningfulSeriesContext
         }
       };
-    
+
     try { chrome.storage.local.set({ pendingMediaUrl: data }, () => void chrome.runtime.lastError); } catch(e) {}
     sendRuntimeMessage({ type: "WT_MEDIA_FOUND", payload: data.payload });
   }
@@ -171,20 +171,20 @@ const SEARCH_POPUP_WINDOW_NAME = "AnyTogetherSearch";
       const url = el.currentSrc || el.src || '';
       if (isValidMediaUrl(url)) sendMediaUrlToUi(url, window.location.href);
     });
-    
+
     const observer = new MutationObserver(() => {
       document.querySelectorAll('video, video source, source').forEach(el => {
         const url = el.currentSrc || el.src || '';
         if (isValidMediaUrl(url)) sendMediaUrlToUi(url, window.location.href);
       });
     });
-    
+
     const target = document.querySelector('body') || document.documentElement;
     if (target) observer.observe(target, { childList: true, subtree: true });
   }
 
   let _monitoredUrls = new Set();
-  
+
   console.log("[AnyTogether CS] Ready");
 
   window.addEventListener("message", (event) => {
@@ -198,13 +198,13 @@ const SEARCH_POPUP_WINDOW_NAME = "AnyTogetherSearch";
     });
     return;
   }
-    
+
     // Handle sniffer state toggle from UI page
     if (event.data?.type === "WT_SNIFFER_STATE") {
       sendRuntimeMessage({ type: "WT_SNIFFER_STATE", payload: event.data.payload });
       return;
     }
-    
+
     if (event.data?.type !== PAGE_TO_EXTENSION_EVENT && event.data?.type !== PAGE_TO_RESOLVE_EVENT) return;
 
     chrome.runtime.sendMessage({ type: event.data.type, payload: event.data.payload }, (response) => {
