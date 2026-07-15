@@ -1,0 +1,122 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AnyTogether parser configs",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["id", "priority", "domains", "pathPatterns", "fields", "seriesContext", "mediaExtraction"],
+    "additionalProperties": true,
+    "properties": {
+      "id": { "type": "string", "minLength": 1 },
+      "priority": { "type": "number" },
+      "domains": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "pathPatterns": {
+        "type": "array",
+        "items": { "type": "string" }
+      },
+      "fields": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["type"],
+            "properties": {
+              "type": { "type": "string" },
+              "selectors": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "paths": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "patterns": {
+                "type": "array",
+                "items": { "type": "string" }
+              },
+              "attribute": { "type": "string" }
+            }
+          }
+        }
+      },
+      "seriesContext": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "type": "string" },
+            "provider": { "type": "string" },
+            "selectors": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "seasonSelector": { "type": "string" },
+            "episodeSelector": { "type": "string" },
+            "translatorSelector": { "type": "string" },
+            "activeStylePattern": { "type": "string" },
+            "activeSelector": { "type": "string" },
+            "seasonMePattern": { "type": "string" },
+            "episodeMePattern": { "type": "string" },
+            "translatorMePattern": { "type": "string" }
+          }
+        }
+      },
+      "directResolvers": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["type", "provider", "url", "response"],
+          "properties": {
+            "type": { "type": "string" },
+            "provider": { "type": "string" },
+            "method": { "type": "string" },
+            "url": { "type": "string" },
+            "timestampQuery": { "type": "string" },
+            "headers": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "body": {
+              "type": "object",
+              "additionalProperties": { "type": ["string", "number", "boolean", "null"] }
+            },
+            "response": {
+              "type": "object",
+              "required": ["streamListPath"],
+              "properties": {
+                "streamListPath": { "type": "string" },
+                "qualityPath": { "type": "string" },
+                "defaultQualityPath": { "type": "string" }
+              }
+            }
+          }
+        }
+      },
+      "mediaExtraction": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "type": "string" }
+          }
+        }
+      },
+      "episodeActivation": {
+        "type": "object",
+        "properties": {
+          "seasonSelectorTemplate": { "type": "string" },
+          "episodeSelectorTemplate": { "type": "string" },
+          "activeSelector": { "type": "string" },
+          "clickDelayMs": { "type": "number" },
+          "attempts": { "type": "number" }
+        }
+      }
+    }
+  }
+}

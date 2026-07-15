@@ -1,3 +1,6 @@
+import { getParserConfigForUrl } from "./parser-configs.js";
+import { extractSeriesContextInPage } from "./extraction-engine.js";
+
 const SEARCH_REQUEST_EVENT = "WT_SEARCH_REQUEST";
 const RESOLVE_PAGE_REQUEST_EVENT = "WT_RESOLVE_PAGE_URL";
 const SERIES_CONTEXT_FOUND_EVENT = "WT_SERIES_CONTEXT_FOUND";
@@ -70,7 +73,7 @@ function isPlayableQualityLabel(label) {
   return /^(?:\d{3,4}(?:p|hd|fhd|uhd)?|\d{3,4}x\d{3,4}|[48]k)$/.test(compact);
 }
 
-function parseRezkaStreamOptions(streamText) {
+function parseStreamOptions(streamText) {
   if (typeof streamText !== "string" || !streamText) return [];
 
   const options = [];
@@ -102,7 +105,7 @@ function parseRezkaStreamOptions(streamText) {
   return options;
 }
 
-function pickRezkaStreamOption(options, preferredQualityLabel, defaultQualityLabel) {
+function pickStreamOption(options, preferredQualityLabel, defaultQualityLabel) {
   if (!Array.isArray(options) || options.length === 0) return null;
 
   const parseResolution = (label) => {
@@ -119,8 +122,6 @@ function pickRezkaStreamOption(options, preferredQualityLabel, defaultQualityLab
     if (looseMatch) return looseMatch;
   }
 
-  // Важно: многие источники возвращают default_quality/data.quality как "360p", даже когда доступны 720/1080.
-  // Если пользователь не задал качество явно — выбираем максимально доступное по метке.
   const ranked = options
     .map((option) => ({ option, resolution: parseResolution(option.label) ?? parseResolution(option.normalizedLabel) ?? 0 }))
     .sort((a, b) => b.resolution - a.resolution);
@@ -129,7 +130,6 @@ function pickRezkaStreamOption(options, preferredQualityLabel, defaultQualityLab
     return ranked[0].option;
   }
 
-  // Fallback: сохраним старое поведение на случай нестандартных меток.
   const defaultMatch = normalizeQualityLabel(defaultQualityLabel);
   if (defaultMatch) {
     const exactDefault = options.find((option) => option.normalizedLabel === defaultMatch);
@@ -139,91 +139,108 @@ function pickRezkaStreamOption(options, preferredQualityLabel, defaultQualityLab
   return options[0];
 }
 
-async function fetchRezkaEpisodeMedia(seriesContext, targetEpisode, options = {}) {
-  const resolver = seriesContext?.resolver;
-  if (!resolver || resolver.provider !== "rezka") {
+const parseRezkaStreamOptions = parseStreamOptions;
+const pickRezkaStreamOption = pickStreamOption;
+
+function readObjectPath(value, path) {
+  const parts = String(path || "").split(".").filter(Boolean);
+  let current = value;
+  for (const part of parts) {
+    if (current == null) return null;
+    current = current[part];
+  }
+  return current ?? null;
+}
+
+function resolveConfigValue(expression, context) {
+  if (typeof expression !== "string" || !expression.startsWith("$")) {
+    return expression;
+  }
+
+  return readObjectPath(context, expression.slice(1));
+}
+
+function getDirectResolverContext(seriesContext, targetEpisode, options = {}) {
+  const resolver = seriesContext?.resolver || {};
+  return {
+    resolver,
+    target: targetEpisode || {},
+    selectedTranslatorId: Number.isFinite(Number(options.translatorId))
+      ? Number(options.translatorId)
+      : Number(seriesContext?.selectedTranslatorId ?? resolver.translatorId ?? null),
+    selectedQualityLabel: options.qualityLabel || seriesContext?.selectedQualityLabel || null
+  };
+}
+
+async function fetchDirectStreamList(resolverConfig, seriesContext, targetEpisode, options = {}) {
+  if (!resolverConfig || resolverConfig.type !== "ajaxStreamList" || !seriesContext || !targetEpisode) {
     return null;
   }
 
-  const itemId = Number(resolver.itemId);
-  const translatorId = Number(
-    Number.isFinite(Number(options.translatorId)) ? options.translatorId : resolver.translatorId
-  );
-  const seasonId = Number(targetEpisode?.seasonId);
-  const episodeId = Number(targetEpisode?.episodeId);
+  const context = getDirectResolverContext(seriesContext, targetEpisode, options);
+  const origin = context.resolver.origin || seriesContext?.resolver?.origin;
+  if (!origin || !resolverConfig.url) return null;
 
-  if (!Number.isFinite(itemId) || !Number.isFinite(translatorId) || !Number.isFinite(seasonId) || !Number.isFinite(episodeId)) {
-    return null;
+  const endpoint = new URL(resolverConfig.url, origin);
+  if (resolverConfig.timestampQuery) {
+    endpoint.searchParams.set(resolverConfig.timestampQuery, String(Date.now()));
   }
 
-  const origin = resolver.origin || "https://rezka-ua.tv";
-  const endpoint = new URL("/ajax/get_cdn_series/", origin);
-  endpoint.searchParams.set("t", String(Date.now()));
-
-  const response = await fetch(endpoint.href, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
-      "X-Requested-With": "XMLHttpRequest"
-    },
-    body: new URLSearchParams({
-      id: String(itemId),
-      translator_id: String(translatorId),
-      season: String(seasonId),
-      episode: String(episodeId),
-      favs: resolver.favs || "",
-      action: "get_stream"
-    })
-  });
-
-  if (!response.ok) {
-    return null;
+  const bodyValues = {};
+  for (const [key, value] of Object.entries(resolverConfig.body || {})) {
+    const resolvedValue = resolveConfigValue(value, context);
+    bodyValues[key] = resolvedValue == null ? "" : String(resolvedValue);
   }
 
-  let data = null;
   try {
-    data = await response.json();
+    const response = await fetch(endpoint.href, {
+      method: resolverConfig.method || "POST",
+      headers: resolverConfig.headers || {},
+      body: new URLSearchParams(bodyValues)
+    });
+
+    if (!response.ok) return null;
+    return await response.json();
   } catch {
-    data = null;
+    return null;
   }
-  const streamOptions = parseRezkaStreamOptions(data?.url || "");
+}
+
+function buildDirectStreamResolution(resolverConfig, ajaxData, seriesContext, targetEpisode, options = {}) {
+  const responseConfig = resolverConfig?.response || {};
+  const streamList = readObjectPath(ajaxData, responseConfig.streamListPath || "url");
+  if (!streamList || !seriesContext || !targetEpisode) return null;
+
+  const streamOptions = parseStreamOptions(streamList);
   const selectedStream = pickRezkaStreamOption(
     streamOptions,
-    options.qualityLabel || data?.quality,
-    data?.default_quality
+    options.qualityLabel || readObjectPath(ajaxData, responseConfig.qualityPath),
+    readObjectPath(ajaxData, responseConfig.defaultQualityPath)
   );
 
-  if (!selectedStream?.url) {
-    return null;
-  }
+  if (!selectedStream?.url) return null;
 
-  const episodes = Array.isArray(seriesContext?.episodes) ? seriesContext.episodes : [];
+  const seasonId = Number(targetEpisode.seasonId);
+  const episodeId = Number(targetEpisode.episodeId);
+  const episodes = Array.isArray(seriesContext.episodes) ? seriesContext.episodes : [];
   const currentEpisodeIndex = episodes.findIndex(
     (episode) => Number(episode?.seasonId) === seasonId && Number(episode?.episodeId) === episodeId
   );
 
-  // Debug: log what quality was selected and what URLs are available
-  console.log("[AnyTogether Rezka Resolver]", {
-    requestedQuality: options.qualityLabel || data?.quality,
-    selectedLabel: selectedStream.label,
-    selectedUrl: selectedStream.url ? selectedStream.url.substring(0, 100) + '...' : 'NONE',
-    allOptionsCount: streamOptions.length,
-    allOptions: streamOptions.map(o => ({ label: o.label, url: o.url.substring(0, 50) + '...' }))
-  });
-
   return {
     mediaUrl: selectedStream.url,
-    pageUrl: resolver.pageUrl || null,
+    masterPlaylistUrl: null,
+    pageUrl: seriesContext.resolver?.pageUrl || null,
     seriesContext: {
       ...seriesContext,
       currentEpisodeIndex,
       currentSeasonId: seasonId,
       currentEpisodeId: episodeId,
-      selectedTranslatorId: translatorId,
+      selectedTranslatorId: Number(options.translatorId ?? seriesContext.selectedTranslatorId ?? seriesContext.resolver?.translatorId ?? null),
       selectedQualityLabel: selectedStream.label,
-      availableQualities: streamOptions.map((streamOption) => ({
-        label: streamOption.label,
-        normalizedLabel: streamOption.normalizedLabel
+      availableQualities: streamOptions.map((option) => ({
+        label: option.label,
+        normalizedLabel: option.normalizedLabel
       }))
     }
   };
@@ -321,21 +338,16 @@ async function fetchPlaylist(url) {
 
 /**
  * Given an .m3u8 URL, try to resolve to best quality variant:
- * 1. Fetch the URL — if it's a master playlist, extract best variant
  * 2. If it's a media playlist, try common master playlist names in same dir
  * 3. Return the best quality media URL + master URL for hls.js
  */
-// Определяет, выглядит ли имя файла как master playlist
 function isMasterByFilename(filename) {
   const base = filename.split('?')[0].split('#')[0].toLowerCase();
-  // Имена, типичные для master playlist
   if (/^(master|index|playlist|manifest|multi|variant|adaptive)/i.test(base)) return true;
-  // Не содержит цифр качества (360p, 720p, 1080, 1920x1080)
   if (!/\d{3,4}p?/.test(base) && !/_\d+x\d+/.test(base)) return true;
   return false;
 }
 
-// Парсит имя файла media playlist на предмет разрешения (например, 720p, 1080, 1920x1080)
 function guessResolutionFromFilename(filename) {
   const base = filename.split('?')[0].split('#')[0];
   // 1080p, 720p, 360p
@@ -344,17 +356,14 @@ function guessResolutionFromFilename(filename) {
   // 1920x1080, 1280x720
   const dims = base.match(/(\d+)x(\d+)/i);
   if (dims) return parseInt(dims[2], 10);
-  // Просто число (1080, 720)
   const number = base.match(/(\d{3,4})(?:\.[^.]+)?$/);
   if (number) return parseInt(number[1], 10);
   return 0;
 }
 
-// Выбирает наилучший .m3u8 из списка по имени файла
 function pickBestM3u8ByFilename(urls) {
   if (!urls || urls.length === 0) return null;
   
-  // Сортируем: сначала master по имени, потом media по убыванию разрешения
   const scored = urls.map(url => {
     const filename = url.split('/').pop() || '';
     const isMaster = isMasterByFilename(filename);
@@ -369,8 +378,6 @@ function pickBestM3u8ByFilename(urls) {
 async function resolveBestQualityHls(mediaUrl) {
   if (!mediaUrl || !/\.m3u8/i.test(mediaUrl)) return { url: mediaUrl, masterUrl: null, variants: null };
 
-  // Пробуем загрузить через fetch (если CORS разрешён)
-  // Если не получилось — пытаемся угадать master playlist по имени файла
   const tryFetchAndAnalyze = async (url) => {
     try {
       const text = await fetchPlaylist(url);
@@ -391,7 +398,6 @@ async function resolveBestQualityHls(mediaUrl) {
     if (result1.isMaster) return result1;
   }
 
-  // Попробуем найти master по разным именам в той же директории
   const urlObj = new URL(mediaUrl);
   const pathParts = urlObj.pathname.split('/');
   const filename = pathParts[pathParts.length - 1] || '';
@@ -412,16 +418,13 @@ async function resolveBestQualityHls(mediaUrl) {
     }
   }
 
-  // Если fetch не сработал (CORS) — пытаемся угадать master по имени файла
   const best = pickBestM3u8ByFilename([mediaUrl]);
   if (best && best.isMaster) {
     return { url: best.url, masterUrl: best.url, variants: null };
   }
 
-  // Если у нас media playlist с известным разрешением — отдаём как есть
   if (result1) return result1;
 
-  // Fallback: исходный URL как есть
   return { url: mediaUrl, masterUrl: null, variants: null };
 }
 
@@ -458,6 +461,25 @@ function normalizePageUrl(value) {
 
 const SERIES_CONTEXT_CACHE = new Map();
 const RESOLVE_REQUESTS_IN_FLIGHT = new Map();
+const RESOLVER_TAB_IDS = new Set();
+const SUPPRESSED_RESOLVER_PAGE_URLS = new Map();
+
+function suppressResolverPageMedia(pageUrl, ttlMs = 30000) {
+  const key = normalizePageUrl(pageUrl);
+  if (!key) return;
+  SUPPRESSED_RESOLVER_PAGE_URLS.set(key, Date.now() + ttlMs);
+}
+
+function isResolverPageMediaSuppressed(pageUrl) {
+  const key = normalizePageUrl(pageUrl);
+  if (!key) return false;
+  const expiresAt = SUPPRESSED_RESOLVER_PAGE_URLS.get(key) || 0;
+  if (expiresAt <= Date.now()) {
+    SUPPRESSED_RESOLVER_PAGE_URLS.delete(key);
+    return false;
+  }
+  return true;
+}
 
 function cacheSeriesContext(pageUrl, seriesContext) {
   const key = normalizePageUrl(pageUrl);
@@ -623,23 +645,17 @@ function waitForMediaUrl(tabId, timeoutMs = 15000) {
     const timeoutId = setTimeout(async () => {
       chrome.webRequest.onBeforeRequest.removeListener(listener);
       
-      // Отфильтровываем .m3u8 — среди них ищем master
       const m3u8Urls = [...new Set(collectedUrls.filter(url => /\.m3u8/i.test(url)))];
       const mp4Urls = [...new Set(collectedUrls.filter(url => /\.mp4/i.test(url)))];
       
-      // 1. Сначала пробуем каждый .m3u8 — может быть master playlist
       if (m3u8Urls.length > 0) {
-        // Пробуем загрузить каждый .m3u8 и проверить, не master ли он
         for (const url of m3u8Urls) {
           const resolved = await resolveBestQualityHls(url);
           if (resolved?.masterUrl || resolved?.variants) {
-            // Это master playlist! Отдаём его URL
             resolve(resolved.masterUrl || url);
             return;
           }
         }
-        // Ни один не оказался master — отдаём media playlist с наивысшим разрешением
-        // (resolveBestQualityHls уже попытался найти master рядом)
         for (const url of m3u8Urls) {
           const resolved = await resolveBestQualityHls(url);
           if (resolved?.url) {
@@ -647,12 +663,10 @@ function waitForMediaUrl(tabId, timeoutMs = 15000) {
             return;
           }
         }
-        // Fallback: первый .m3u8
         resolve(m3u8Urls[0]);
         return;
       }
       
-      // 2. .mp4 файлы
       if (mp4Urls.length > 0) {
         resolve(mp4Urls[0]);
         return;
@@ -710,12 +724,6 @@ async function extractMediaUrlFromPage(tabId) {
           if (number) return parseInt(number[1], 10);
           return 0;
         };
-
-        /**
-         * Загружает .m3u8 (без CORS проблем, т.к. внутри страницы)
-         * и определяет master это или media playlist.
-         * Возвращает { isMaster, variants } или null.
-         */
         async function analyzeM3u8(url) {
           try {
             const response = await fetch(url, {
@@ -729,7 +737,6 @@ async function extractMediaUrlFromPage(tabId) {
             if (!text) return null;
 
             if (isMasterPlaylist(text)) {
-              // Парсим варианты качества
               const lines = text.split(/\r?\n/);
               const variants = [];
               for (let i = 0; i < lines.length; i++) {
@@ -761,7 +768,6 @@ async function extractMediaUrlFromPage(tabId) {
           }
         }
 
-        // Собираем все URL
         const m3u8Urls = new Set();
         const mp4Urls = new Set();
 
@@ -775,14 +781,12 @@ async function extractMediaUrlFromPage(tabId) {
           }
         };
 
-        // Из video/source/meta
         document.querySelectorAll("video, video source, source, meta").forEach((node) => {
           if (node.tagName === "VIDEO") { addUrl(node.currentSrc); addUrl(node.src); }
           if (node.tagName === "SOURCE") { addUrl(node.src); }
           if (node.tagName === "META") { addUrl(node.content); }
         });
 
-        // Из скриптов
         for (const script of document.scripts) {
           const text = script.textContent || "";
           const escaped = text.match(/https?:\\\/\\\/[^\s"'<>]+?\.(?:m3u8|mp4)(?:[^\s"'<>]*)/gi);
@@ -791,7 +795,6 @@ async function extractMediaUrlFromPage(tabId) {
           if (plain) plain.forEach(addUrl);
         }
 
-        // Из HTML
         const html = document.documentElement.innerHTML;
         const htmlEscaped = html.match(/https?:\\\/\\\/[^\s"'<>]+?\.(?:m3u8|mp4)(?:[^\s"'<>]*)/gi);
         if (htmlEscaped) htmlEscaped.forEach(m => addUrl(m.replace(/\\\//g, '/')));
@@ -800,8 +803,6 @@ async function extractMediaUrlFromPage(tabId) {
 
         const m3u8List = [...m3u8Urls];
 
-        // 1) Сначала пытаемся загрузить каждый уникальный .m3u8 и проверить — не master ли он
-        // Пробуем не более 5 URL для скорости
         const uniqueM3u8 = [...new Set(m3u8List)];
         const urlsToTry = uniqueM3u8.slice(0, 5);
 
@@ -816,7 +817,6 @@ async function extractMediaUrlFromPage(tabId) {
           }
         }
 
-        // 2) Ни один не master — ищем master по имени файла
         for (const url of m3u8List) {
           if (isMasterByFilename(url)) {
             const analysis = await analyzeM3u8(url);
@@ -830,8 +830,6 @@ async function extractMediaUrlFromPage(tabId) {
           }
         }
 
-        // 3) Ищем master в той же директории (для media playlist)
-        // Известные имена master рядом с media
         for (const mediaUrl of m3u8List) {
           try {
             const mediaObj = new URL(mediaUrl);
@@ -855,7 +853,6 @@ async function extractMediaUrlFromPage(tabId) {
           } catch {}
         }
 
-        // 4) Выбираем media playlist с наивысшим разрешением
         let bestUrl = null;
         let bestResolution = 0;
         for (const url of m3u8List) {
@@ -884,431 +881,58 @@ async function extractMediaUrlFromPage(tabId) {
   }
 }
 
-async function extractRezkaCdnUrlTextFromPage(tabId) {
-  try {
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: () => {
-        const looksLikeQualityList = (value) =>
-          typeof value === "string" &&
-          value.includes("[") &&
-          value.includes("]") &&
-          /https?:\/\//i.test(value) &&
-          /(?:m3u8|mp4)/i.test(value);
+async function extractSeriesContextViaProfile(tabId, pageUrl) {
+  const profile = await getParserConfigForUrl(pageUrl);
+  const pickBestSeriesContext = (results) => {
+    const contexts = (Array.isArray(results) ? results : [])
+      .map((result) => result?.result)
+      .filter(Boolean);
+    if (contexts.length === 0) return null;
 
-        const candidates = [];
+    return contexts
+      .map((context) => ({
+        context,
+        score:
+          (Array.isArray(context.seasons) ? context.seasons.length * 20 : 0) +
+          (Array.isArray(context.episodes) ? context.episodes.length : 0) +
+          (Array.isArray(context.translators) ? context.translators.length * 5 : 0) +
+          (Array.isArray(context.availableQualities) ? context.availableQualities.length : 0)
+      }))
+      .sort((left, right) => right.score - left.score)[0]?.context || null;
+  };
 
-        const activeEpisode = document.querySelector(".b-simple_episode__item.active[data-cdn_url]");
-        if (activeEpisode) {
-          const url = activeEpisode.getAttribute("data-cdn_url");
-          if (looksLikeQualityList(url)) {
-            candidates.push(url);
-          }
-        }
-
-        document.querySelectorAll("[data-cdn_url]").forEach((node) => {
-          const url = node.getAttribute("data-cdn_url");
-          if (looksLikeQualityList(url)) {
-            candidates.push(url);
-          }
-        });
-
-        // Возьмём "самый информативный" (обычно там больше вариантов качества).
-        candidates.sort((a, b) => String(b).length - String(a).length);
-        return candidates[0] || null;
-      }
-    });
-
-    return result?.result || null;
-  } catch {
-    return null;
-  }
-}
-
-async function extractSeriesContextFromPage(tabId, pageUrl) {
-  for (let attempt = 1; attempt <= 10; attempt += 1) {
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
-      const [result] = await chrome.scripting.executeScript({
-        target: { tabId },
-        args: [pageUrl],
-        func: (pageUrlArg) => {
-          // Ждем, пока загрузится хотя бы базовый контент страницы
-          if (document.readyState === "loading" || !document.body || document.body.innerText.length < 200) {
-            return null; // retry
-          }
-
-          const normalizeUrl = (value) => {
-            try {
-              const url = new URL(value, document.baseURI);
-              url.hash = "";
-              return url.href;
-            } catch {
-              return null;
-            }
-          };
-
-          const title =
-            document.querySelector('meta[property="og:title"]')?.content?.trim() ||
-            document.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim() ||
-            document.title.replace(/\s+/g, " ").trim();
-          const currentPageUrl = normalizeUrl(pageUrlArg) || document.location.href;
-          const html = document.documentElement.innerHTML;
-          const resolverMatch = html.match(/initCDNSeriesEvents\((\d+),\s*(\d+),\s*(\d+),\s*(\d+),/i);
-          const favs = document.querySelector("#ctrl_favs")?.value || "";
-          
-          const isRezka = /rezka/i.test(currentPageUrl);
-          const isSeries = isRezka && !!resolverMatch;
-
-          const resolver = resolverMatch
-            ? {
-                provider: "rezka",
-                itemId: Number(resolverMatch[1]),
-                translatorId: Number(resolverMatch[2]),
-                pageUrl: currentPageUrl,
-                origin: new URL(currentPageUrl).origin,
-                favs,
-                contentType: "series"
-              }
-            : null;
-
-          const seasonItems = [...document.querySelectorAll("#simple-seasons-tabs .b-simple_season__item")];
-          const episodeLists = [...document.querySelectorAll("#simple-episodes-tabs .b-simple_episodes__list")];
-          const translatorItems = [...document.querySelectorAll("#translators-list .b-translator__item")];
-          const selectedTranslator = document.querySelector("#translators-list .b-translator__item.active");
-          const selectedTranslatorId = selectedTranslator ? Number(selectedTranslator.getAttribute("data-translator_id")) : null;
-          const selectedTranslatorTitle = (selectedTranslator?.getAttribute("title") || selectedTranslator?.textContent || "").replace(/\s+/g, " ").trim();
-
-          const activeEpisode = document.querySelector("#simple-episodes-tabs .b-simple_episode__item.active") || 
-                                document.querySelector(".b-simple_episode__item.active");
-          const activeSeason = document.querySelector("#simple-seasons-tabs .b-simple_season__item.active");
-          const fallbackSeasonId = seasonItems[0] ? Number(seasonItems[0].getAttribute("data-tab_id")) : null;
-
-          // Сценарий 1: Сериал с несколькими сезонами
-          if (seasonItems.length > 0 && episodeLists.length > 0) {
-            const seasons = [];
-            const flatEpisodes = [];
-
-            for (const seasonItem of seasonItems) {
-              const seasonId = Number(seasonItem.getAttribute("data-tab_id"));
-              if (!Number.isFinite(seasonId)) continue;
-              const seasonTitle = (seasonItem.textContent || "").replace(/\s+/g, " ").trim();
-
-              const seasonEpisodes = [...document.querySelectorAll(`#simple-episodes-list-${seasonId} .b-simple_episode__item`)];
-              const seasonEpisodeItems = [];
-              for (const episodeItem of seasonEpisodes) {
-                const episodeId = Number(episodeItem.getAttribute("data-episode_id"));
-                if (!Number.isFinite(episodeId)) continue;
-                const episodeTitle = (episodeItem.textContent || "").replace(/\s+/g, " ").trim();
-                const episode = {
-                  title: episodeTitle,
-                  seasonId,
-                  episodeId
-                };
-
-                seasonEpisodeItems.push(episode);
-                flatEpisodes.push(episode);
-              }
-
-              seasons.push({
-                seasonId,
-                title: seasonTitle,
-                episodes: seasonEpisodeItems
-              });
-            }
-
-            // Ждем, пока загрузится хотя бы одна серия во flatEpisodes
-            if (flatEpisodes.length < 1) {
-              return null;
-            }
-
-            const activeSeasonId = activeSeason ? Number(activeSeason.getAttribute("data-tab_id")) : fallbackSeasonId;
-            const activeEpisodeId = activeEpisode ? Number(activeEpisode.getAttribute("data-episode_id")) : flatEpisodes[0]?.episodeId ?? null;
-            const currentEpisodeIndex = Number.isFinite(activeSeasonId) && Number.isFinite(activeEpisodeId)
-              ? flatEpisodes.findIndex(
-                  (episode) => episode.seasonId === activeSeasonId && episode.episodeId === activeEpisodeId
-                )
-              : 0;
-            const normalizedEpisodeIndex = currentEpisodeIndex >= 0 ? currentEpisodeIndex : 0;
-
-            console.log("[Background] Series context extracted", {
-              pageUrl: currentPageUrl,
-              title,
-              seasonCount: seasons.length,
-              episodeCount: flatEpisodes.length,
-              translatorCount: translatorItems.length,
-              currentSeasonId: Number.isFinite(activeSeasonId) ? activeSeasonId : null,
-              currentEpisodeId: Number.isFinite(activeEpisodeId) ? activeEpisodeId : null
-            });
-            console.log("[Background] Series seasons", seasons.map((season) => ({
-              seasonId: season.seasonId,
-              title: season.title,
-              episodeCount: Array.isArray(season.episodes) ? season.episodes.length : 0
-            })));
-
-            return {
-              title: title || null,
-              currentPageUrl,
-              currentSeasonId: Number.isFinite(activeSeasonId) ? activeSeasonId : null,
-              currentEpisodeId: Number.isFinite(activeEpisodeId) ? activeEpisodeId : null,
-              currentEpisodeIndex: normalizedEpisodeIndex,
-              seasons,
-              episodes: flatEpisodes,
-              translators: translatorItems
-                .map((item) => {
-                  const translatorId = Number(item.getAttribute("data-translator_id"));
-                  if (!Number.isFinite(translatorId)) return null;
-
-                  return {
-                    translatorId,
-                    title: (item.getAttribute("title") || item.textContent || "").replace(/\s+/g, " ").trim()
-                  };
-                })
-                .filter(Boolean),
-              selectedTranslatorId,
-              selectedTranslatorTitle: selectedTranslatorTitle || null,
-              resolver
-            };
-          }
-          // Сценарий 2: Сериал с единственным сезоном (вкладок сезонов нет, но список эпизодов есть)
-          else if (isSeries) {
-            const seasons = [{
-              seasonId: 1,
-              title: "Season 1",
-              episodes: []
-            }];
-            const flatEpisodes = [];
-            
-            const seasonEpisodes = [...document.querySelectorAll("#simple-episodes-tabs .b-simple_episode__item")];
-            for (const episodeItem of seasonEpisodes) {
-              const episodeId = Number(episodeItem.getAttribute("data-episode_id"));
-              if (!Number.isFinite(episodeId)) continue;
-              const episodeTitle = (episodeItem.textContent || "").replace(/\s+/g, " ").trim();
-              const episode = {
-                title: episodeTitle,
-                seasonId: 1,
-                episodeId
-              };
-              seasons[0].episodes.push(episode);
-              flatEpisodes.push(episode);
-            }
-
-            if (flatEpisodes.length < 1) {
-              return null; // не готово
-            }
-
-            const activeEpisodeId = activeEpisode ? Number(activeEpisode.getAttribute("data-episode_id")) : flatEpisodes[0]?.episodeId ?? null;
-            const currentEpisodeIndex = Number.isFinite(activeEpisodeId)
-              ? flatEpisodes.findIndex((episode) => episode.episodeId === activeEpisodeId)
-              : 0;
-            const normalizedEpisodeIndex = currentEpisodeIndex >= 0 ? currentEpisodeIndex : 0;
-
-            console.log("[Background] Series context extracted", {
-              pageUrl: currentPageUrl,
-              title,
-              seasonCount: seasons.length,
-              episodeCount: flatEpisodes.length,
-              translatorCount: translatorItems.length,
-              currentSeasonId: 1,
-              currentEpisodeId: Number.isFinite(activeEpisodeId) ? activeEpisodeId : null
-            });
-            console.log("[Background] Series seasons", seasons.map((season) => ({
-              seasonId: season.seasonId,
-              title: season.title,
-              episodeCount: Array.isArray(season.episodes) ? season.episodes.length : 0
-            })));
-
-            return {
-              title: title || null,
-              currentPageUrl,
-              currentSeasonId: 1,
-              currentEpisodeId: activeEpisodeId,
-              currentEpisodeIndex: normalizedEpisodeIndex,
-              seasons,
-              episodes: flatEpisodes,
-              translators: translatorItems
-                .map((item) => {
-                  const translatorId = Number(item.getAttribute("data-translator_id"));
-                  if (!Number.isFinite(translatorId)) return null;
-                  return {
-                    translatorId,
-                    title: (item.getAttribute("title") || item.textContent || "").replace(/\s+/g, " ").trim()
-                  };
-                })
-                .filter(Boolean),
-              selectedTranslatorId,
-              selectedTranslatorTitle: selectedTranslatorTitle || null,
-              resolver
-            };
-          }
-
-          // Если это rezka, но сезонов/эпизодов нет (фильм, клип, шоу) — всё равно вернём минимальный контекст,
-          // чтобы расширение могло вытащить список качеств из data-cdn_url.
-          if (resolver) {
-            return {
-              title: title || null,
-              currentPageUrl,
-              currentSeasonId: null,
-              currentEpisodeId: null,
-              currentEpisodeIndex: null,
-              seasons: [],
-              episodes: [],
-              translators: translatorItems
-                .map((item) => {
-                  const translatorId = Number(item.getAttribute("data-translator_id"));
-                  if (!Number.isFinite(translatorId)) return null;
-                  return {
-                    translatorId,
-                    title: (item.getAttribute("title") || item.textContent || "").replace(/\s+/g, " ").trim()
-                  };
-                })
-                .filter(Boolean),
-              selectedTranslatorId,
-              selectedTranslatorTitle: selectedTranslatorTitle || null,
-              resolver: {
-                ...resolver,
-                contentType: resolver.contentType || "movie"
-              }
-            };
-          }
-
-          const currentUrl = new URL(currentPageUrl);
-          const currentTitleTokens = (
-            document.querySelector('meta[property="og:title"]')?.content?.trim() ||
-            document.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim() ||
-            document.title.replace(/\s+/g, " ").trim()
-          )
-            .toLowerCase()
-            .split(/[^a-z0-9\u0440-\u044f\u0451]+/i)
-            .map((token) => token.trim())
-            .filter((token) => token.length >= 3)
-            .slice(0, 8);
-          const samePage = (left, right) => {
-            try {
-              const leftUrl = new URL(left);
-              const rightUrl = new URL(right);
-              return (
-                leftUrl.origin === rightUrl.origin &&
-                leftUrl.pathname.replace(/\/+$/, "") === rightUrl.pathname.replace(/\/+$/, "")
-              );
-            } catch {
-              return false;
-            }
-          };
-
-          const selectors = [
-            "a[href]",
-            "li a[href]",
-            "nav a[href]",
-            "article a[href]",
-            "section a[href]",
-            "main a[href]"
-          ];
-
-          const anchors = [...new Set(selectors.flatMap((selector) => [...document.querySelectorAll(selector)]))];
-          const seen = new Set();
-          const episodes = [];
-
-          for (const anchor of anchors) {
-            const rawHref = anchor.getAttribute("href");
-            const href = normalizeUrl(rawHref);
-            if (!href || seen.has(href)) continue;
-
-            const text = (anchor.textContent || "").replace(/\s+/g, " ").trim();
-            if (!text) continue;
-
-            let score = 0;
-            const combined = `${text} ${href}`.toLowerCase();
-            const currentSegments = new URL(currentPageUrl).pathname.split("/").filter(Boolean);
-            const candidateSegments = new URL(href).pathname.split("/").filter(Boolean);
-            const containerText = (anchor.closest("li, article, section, div")?.innerText || "")
-              .replace(/\s+/g, " ")
-              .trim()
-              .toLowerCase();
-            let prefixCount = 0;
-
-            while (prefixCount < currentSegments.length && prefixCount < candidateSegments.length) {
-              if (currentSegments[prefixCount] !== candidateSegments[prefixCount]) break;
-              prefixCount += 1;
-            }
-
-            if (prefixCount < currentSegments.length) continue;
-
-            score += prefixCount * 4;
-
-            const episodeLike =
-              /(season\s*\d+|episode\s*\d+|ep\.?\s*\d+|s\d+\s*e\d+|s\d+e\d+|[\p{Script=Cyrillic}]+\s*\d+)/iu.test(combined) ||
-              /(season\s*\d+|episode\s*\d+|ep\.?\s*\d+|s\d+\s*e\d+|s\d+e\d+|[\p{Script=Cyrillic}]+\s*\d+)/iu.test(containerText);
-
-            if (!episodeLike) continue;
-
-            if (currentTitleTokens.some((token) => combined.includes(token) || containerText.includes(token))) {
-              score += 8;
-            }
-
-            if (/\bseason\b/i.test(combined) || /[\p{Script=Cyrillic}]+\s*\d+/iu.test(combined)) score += 2;
-            if (/\bepisode\b/i.test(combined) || /[\p{Script=Cyrillic}]+\s*\d+/iu.test(combined)) score += 2;
-            if (/\bep\.?\b/i.test(combined)) score += 2;
-            if (/\b\d+\b/.test(text)) score += 1;
-            if (text.length <= 120) score += 1;
-
-            try {
-              const url = new URL(href);
-              if (url.hash) continue;
-              if (url.origin === currentUrl.origin) score += 2;
-              if (samePage(url.href, currentPageUrl)) score += 8;
-            } catch {
-              continue;
-            }
-
-            if (anchor.closest("nav, ul, ol, section, article, main")) {
-              score += 1;
-            }
-
-            if (score < 5) continue;
-
-            episodes.push({ href, text, score });
-            seen.add(href);
-          }
-
-          const episodeItems = episodes.slice(0, 24).map((item) => ({
-            title: item.text,
-            url: item.href
-          }));
-
-          if (episodeItems.length < 1) return null;
-
-          const currentEpisodeIndex = episodeItems.findIndex((episode) => samePage(episode.url, currentPageUrl));
-
-          return {
-            title: title || null,
-            currentPageUrl,
-            currentEpisodeIndex,
-            episodes: episodeItems,
-            seasons: [],
-            translators: [],
-            selectedTranslatorId: null,
-            selectedTranslatorTitle: null,
-            resolver
-          };
-        }
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        args: [pageUrl, profile],
+        func: extractSeriesContextInPage
       });
 
-      if (result?.result) {
-        if (result.result.notSeries) {
-          return null; // Прекращаем цикл ожидания для фильмов/не-сериалов
-        }
-        return result.result;
+      const context = pickBestSeriesContext(results);
+      if (context) {
+        return context;
       }
     } catch (e) {
-      console.error("[Background] Error in extractSeriesContextFromPage attempt:", attempt, e);
+      console.error("[Background] extractSeriesContextViaProfile error:", attempt, e);
     }
-    await delay(1000);
+
+    await delay(500);
   }
 
   return null;
 }
 
-async function fetchRezkaEpisodeMediaInTab(tabId, seriesContext, targetEpisode, options = {}) {
+async function extractSeriesContextFromPage(tabId, pageUrl) {
+  const profileResult = await extractSeriesContextViaProfile(tabId, pageUrl);
+  if (profileResult) {
+    return profileResult;
+  }
+
+  return null;
+}
+
+async function fetchEpisodeMediaInTab(tabId, seriesContext, targetEpisode, options = {}) {
   try {
     const [result] = await chrome.scripting.executeScript({
       target: { tabId },
@@ -1362,40 +986,320 @@ async function fetchRezkaEpisodeMediaInTab(tabId, seriesContext, targetEpisode, 
 
     return result?.result || null;
   } catch (e) {
-    console.error("[Background] Error in fetchRezkaEpisodeMediaInTab:", e);
+    console.error("[Background] Error in fetchEpisodeMediaInTab:", e);
     return null;
   }
 }
 
-async function activateTargetEpisodeOnPage(tabId, targetEpisode) {
+async function fetchRezkaEpisodeMediaInTab(tabId, seriesContext, targetEpisode, options = {}) {
+  return fetchEpisodeMediaInTab(tabId, seriesContext, targetEpisode, options);
+}
+
+async function resolveMediaViaProfile(tabId, currentPageUrl, profile, seriesContext, targetEpisode, hostTabId, mediaCapture) {
+  const mediaSources = Array.isArray(profile?.mediaExtraction) && profile.mediaExtraction.length > 0
+    ? profile.mediaExtraction
+    : Array.isArray(profile?.mediaSources) && profile.mediaSources.length > 0
+      ? profile.mediaSources
+      : ["dom-video", "network-sniff", "page-extract"];
+  const activeContext = targetEpisode?.seriesContext || seriesContext || null;
+  const canUseRezkaAjax = profile?.id === "rezka" && activeContext?.resolver?.provider === "rezka";
+  let episodeActivated = false;
+
+  const ensureEpisodeActivated = async () => {
+    if (!targetEpisode || episodeActivated) return episodeActivated;
+    sendStatus(hostTabId, `Selecting episode: S${targetEpisode.seasonId} E${targetEpisode.episodeId}`);
+    episodeActivated = await activateTargetEpisodeOnPage(tabId, targetEpisode, activeContext, profile, hostTabId);
+    if (!episodeActivated) {
+      sendError(hostTabId, "Episode selection failed");
+    }
+    return episodeActivated;
+  };
+
+  const finalizeAjaxPayload = (ajaxData, selectedStream, context) => {
+    if (!selectedStream?.url) return null;
+
+    const baseContext = context || activeContext || seriesContext || null;
+    const episodes = Array.isArray(baseContext?.episodes) ? baseContext.episodes : [];
+    const currentEpisodeIndex = targetEpisode
+      ? episodes.findIndex(
+          (episode) => Number(episode?.seasonId) === Number(targetEpisode.seasonId) && Number(episode?.episodeId) === Number(targetEpisode.episodeId)
+        )
+      : Math.max(0, episodes.findIndex((episode) => Number(episode?.seasonId) === Number(baseContext?.currentSeasonId) && Number(episode?.episodeId) === Number(baseContext?.currentEpisodeId)));
+
+    return {
+      mediaUrl: selectedStream.url,
+      masterPlaylistUrl: null,
+      pageUrl: currentPageUrl,
+      seriesContext: {
+        ...(baseContext || {}),
+        currentEpisodeIndex,
+        currentSeasonId: targetEpisode ? Number(targetEpisode.seasonId) : Number(baseContext?.currentSeasonId) || null,
+        currentEpisodeId: targetEpisode ? Number(targetEpisode.episodeId) : Number(baseContext?.currentEpisodeId) || null,
+        selectedTranslatorId: Number(
+          targetEpisode?.selectedTranslatorId ?? baseContext?.selectedTranslatorId ?? baseContext?.resolver?.translatorId ?? null
+        ),
+        selectedQualityLabel: selectedStream.label,
+        availableQualities: ajaxData?.url
+          ? parseRezkaStreamOptions(ajaxData.url).map((option) => ({
+              label: option.label,
+              normalizedLabel: option.normalizedLabel
+            }))
+          : []
+      }
+    };
+  };
+
+  const buildTargetSeriesContext = () => {
+    const baseContext = activeContext || seriesContext || null;
+    if (!baseContext || !targetEpisode) return baseContext;
+
+    const episodes = Array.isArray(baseContext.episodes) ? baseContext.episodes : [];
+    const currentEpisodeIndex = episodes.findIndex(
+      (episode) => Number(episode?.seasonId) === Number(targetEpisode.seasonId) && Number(episode?.episodeId) === Number(targetEpisode.episodeId)
+    );
+
+    return {
+      ...baseContext,
+      currentEpisodeIndex,
+      currentSeasonId: Number(targetEpisode.seasonId),
+      currentEpisodeId: Number(targetEpisode.episodeId),
+      selectedTranslatorId: Number(
+        targetEpisode.selectedTranslatorId ?? baseContext.selectedTranslatorId ?? baseContext.resolver?.translatorId ?? null
+      ) || null,
+      selectedQualityLabel: targetEpisode.selectedQualityLabel || baseContext.selectedQualityLabel || null
+    };
+  };
+
+  for (const source of mediaSources) {
+    const sourceType = typeof source === "string" ? source : source?.type;
+
+    if ((sourceType === "rezkaAjax" || sourceType === "rezka-ajax") && canUseRezkaAjax) {
+      if (!activeContext?.resolver?.itemId) continue;
+
+      if (targetEpisode) {
+        sendStatus(hostTabId, "Fetching episode stream directly via tab context");
+        const ajaxData = await fetchRezkaEpisodeMediaInTab(tabId, activeContext, targetEpisode, {
+          translatorId: targetEpisode.selectedTranslatorId,
+          qualityLabel: targetEpisode.selectedQualityLabel
+        });
+
+        if (ajaxData?.url) {
+          const streamOptions = parseRezkaStreamOptions(ajaxData.url);
+          const selectedStream = pickRezkaStreamOption(
+            streamOptions,
+            targetEpisode.selectedQualityLabel || ajaxData.quality,
+            ajaxData.default_quality
+          );
+          const resolved = finalizeAjaxPayload(ajaxData, selectedStream, activeContext);
+          if (resolved) {
+            sendStatus(hostTabId, "Media URL captured from tab AJAX fetch");
+            return resolved;
+          }
+        }
+      } else {
+        const currentSeasonId = Number(activeContext?.currentSeasonId);
+        const currentEpisodeId = Number(activeContext?.currentEpisodeId);
+        if (Number.isFinite(currentSeasonId) && Number.isFinite(currentEpisodeId)) {
+          sendStatus(hostTabId, "Fetching default episode stream via tab context");
+          const ajaxData = await fetchRezkaEpisodeMediaInTab(tabId, activeContext, {
+            seasonId: currentSeasonId,
+            episodeId: currentEpisodeId
+          }, {
+            translatorId: activeContext?.selectedTranslatorId ?? activeContext?.resolver?.translatorId,
+            qualityLabel: activeContext?.selectedQualityLabel || "1080p"
+          });
+
+          if (ajaxData?.url) {
+            const streamOptions = parseRezkaStreamOptions(ajaxData.url);
+            const selectedStream = pickRezkaStreamOption(
+              streamOptions,
+              activeContext?.selectedQualityLabel || ajaxData.quality,
+              ajaxData.default_quality
+            );
+            const resolved = finalizeAjaxPayload(ajaxData, selectedStream, activeContext);
+            if (resolved) {
+              sendStatus(hostTabId, `Stream resolved via tab: ${selectedStream.label}`);
+              return resolved;
+            }
+          }
+        }
+      }
+    }
+
+    if (sourceType === "domVideo" || sourceType === "dom-video") {
+      if (targetEpisode) {
+        await ensureEpisodeActivated();
+      }
+      continue;
+    }
+
+    if (sourceType === "networkSniff" || sourceType === "network-sniff") {
+      if (targetEpisode) {
+        await ensureEpisodeActivated();
+      }
+      sendStatus(hostTabId, "Sniffing media requests");
+      const mediaUrl = await mediaCapture.promise;
+      if (mediaUrl) {
+        return { mediaUrl, masterPlaylistUrl: null, pageUrl: currentPageUrl, seriesContext: buildTargetSeriesContext() };
+      }
+      continue;
+    }
+
+    if (sourceType === "pageExtract" || sourceType === "page-extract") {
+      sendStatus(hostTabId, "Falling back to page media extraction");
+      const pageResult = await extractMediaUrlFromPage(tabId);
+      if (pageResult) {
+        return {
+          mediaUrl: pageResult.mediaUrl || pageResult,
+          masterPlaylistUrl: pageResult.masterPlaylistUrl || null,
+          pageUrl: currentPageUrl,
+          seriesContext: buildTargetSeriesContext()
+        };
+      }
+    }
+  }
+
+  return null;
+}
+
+async function activateTargetEpisodeOnPage(tabId, targetEpisode, seriesContext = null, profile = null, hostTabId = null) {
   const seasonId = Number(targetEpisode?.seasonId);
   const episodeId = Number(targetEpisode?.episodeId);
+  const activation = profile?.episodeActivation || {};
+  const attempts = Number(activation.attempts) || 6;
+  const clickDelayMs = Number(activation.clickDelayMs) || 1000;
 
   if (!Number.isFinite(seasonId) || !Number.isFinite(episodeId)) {
     return false;
   }
 
-  for (let attempt = 1; attempt <= 6; attempt += 1) {
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId },
-      args: [{ seasonId, episodeId }],
-      func: (target) => {
-        const seasonButton = document.querySelector(`#simple-seasons-tabs .b-simple_season__item[data-tab_id="${target.seasonId}"]`);
-        const episodeButton = document.querySelector(
-          `#simple-episodes-list-${target.seasonId} .b-simple_episode__item[data-season_id="${target.seasonId}"][data-episode_id="${target.episodeId}"]`
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId, allFrames: true },
+      args: [{ seasonId, episodeId }, activation],
+      func: (target, activationArg) => {
+        const fillTemplate = (template) =>
+          String(template || "")
+            .replaceAll("{seasonId}", String(target.seasonId))
+            .replaceAll("{episodeId}", String(target.episodeId));
+
+        const collectShadowRoots = (rootDocument = document, maxRoots = 80) => {
+          const roots = [rootDocument];
+          const queue = [rootDocument.documentElement, rootDocument.body].filter(Boolean);
+          const visited = new Set(queue);
+
+          while (queue.length > 0 && roots.length < maxRoots) {
+            const node = queue.shift();
+            if (!node) continue;
+
+            if (node.shadowRoot && !visited.has(node.shadowRoot)) {
+              visited.add(node.shadowRoot);
+              roots.push(node.shadowRoot);
+              queue.push(...node.shadowRoot.querySelectorAll("*"));
+            }
+
+            if (node.querySelectorAll) {
+              for (const child of node.querySelectorAll("*")) {
+                if (visited.has(child)) continue;
+                visited.add(child);
+                queue.push(child);
+              }
+            }
+          }
+
+          return roots;
+        };
+
+        const queryAll = (selector) => {
+          const nodes = [];
+          for (const root of collectShadowRoots(document)) {
+            try {
+              nodes.push(...root.querySelectorAll(selector));
+            } catch {
+              continue;
+            }
+          }
+          return [...new Set(nodes)];
+        };
+
+        const seasonSelector = fillTemplate(
+          activationArg?.seasonSelectorTemplate || '#simple-seasons-tabs .b-simple_season__item[data-tab_id="{seasonId}"]'
         );
+        const episodeSelector = fillTemplate(
+          activationArg?.episodeSelectorTemplate || '#simple-episodes-list-{seasonId} .b-simple_episode__item[data-season_id="{seasonId}"][data-episode_id="{episodeId}"]'
+        );
+        const activeSelector = activationArg?.activeSelector || ".active";
+        const seasonMePattern = new RegExp(activationArg?.seasonMePattern || "^(?:head_)?x-\\d+-(\\d+)$");
+        const episodeMePattern = new RegExp(activationArg?.episodeMePattern || "^(?:head_)?xx-\\d+-(\\d+)-\\d+-\\d+-(\\d+)$");
+        const isActive = (node) => {
+          try {
+            return Boolean(node?.matches?.(activeSelector));
+          } catch {
+            return false;
+          }
+        };
+        const isHeaderNode = (node) => /^head_/i.test(String(node?.getAttribute?.("me") || ""));
+        const getMeMatches = () => queryAll("hdvbplayer[me]");
+        const pickSeasonCandidate = () => {
+          const candidates = queryAll(seasonSelector);
+          const matchedBySelector = candidates.find(isActive) ||
+            candidates.find((node) => !isHeaderNode(node)) ||
+            candidates[0] ||
+            null;
+          if (matchedBySelector) return matchedBySelector;
+
+          const meCandidates = getMeMatches().filter((node) => seasonMePattern.test(String(node.getAttribute("me") || "")));
+          return meCandidates.find(isActive) ||
+            meCandidates.find((node) => !isHeaderNode(node)) ||
+            meCandidates[0] ||
+            null;
+        };
+        const pickEpisodeCandidate = () => {
+          const candidates = queryAll(episodeSelector);
+          const matchedBySelector = candidates.find(isActive) ||
+            candidates.find((node) => !isHeaderNode(node)) ||
+            candidates[0] ||
+            null;
+          if (matchedBySelector) return matchedBySelector;
+
+          const meCandidates = getMeMatches().filter((node) => {
+            const me = String(node.getAttribute("me") || "");
+            const match = me.match(episodeMePattern);
+            return Boolean(match && Number(match[1]) === Number(target.seasonId) && Number(match[2]) === Number(target.episodeId));
+          });
+          return meCandidates.find(isActive) ||
+            meCandidates.find((node) => !isHeaderNode(node)) ||
+            meCandidates[0] ||
+            null;
+        };
+        const activateNode = (node) => {
+          if (!node) return false;
+          try {
+            node.scrollIntoView?.({ block: "center", inline: "center" });
+          } catch {}
+          for (const type of ["pointerdown", "mousedown", "mouseup", "click"]) {
+            node.dispatchEvent(new MouseEvent(type, {
+              bubbles: true,
+              cancelable: true,
+              view: window
+            }));
+          }
+          return true;
+        };
+        const seasonButton = pickSeasonCandidate();
+        const episodeButton = pickEpisodeCandidate();
 
         if (!episodeButton) {
           return { ok: false, reason: "episode-missing" };
         }
 
-        if (seasonButton && !seasonButton.classList.contains("active")) {
-          seasonButton.click();
+        if (seasonButton && !isActive(seasonButton)) {
+          activateNode(seasonButton);
           return { ok: false, reason: "season-switch" };
         }
 
-        if (!episodeButton.classList.contains("active")) {
-          episodeButton.click();
+        if (!isActive(episodeButton)) {
+          activateNode(episodeButton);
           return { ok: true };
         }
 
@@ -1403,19 +1307,69 @@ async function activateTargetEpisodeOnPage(tabId, targetEpisode) {
       }
     });
 
-    if (result?.result?.ok) {
+    const frameResults = (Array.isArray(results) ? results : [])
+      .map((result) => result?.result)
+      .filter(Boolean);
+
+    if (frameResults.some((result) => result.ok)) {
+      sendStatus(hostTabId, "Episode selection clicked");
       return true;
     }
 
-    await delay(1000);
+    if (attempt === attempts) {
+      const reasonCounts = frameResults.reduce((counts, result) => {
+        const reason = result.reason || "unknown";
+        counts[reason] = (counts[reason] || 0) + 1;
+        return counts;
+      }, {});
+      const summary = Object.entries(reasonCounts)
+        .map(([reason, count]) => `${reason}:${count}`)
+        .join(", ") || "no-frame-results";
+      sendStatus(hostTabId, `Episode activation failed: ${summary}`);
+    }
+
+    await delay(clickDelayMs);
   }
 
   return false;
 }
 
 async function resolvePageToMedia(pageUrl, hostTabId, statusPrefix, targetEpisode = null, reuseTabId = null) {
+  const profile = await getParserConfigForUrl(pageUrl);
+  const activeRequestContext = targetEpisode?.seriesContext || null;
+
+  const directResolver = Array.isArray(profile?.directResolvers)
+    ? profile.directResolvers.find((resolverConfig) => resolverConfig.provider === activeRequestContext?.resolver?.provider)
+    : null;
+
+  if (targetEpisode && directResolver && activeRequestContext?.resolver?.provider) {
+    sendStatus(hostTabId, "Fetching episode stream directly");
+    const ajaxData = await fetchDirectStreamList(directResolver, activeRequestContext, targetEpisode, {
+      translatorId: targetEpisode.selectedTranslatorId,
+      qualityLabel: targetEpisode.selectedQualityLabel
+    });
+    const directResolution = buildDirectStreamResolution(directResolver, ajaxData, activeRequestContext, targetEpisode, {
+      translatorId: targetEpisode.selectedTranslatorId,
+      qualityLabel: targetEpisode.selectedQualityLabel
+    });
+
+    if (directResolution?.mediaUrl) {
+      sendStatus(hostTabId, "Episode stream resolved directly");
+      return {
+        ...directResolution,
+        pageUrl: directResolution.pageUrl || normalizePageUrl(pageUrl) || pageUrl
+      };
+    }
+
+    sendStatus(hostTabId, "Direct episode stream failed, using page fallback");
+  }
+
   const createdTab = !Number.isFinite(reuseTabId);
   const tabId = createdTab ? (await chrome.tabs.create({ url: "about:blank", active: false })).id : reuseTabId;
+  if (Number.isFinite(tabId)) {
+    RESOLVER_TAB_IDS.add(tabId);
+  }
+  suppressResolverPageMedia(pageUrl);
   const mediaCapture = waitForMediaUrl(tabId);
 
   try {
@@ -1427,6 +1381,7 @@ async function resolvePageToMedia(pageUrl, hostTabId, statusPrefix, targetEpisod
 
     const currentTab = await chrome.tabs.get(tabId);
     const currentPageUrl = typeof currentTab.url === "string" ? currentTab.url : pageUrl;
+    suppressResolverPageMedia(currentPageUrl);
 
     if (currentPageUrl.startsWith("chrome-error://")) {
       sendStatus(hostTabId, "Target page opened as an error page");
@@ -1446,190 +1401,17 @@ async function resolvePageToMedia(pageUrl, hostTabId, statusPrefix, targetEpisod
 
     if (seriesContext) {
       sendStatus(hostTabId, `Series context found: ${Array.isArray(seriesContext.seasons) ? seriesContext.seasons.length : 0} seasons, ${Array.isArray(seriesContext.episodes) ? seriesContext.episodes.length : 0} episodes`);
-    } else if (/rezka/i.test(currentPageUrl)) {
+    } else {
       sendStatus(hostTabId, "Series context not found on page");
     }
 
-    let mediaUrl = null;
-    let masterUrl = null;
-
-    // Сценарий 1: Пользователь переключил серию/сезон/перевод
-    if (targetEpisode) {
-      const activeContext = targetEpisode.seriesContext || seriesContext;
-      const isRezka = activeContext?.resolver?.provider === "rezka" || /rezka/i.test(currentPageUrl);
-
-      if (isRezka) {
-        sendStatus(hostTabId, "Fetching episode stream directly via tab context");
-        const ajaxData = await fetchRezkaEpisodeMediaInTab(tabId, activeContext, targetEpisode, {
-          translatorId: targetEpisode.selectedTranslatorId,
-          qualityLabel: targetEpisode.selectedQualityLabel
-        });
-
-        if (ajaxData?.url) {
-          const streamOptions = parseRezkaStreamOptions(ajaxData.url);
-          const selectedStream = pickRezkaStreamOption(
-            streamOptions,
-            targetEpisode.selectedQualityLabel || ajaxData.quality,
-            ajaxData.default_quality
-          );
-
-          if (selectedStream?.url) {
-            sendStatus(hostTabId, "Media URL captured from tab AJAX fetch");
-            const episodes = Array.isArray(activeContext?.episodes) ? activeContext.episodes : [];
-            const currentEpisodeIndex = episodes.findIndex(
-              (episode) => Number(episode?.seasonId) === Number(targetEpisode.seasonId) && Number(episode?.episodeId) === Number(targetEpisode.episodeId)
-            );
-
-            return {
-              mediaUrl: selectedStream.url,
-              masterPlaylistUrl: null,
-              pageUrl: pageUrl,
-              seriesContext: {
-                ...activeContext,
-                currentEpisodeIndex,
-                currentSeasonId: Number(targetEpisode.seasonId),
-                currentEpisodeId: Number(targetEpisode.episodeId),
-                selectedTranslatorId: Number(targetEpisode.selectedTranslatorId || activeContext?.resolver?.translatorId),
-                selectedQualityLabel: selectedStream.label,
-                availableQualities: streamOptions.map((o) => ({ label: o.label, normalizedLabel: o.normalizedLabel }))
-              }
-            };
-          }
-        }
-      }
-
-      // Если это не Rezka или AJAX запрос во вкладке не удался, кликаем кнопки через DOM
-      sendStatus(hostTabId, `Selecting episode: S${targetEpisode.seasonId} E${targetEpisode.episodeId}`);
-      const activated = await activateTargetEpisodeOnPage(tabId, targetEpisode);
-      if (!activated) {
-        sendError(hostTabId, "Episode selection failed");
-        return null;
-      }
-      await delay(2000);
-
-      sendStatus(hostTabId, "Sniffing media requests");
-      mediaUrl = await mediaCapture.promise;
-
-      if (!mediaUrl) {
-        sendStatus(hostTabId, "Falling back to page media extraction");
-        const pageResult = await extractMediaUrlFromPage(tabId);
-        if (pageResult) {
-          mediaUrl = pageResult.mediaUrl || pageResult;
-          masterUrl = pageResult.masterPlaylistUrl || null;
-        }
-      }
-    }
-    // Сценарий 2: Первая загрузка страницы (поиск/запуск плеера)
-    else {
-      const isRezka = seriesContext?.resolver?.provider === "rezka" || /rezka/i.test(currentPageUrl);
-      if (isRezka) {
-        // 1) Пытаемся получить дефолтный стрим серии напрямую через AJAX во вкладке
-        const resolverItemId = Number(seriesContext?.resolver?.itemId);
-        const currentSeasonId = Number(seriesContext?.currentSeasonId);
-        const currentEpisodeId = Number(seriesContext?.currentEpisodeId);
-
-        if (Number.isFinite(resolverItemId) && Number.isFinite(currentSeasonId) && Number.isFinite(currentEpisodeId)) {
-          sendStatus(hostTabId, "Fetching default episode stream via tab context");
-          const ajaxData = await fetchRezkaEpisodeMediaInTab(tabId, seriesContext, {
-            seasonId: currentSeasonId,
-            episodeId: currentEpisodeId
-          }, {
-            translatorId: seriesContext?.selectedTranslatorId ?? seriesContext?.resolver?.translatorId,
-            qualityLabel: "1080p"
-          });
-
-          if (ajaxData?.url) {
-            const streamOptions = parseRezkaStreamOptions(ajaxData.url);
-            const selectedStream = pickRezkaStreamOption(
-              streamOptions,
-              "1080p",
-              ajaxData.default_quality
-            );
-
-            if (selectedStream?.url) {
-              sendStatus(hostTabId, `Rezka stream resolved via tab: ${selectedStream.label}`);
-              const episodes = Array.isArray(seriesContext?.episodes) ? seriesContext.episodes : [];
-              const currentEpisodeIndex = episodes.findIndex(
-                (episode) => Number(episode?.seasonId) === currentSeasonId && Number(episode?.episodeId) === currentEpisodeId
-              );
-
-              return {
-                mediaUrl: selectedStream.url,
-                masterPlaylistUrl: null,
-                pageUrl: currentPageUrl,
-                seriesContext: {
-                  ...seriesContext,
-                  currentEpisodeIndex,
-                  currentSeasonId,
-                  currentEpisodeId,
-                  selectedTranslatorId: seriesContext.selectedTranslatorId ?? seriesContext.resolver.translatorId,
-                  selectedQualityLabel: selectedStream.label,
-                  availableQualities: streamOptions.map((o) => ({ label: o.label, normalizedLabel: o.normalizedLabel }))
-                }
-              };
-            }
-          }
-        }
-
-        // 2) Fallback: попробуем вытащить data-cdn_url со страницы
-        const cdnText = await extractRezkaCdnUrlTextFromPage(tabId);
-        const options = parseRezkaStreamOptions(cdnText || "");
-        const selected = pickRezkaStreamOption(options, "1080p", null);
-        if (selected?.url) {
-          const nextSeriesContext = seriesContext && typeof seriesContext === "object" ? { ...seriesContext } : null;
-          const qualityResolved = await resolveBestQualityHls(selected.url);
-          
-          if (nextSeriesContext) {
-            nextSeriesContext.selectedQualityLabel = qualityResolved.url !== selected.url ? "best" : selected.label;
-            nextSeriesContext.availableQualities = qualityResolved.variants || options.map((option) => ({
-              label: option.label,
-              normalizedLabel: option.normalizedLabel
-            }));
-            nextSeriesContext.masterPlaylistUrl = qualityResolved.masterUrl;
-          }
-
-          sendStatus(hostTabId, `Rezka cdn_url resolved: ${qualityResolved.url !== selected.url ? 'best quality from master' : selected.label}`);
-          return {
-            mediaUrl: qualityResolved.url,
-            masterPlaylistUrl: qualityResolved.masterUrl,
-            pageUrl: currentPageUrl,
-            seriesContext: nextSeriesContext
-          };
-        }
-      }
-
-      // Общий fallback (для не-Rezka или если Rezka AJAX не сработал)
-      const pageResult = await extractMediaUrlFromPage(tabId);
-      if (pageResult) {
-        const foundMediaUrl = pageResult.mediaUrl || pageResult;
-        const foundMasterUrl = pageResult.masterPlaylistUrl || null;
-        
-        sendStatus(hostTabId, foundMasterUrl ? "Media URL captured from page (master)" : "Media URL captured from page");
-        const qualityResolved = await resolveBestQualityHls(foundMasterUrl || foundMediaUrl);
-        
-        return {
-          mediaUrl: qualityResolved.url,
-          masterPlaylistUrl: qualityResolved.masterUrl || foundMasterUrl,
-          pageUrl: currentPageUrl,
-          seriesContext: qualityResolved.variants ? {
-            ...(seriesContext || {}),
-            masterPlaylistUrl: qualityResolved.masterUrl || foundMasterUrl,
-            availableQualities: qualityResolved.variants.map(v => ({
-              label: v.label,
-              normalizedLabel: v.label.toLowerCase().replace(/[^a-z0-9]/g, '')
-            }))
-          } : seriesContext
-        };
-      }
-
-      sendStatus(hostTabId, "Sniffing media requests");
-      mediaUrl = await mediaCapture.promise;
-    }
-
-    if (!mediaUrl) {
+    const resolution = await resolveMediaViaProfile(tabId, currentPageUrl, profile, seriesContext, targetEpisode, hostTabId, mediaCapture);
+    if (!resolution?.mediaUrl) {
       return null;
     }
 
+    let mediaUrl = resolution.mediaUrl;
+    const resolvedSeriesContext = resolution.seriesContext || seriesContext;
     sendStatus(hostTabId, targetEpisode ? "Media URL captured after episode switch" : "Media URL captured from network");
     
     let finalMediaUrl = mediaUrl;
@@ -1644,7 +1426,7 @@ async function resolvePageToMedia(pageUrl, hostTabId, statusPrefix, targetEpisod
     }
     
     const cachedSeriesContext = getCachedSeriesContext(currentPageUrl);
-    const finalSeriesContext = seriesContext || cachedSeriesContext;
+    const finalSeriesContext = resolvedSeriesContext || cachedSeriesContext;
 
     if (finalSeriesContext) {
       cacheSeriesContext(currentPageUrl, finalSeriesContext);
@@ -1665,6 +1447,9 @@ async function resolvePageToMedia(pageUrl, hostTabId, statusPrefix, targetEpisod
     };
   } finally {
     mediaCapture.stop();
+    if (Number.isFinite(tabId)) {
+      RESOLVER_TAB_IDS.delete(tabId);
+    }
     try {
       if (createdTab) {
         chrome.tabs.remove(tabId, () => void chrome.runtime.lastError);
@@ -1708,6 +1493,24 @@ function extractRealDdgUrl(url) {
     }
   } catch(e) {}
   return url;
+}
+
+const FORWARDED_MEDIA_DEDUP_MS = 5000;
+const FORWARDED_MEDIA_CACHE = new Map();
+
+function buildMediaForwardSignature(mediaUrl, pageUrl, seriesContext, sourcePageUrl) {
+  const context = seriesContext || {};
+  return JSON.stringify({
+    mediaUrl: String(mediaUrl || ""),
+    pageUrl: String(pageUrl || ""),
+    sourcePageUrl: String(sourcePageUrl || ""),
+    seasonId: context.currentSeasonId ?? null,
+    episodeId: context.currentEpisodeId ?? null,
+    translatorId: context.selectedTranslatorId ?? null,
+    qualityLabel: context.selectedQualityLabel || null,
+    seasonCount: Array.isArray(context.seasons) ? context.seasons.length : 0,
+    episodeCount: Array.isArray(context.episodes) ? context.episodes.length : 0
+  });
 }
 
 // Forward URL to all UI page tabs
@@ -1796,6 +1599,10 @@ function isValidMediaUrlSniffer(url) {
   return false;
 }
 
+function isExtensionPageUrl(value) {
+  return /^chrome-extension:\/\//i.test(String(value || ""));
+}
+
 // Sniff media URLs (m3u8/mp4) from sites the user visits in the popup
 // and forward them to our UI page for playback.
 // Only active when user explicitly enables it via the sniffer toggle button.
@@ -1808,7 +1615,18 @@ const MEDIA_SNIFFER_UI_CACHE = new Set();
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
     const tabId = details.tabId;
+    if (Number.isFinite(tabId) && RESOLVER_TAB_IDS.has(tabId)) {
+      return;
+    }
     
+    if (
+      isExtensionPageUrl(details.initiator) ||
+      isExtensionPageUrl(details.documentUrl) ||
+      isExtensionPageUrl(details.originUrl)
+    ) {
+      return;
+    }
+
     // Skip requests initiated by our own UI page to avoid loops
     if (details.initiator && details.initiator.includes('localhost:3000')) {
       return;
@@ -1859,8 +1677,21 @@ chrome.webRequest.onBeforeRequest.addListener(
         return null;
       };
 
-      const dispatch = (sourcePageUrl) => {
+      const dispatch = async (sourcePageUrl, sourceTabId = null) => {
         const resolvedSourcePageUrl = pickSourcePageUrl(sourcePageUrl, details.documentUrl, details.originUrl, details.initiator);
+        let seriesContext = getCachedSeriesContext(resolvedSourcePageUrl);
+
+        if (!seriesContext && Number.isFinite(sourceTabId) && resolvedSourcePageUrl) {
+          try {
+            seriesContext = await extractSeriesContextFromPage(sourceTabId, resolvedSourcePageUrl);
+            if (seriesContext) {
+              cacheSeriesContext(resolvedSourcePageUrl, seriesContext);
+            }
+          } catch {
+            seriesContext = null;
+          }
+        }
+
         for (const tab of uiTabs) {
           sendTabMessage(tab.id, {
             type: "WT_MEDIA_FOUND",
@@ -1870,7 +1701,7 @@ chrome.webRequest.onBeforeRequest.addListener(
               masterPlaylistUrl: null,
               pageUrl: resolvedSourcePageUrl || url,
               sourcePageUrl: resolvedSourcePageUrl || url,
-              seriesContext: null
+              seriesContext: seriesContext || null
             }
           });
         }
@@ -1879,12 +1710,13 @@ chrome.webRequest.onBeforeRequest.addListener(
       if (typeof tabId === "number" && tabId > 0) {
         chrome.tabs.get(tabId, (tab) => {
           const sourcePageUrl = pickSourcePageUrl(tab?.url, details.documentUrl, details.originUrl, details.initiator);
-          dispatch(sourcePageUrl);
+          void dispatch(sourcePageUrl, tabId);
         });
         return;
       }
 
-      dispatch(pickSourcePageUrl(details.documentUrl, details.originUrl, details.initiator));
+      const fallbackSourceTabId = Number.isFinite(_searchPopupTabId) ? _searchPopupTabId : null;
+      void dispatch(pickSourcePageUrl(details.documentUrl, details.originUrl, details.initiator), fallbackSourceTabId);
     });
   },
   { urls: ["<all_urls>"] },
@@ -1893,6 +1725,14 @@ chrome.webRequest.onBeforeRequest.addListener(
 
 // Forward media URL found by content-script (from XHR interception, video elements, etc.)
 function forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl = null) {
+  const signature = buildMediaForwardSignature(mediaUrl, pageUrl, seriesContext, sourcePageUrl);
+  const now = Date.now();
+  const lastSeen = FORWARDED_MEDIA_CACHE.get(signature) || 0;
+  if (now - lastSeen < FORWARDED_MEDIA_DEDUP_MS) {
+    return;
+  }
+  FORWARDED_MEDIA_CACHE.set(signature, now);
+
   console.log("[Background] Forwarding media from content-script:", mediaUrl.substring(0, 100));
   chrome.tabs.query({}, (allTabs) => {
     if (!allTabs) return;
@@ -1913,21 +1753,30 @@ function forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl = null
   });
 }
 
-// Keep service worker alive — wake it up every 20 seconds
 // Also poll for pending media URLs from content-script (via storage)
+let _lastForwardedPendingMediaTimestamp = 0;
 function keepAlive() {
   setInterval(() => {
-    chrome.storage.local.get(['pendingMediaUrl', 'keepAlive'], (result) => {
+    chrome.storage.local.get(["pendingMediaUrl", "keepAlive"], (result) => {
       const pending = result.pendingMediaUrl;
       if (pending && pending.payload && pending.payload.mediaUrl) {
         const age = Date.now() - (pending.timestamp || 0);
-        if (age < 60000) {
-          chrome.storage.local.remove('pendingMediaUrl', () => void chrome.runtime.lastError);
-          // The live media event is already forwarded immediately; keepAlive only clears stale storage.
+        if (age < 60000 && pending.timestamp !== _lastForwardedPendingMediaTimestamp) {
+          _lastForwardedPendingMediaTimestamp = pending.timestamp || 0;
+          chrome.storage.local.remove("pendingMediaUrl", () => void chrome.runtime.lastError);
+          if (isResolverPageMediaSuppressed(pending.payload.sourcePageUrl || pending.payload.pageUrl)) {
+            return;
+          }
+          forwardMediaToUi(
+            pending.payload.mediaUrl,
+            pending.payload.pageUrl,
+            pending.payload.seriesContext,
+            pending.payload.sourcePageUrl || null
+          );
         }
       }
     });
-  }, 1000);
+  }, 5000);
 }
 keepAlive();
 
@@ -1957,14 +1806,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
   // Forward media URLs found by content-script (from XHR, video elements on Rezka etc.)
   if (message?.type === "WT_MEDIA_FOUND") {
+    if (sender?.tab?.id && RESOLVER_TAB_IDS.has(sender.tab.id)) {
+      return;
+    }
+
     const mediaUrl = message?.payload?.mediaUrl;
     const pageUrl = message?.payload?.pageUrl;
     const sourcePageUrl = message?.payload?.sourcePageUrl || null;
+    if (isExtensionPageUrl(pageUrl) || isExtensionPageUrl(sourcePageUrl)) {
+      return;
+    }
+
+    if (isResolverPageMediaSuppressed(sourcePageUrl || pageUrl)) {
+      return;
+    }
+
     const cachedSeriesContext = getCachedSeriesContext(sourcePageUrl || pageUrl);
     const seriesContext = message?.payload?.seriesContext || cachedSeriesContext;
     console.log("[Background] Received WT_MEDIA_FOUND from content-script:", mediaUrl?.substring(0, 100));
     if (mediaUrl) {
-      forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl);
+      if (seriesContext) {
+        forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl);
+      } else if (sender?.tab?.id) {
+        extractSeriesContextFromPage(sender.tab.id, pageUrl || sourcePageUrl || mediaUrl)
+          .then((resolvedSeriesContext) => {
+            const nextSeriesContext = resolvedSeriesContext || cachedSeriesContext || null;
+            if (pageUrl && nextSeriesContext) {
+              cacheSeriesContext(pageUrl, nextSeriesContext);
+            }
+            forwardMediaToUi(mediaUrl, pageUrl, nextSeriesContext, sourcePageUrl);
+          })
+          .catch(() => {
+            forwardMediaToUi(mediaUrl, pageUrl, null, sourcePageUrl);
+          });
+      } else {
+        forwardMediaToUi(mediaUrl, pageUrl, null, sourcePageUrl);
+      }
     }
     return;
   }
