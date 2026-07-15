@@ -14,7 +14,6 @@ const STORAGE_KEYS = {
   role: "watchTogether.role",
   authToken: "watchTogether.authToken",
   backendBaseUrl: "watchTogether.backendBaseUrl",
-  clientId: "watchTogether.clientId",
   language: "watchTogether.language"
 };
 const GUEST_NICKNAME_KEY = "watchTogether.guestNickname";
@@ -31,8 +30,7 @@ const pageMode =
     ? "rooms"
     : "home";
 document.body.dataset.view = pageMode === "rooms" ? "rooms" : queryRoom ? "room" : "home";
-const clientId = loadStoredValue(STORAGE_KEYS.clientId) || crypto.randomUUID();
-storeValue(STORAGE_KEYS.clientId, clientId);
+const clientId = getTabClientId();
 let currentRole = "guest";
 const backendBaseUrl = resolveBackendBaseUrl(
   new URLSearchParams(window.location.search).get("api") ||
@@ -43,6 +41,14 @@ const backendBaseUrl = resolveBackendBaseUrl(
 
 const EXTENSION_PROBE_TIMEOUT_MS = 500;
 let pendingExtensionProbe = null;
+
+function getTabClientId() {
+  if (typeof window.__anyTogetherClientId === "string" && window.__anyTogetherClientId) {
+    return window.__anyTogetherClientId;
+  }
+  window.__anyTogetherClientId = crypto.randomUUID();
+  return window.__anyTogetherClientId;
+}
 
 function isLocalUiUrl(value) {
   return String(value || "").includes("localhost:3000");
@@ -66,11 +72,12 @@ const authPrompt = document.getElementById("authPrompt");
 const authTitle = document.getElementById("authTitle");
 
 const homeLink = document.getElementById("homeLink");
-const roomsLink = document.getElementById("roomsLink");
+const roomsLinks = Array.from(document.querySelectorAll("[data-topbar-rooms-link]"));
 const topbarRoomCodeButton = document.getElementById("topbarRoomCodeButton");
 const topbarRoomCodeValue = document.getElementById("topbarRoomCodeValue");
 
 const nicknameInput = document.getElementById("nicknameInput");
+const roomNameInput = document.getElementById("roomNameInput");
 const roomCodeInput = document.getElementById("roomCodeInput");
 const createRoomButton = document.getElementById("createRoomButton");
 const createdRoomCodeButton = document.getElementById("createdRoomCodeButton");
@@ -109,10 +116,13 @@ const leaveRoomButton = document.getElementById("leaveRoomButton");
 const sessionDuration = document.getElementById("sessionDuration");
 const roomStatus = document.getElementById("roomStatus");
 const currentMediaBadge = document.getElementById("currentMediaBadge");
+const playerMediaTitle = document.getElementById("playerMediaTitle");
+const playerMediaTime = document.getElementById("playerMediaTime");
 
 const reconnectButton = document.getElementById("reconnectButton");
-const searchInput = document.getElementById("searchInput");
+const searchInput = document.querySelector("[data-topbar-search-input]") || document.getElementById("searchInput");
 const searchButton = document.getElementById("searchButton");
+const searchClearButton = document.querySelector("[data-topbar-search-clear]");
 const searchHelpButton = document.getElementById("searchHelpButton");
 const snifferToggle = document.getElementById("snifferToggle");
 const searchHint = document.getElementById("searchHint");
@@ -159,13 +169,20 @@ const languageMenuLabel = document.getElementById("languageMenuLabel");
 const languageMenuDropdown = document.getElementById("languageMenuDropdown");
 const languageEnglishButton = document.getElementById("languageEnglishButton");
 const languageRussianButton = document.getElementById("languageRussianButton");
+const signOutButtons = Array.from(document.querySelectorAll("[data-topbar-signout]"));
+const languageMenuButtons = Array.from(document.querySelectorAll("[data-topbar-language-button]"));
+const languageEnglishButtons = Array.from(document.querySelectorAll("[data-topbar-language-en]"));
+const languageRussianButtons = Array.from(document.querySelectorAll("[data-topbar-language-ru]"));
+const topbarAvatarButtons = Array.from(document.querySelectorAll("[data-topbar-avatar-button]"));
+const languageMenuLabels = Array.from(document.querySelectorAll("[data-topbar-language-label]"));
+const languageDropdowns = Array.from(document.querySelectorAll("[data-topbar-language-dropdown]"));
 
 const topbarUser = document.getElementById("topbarUser");
 const topbarNickDisplay = document.getElementById("topbarNickDisplay");
 const topbarAvatarButton = document.getElementById("topbarAvatarButton");
 const topbarAvatar = document.getElementById("topbarAvatar");
 const topbarUserMenu = document.getElementById("topbarUserMenu");
-const lastRoomButton = document.getElementById("lastRoomButton");
+const lastRoomButtons = Array.from(document.querySelectorAll("[data-last-room]"));
 const guestIdentityCard = document.getElementById("guestIdentityCard");
 
 const state = {
@@ -237,7 +254,7 @@ const I18N = {
     roomCodeLabel: "Room code",
     roomCodePlaceholder: "e.g. AB12CD",
     joinRoom: "Join room",
-    joinedRoomsTitle: "Your rooms",
+    joinedRoomsTitle: "Rooms",
     refresh: "Refresh",
     loadingRooms: "Loading rooms...",
     noRoomsLinked: "No rooms are linked to your account yet.",
@@ -338,7 +355,7 @@ const I18N = {
     roomCodeLabel: "Код комнаты",
     roomCodePlaceholder: "например, AB12CD",
     joinRoom: "Присоединиться",
-    joinedRoomsTitle: "Ваши комнаты",
+    joinedRoomsTitle: "Комнаты",
     refresh: "Обновить",
     loadingRooms: "Загрузка комнат...",
     noRoomsLinked: "К вашей учетной записи пока не привязано ни одной комнаты.",
@@ -821,9 +838,11 @@ function getSelfParticipant(roomState = getActiveRoomState()) {
 }
 
 function isCurrentUserCreator(roomState = getActiveRoomState()) {
+  if (currentRole === "host") return true;
+
   const selfParticipant = getSelfParticipant(roomState);
   if (!selfParticipant) {
-    return currentRole === "host";
+    return false;
   }
 
   return String(selfParticipant.role || "guest") === "host";
@@ -844,7 +863,7 @@ function getParticipantKey(participant) {
 function createInlineIcon(kind) {
   if (kind === "eye-off") {
     return `
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
         <path d="M4.5 4.5 19.5 19.5" />
         <path d="M10.6 10.6a2.2 2.2 0 0 0 2.8 2.8" />
         <path d="M9.9 5.2A10.5 10.5 0 0 1 12 5c5.5 0 9.5 4.5 10.5 7-0.4 1-1.2 2.2-2.3 3.4" />
@@ -855,7 +874,7 @@ function createInlineIcon(kind) {
 
   if (kind === "eye") {
     return `
-      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
         <path d="M2 12s3.8-7 10-7 10 7 10 7-3.8 7-10 7-10-7-10-7Z" />
         <circle cx="12" cy="12" r="3" />
       </svg>
@@ -1060,6 +1079,20 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
     : existing.sessionStartedAt;
   existing.memberCount = Number.isFinite(snapshot.memberCount) ? snapshot.memberCount : existing.memberCount;
   existing.participants = Array.isArray(snapshot.participants) ? snapshot.participants : existing.participants;
+  if (state.activeRoomId === roomId && !existing.participants.some((participant) => isSelfParticipant(participant))) {
+    const localParticipant = {
+      clientId,
+      userId: state.currentUser?.id || null,
+      nickname: normalizeNickname(nicknameInput.value),
+      role: currentRole,
+      canManageContent: canCurrentUserManageContent(existing),
+      hasExtension: hasLocalExtension(),
+      connected: true,
+      joinedAt: Date.now(),
+      lastSeenAt: Date.now()
+    };
+    existing.participants = [...existing.participants, localParticipant];
+  }
   existing.chat = Array.isArray(snapshot.chat) ? snapshot.chat : existing.chat;
   existing.playlist = Array.isArray(snapshot.playlist) ? snapshot.playlist : existing.playlist;
 
@@ -1240,7 +1273,7 @@ function mergeUiFromSeriesContext(roomState, seriesContext, previousSeriesContex
 
   const activeSeasonId = Number(seasonId);
   const activeSeason = seasons.find((season) => season.seasonId === activeSeasonId) || seasons[0] || null;
-  const activeSeasonEpisodes = Array.isArray(activeSeason?.episodes) ? activeSeason.episodes : [];
+  const activeSeasonEpisodes = getEpisodesForSeason(activeSeason, seriesContext);
 
   const contextEpisodeId = Number(seriesContext?.currentEpisodeId);
   const currentEpisodeId = Number(currentUi.episodeId);
@@ -1274,6 +1307,20 @@ function mergeUiFromSeriesContext(roomState, seriesContext, previousSeriesContex
   };
 }
 
+function getEpisodesForSeason(season, seriesContext = getActiveSeriesContext()) {
+  const seasonId = Number(season?.seasonId);
+  const flatEpisodes = Array.isArray(seriesContext?.episodes) ? seriesContext.episodes : [];
+  if (Number.isFinite(seasonId) && flatEpisodes.length) {
+    const matchingEpisodes = flatEpisodes.filter((episode) => Number(episode?.seasonId) === seasonId);
+    if (matchingEpisodes.length) return matchingEpisodes;
+  }
+
+  const seasonEpisodes = Array.isArray(season?.episodes) ? season.episodes : [];
+  return Number.isFinite(seasonId)
+    ? seasonEpisodes.filter((episode) => Number(episode?.seasonId) === seasonId)
+    : seasonEpisodes;
+}
+
 function sanitizeRoomUi(roomState) {
   const seriesContext = roomState?.currentMedia?.seriesContext || null;
   const seasons = Array.isArray(seriesContext?.seasons) ? seriesContext.seasons : [];
@@ -1303,7 +1350,7 @@ function sanitizeRoomUi(roomState) {
 
     const activeSeasonId = Number(roomState.ui.seasonId);
     const activeSeason = seasons.find((season) => season.seasonId === activeSeasonId) || seasons[0] || null;
-    const activeSeasonEpisodes = Array.isArray(activeSeason?.episodes) ? activeSeason.episodes : [];
+    const activeSeasonEpisodes = getEpisodesForSeason(activeSeason, seriesContext);
 
     if (!activeSeasonEpisodes.some((episode) => episode.episodeId === Number(roomState.ui.episodeId))) {
       roomState.ui.episodeId = activeSeasonEpisodes[0]?.episodeId ?? createDefaultUi(seriesContext).episodeId;
@@ -1324,6 +1371,29 @@ function sanitizeRoomUi(roomState) {
 function getActiveRoomState() {
   if (!state.activeRoomId) return null;
   return ensureRoomState(state.activeRoomId);
+}
+
+function ensureLocalParticipant(roomId) {
+  const roomState = ensureRoomState(roomId);
+  const localParticipant = {
+    clientId,
+    userId: state.currentUser?.id || null,
+    nickname: normalizeNickname(nicknameInput.value),
+    role: currentRole,
+    canManageContent: canCurrentUserManageContent(roomState),
+    hasExtension: hasLocalExtension(),
+    connected: true,
+    joinedAt: Date.now(),
+    lastSeenAt: Date.now()
+  };
+  const existingIndex = roomState.participants.findIndex((participant) => isSelfParticipant(participant));
+  if (existingIndex >= 0) {
+    roomState.participants[existingIndex] = { ...roomState.participants[existingIndex], ...localParticipant };
+  } else {
+    roomState.participants.push(localParticipant);
+  }
+  roomState.memberCount = roomState.participants.length;
+  return roomState;
 }
 
 function getActiveSeriesContext() {
@@ -1403,22 +1473,28 @@ function updateLanguageDependentText() {
     description.setAttribute("content", translate("description"));
   }
 
-  homeLink.textContent = "";
-  const brandMark = document.createElement("span");
-  brandMark.className = "brand-mark";
-  brandMark.textContent = ">";
-  const brandText = document.createElement("span");
-  brandText.innerHTML = "Any<b>Together</b>";
-  homeLink.appendChild(brandMark);
-  homeLink.appendChild(brandText);
+  document.querySelectorAll(".brand-text").forEach((brandText) => {
+    brandText.innerHTML = "Any<b>Together</b>";
+  });
 
-  roomsLink.textContent = translate("rooms");
-  lastRoomButton.title = translate("returnLastRoom");
-  lastRoomButton.innerHTML = `${translate("lastRoom")} &gt;`;
+  roomsLinks.forEach((link) => {
+    link.textContent = translate("rooms");
+  });
+  lastRoomButtons.forEach((button) => {
+    button.title = translate("returnLastRoom");
+    button.innerHTML = `${translate("lastRoom")} &gt;`;
+  });
   topbarRoomCodeButton.title = translate("openRoom");
   topbarRoomCodeButton.querySelector("small").textContent = translate("room");
-  signOutButton.title = translate("signOut");
-  signOutButton.querySelector("span").textContent = translate("signOut");
+  signOutButtons.forEach((button) => {
+    button.title = translate("signOut");
+    const label = button.querySelector("span");
+    if (label) {
+      label.textContent = translate("signOut");
+    } else {
+      button.textContent = translate("signOut");
+    }
+  });
 
   authTitle.textContent = translate("authTitle");
   authPrompt.textContent = translate("authPrompt");
@@ -1435,21 +1511,21 @@ function updateLanguageDependentText() {
   authSubmitButton.textContent = state.authMode === "signup" ? translate("signUp") : translate("signIn");
   googleSignInButton.textContent = translate("google");
   appleSignInButton.textContent = translate("apple");
-  if (languageMenuButton) {
-    languageMenuButton.title = translate("selectLanguage");
-    languageMenuButton.setAttribute("aria-label", translate("selectLanguage"));
-  }
-  if (languageMenuLabel) {
-    languageMenuLabel.textContent = translate("language");
-  }
-  if (languageEnglishButton) {
-    languageEnglishButton.textContent = translate("english");
-    languageEnglishButton.classList.toggle("is-active", state.language === "en");
-  }
-  if (languageRussianButton) {
-    languageRussianButton.textContent = translate("russian");
-    languageRussianButton.classList.toggle("is-active", state.language === "ru");
-  }
+  languageMenuButtons.forEach((button) => {
+    button.title = translate("selectLanguage");
+    button.setAttribute("aria-label", translate("selectLanguage"));
+  });
+  languageMenuLabels.forEach((label) => {
+    label.textContent = translate("language");
+  });
+  languageEnglishButtons.forEach((button) => {
+    button.textContent = translate("english");
+    button.classList.toggle("is-active", state.language === "en");
+  });
+  languageRussianButtons.forEach((button) => {
+    button.textContent = translate("russian");
+    button.classList.toggle("is-active", state.language === "ru");
+  });
 
   roomsHeaderTitle.textContent = translate("joinedRoomsTitle");
   roomsJoinInput.placeholder = translate("roomCodePlaceholder");
@@ -1461,10 +1537,12 @@ function updateLanguageDependentText() {
   roomsAuthGate.querySelector("h2").textContent = translate("authTitle");
   roomsAuthGate.querySelector(".auth-sub").textContent = translate("roomsSubtitle");
 
-  const hero = joinView.querySelector(".hero");
-  hero.querySelector(".eyebrow").textContent = translate("homeEyebrow");
-  hero.querySelector("h1").innerHTML = translate("homeTitle").replace(/\n/g, "<br />");
-  hero.querySelector("p").textContent = translate("homeDescription");
+  const heroEyebrow = joinView.querySelector(".hero-eyebrow");
+  const heroTitle = joinView.querySelector(".hero-title-centered");
+  const heroDescription = joinView.querySelector(".hero-sub-centered");
+  if (heroEyebrow) heroEyebrow.textContent = translate("homeEyebrow");
+  if (heroTitle) heroTitle.innerHTML = translate("homeTitle").replace(/\n/g, "<br />");
+  if (heroDescription) heroDescription.textContent = translate("homeDescription");
 
   guestIdentityCard.querySelector("label").textContent = translate("nicknameLabel");
   nicknameInput.placeholder = translate("nicknamePlaceholder");
@@ -1478,7 +1556,8 @@ function updateLanguageDependentText() {
     homeCards[0].querySelector("#createRoomButton").textContent = translate("createRoom");
   }
   createdRoomCodeButton.title = translate("copyRoomCode");
-  createdRoomCodeButton.querySelector("small").textContent = translate("room");
+  const createdRoomCodeLabel = createdRoomCodeButton.querySelector("small");
+  if (createdRoomCodeLabel) createdRoomCodeLabel.textContent = translate("room");
   if (homeCards[1]) {
     homeCards[1].querySelector(".section-title").textContent = translate("joinCodeTitle");
     homeCards[1].querySelector("label").textContent = translate("roomCodeLabel");
@@ -1518,10 +1597,16 @@ function updateLanguageDependentText() {
   chatInput.placeholder = translate("writeMessage");
   chatSendButton.textContent = translate("send");
   clearPlaybackDebugButton.textContent = translate("clear");
-  leaveRoomButton.textContent = translate("leave");
+  const leaveRoomLabel = leaveRoomButton.querySelector(".concept-room-action-label");
+  if (leaveRoomLabel) {
+    leaveRoomLabel.textContent = translate("leave");
+  } else {
+    leaveRoomButton.textContent = translate("leave");
+  }
   deleteActiveRoomButton.title = translate("deleteRoom");
   deleteActiveRoomButton.setAttribute("aria-label", translate("deleteRoom"));
-  renameRoomButton.textContent = translate("renameRoom");
+  renameRoomButton.title = translate("renameRoom");
+  renameRoomButton.setAttribute("aria-label", translate("renameRoom"));
   activeRoomCodeButton.title = translate("copyRoomCode");
   if (activeRoomCodeToggleButton) {
     const roomCode = getActiveRoomState()?.code || "";
@@ -1560,6 +1645,14 @@ function updateCurrentMediaBadge() {
   if (!currentMediaBadge) return;
   currentMediaBadge.classList.add("hidden");
   currentMediaBadge.textContent = "";
+
+  const currentMedia = getActiveRoomState()?.currentMedia;
+  if (playerMediaTitle) {
+    playerMediaTitle.textContent = currentMedia?.title || currentMedia?.seriesContext?.title || "";
+  }
+  if (playerMediaTime) {
+    playerMediaTime.textContent = "00:00 / 00:00";
+  }
 }
 
 function updateActiveRoomCodeControls() {
@@ -1610,21 +1703,46 @@ function updateActiveRoomHeader() {
 function renderTopbarUser() {
   const signedIn = isAuthenticated();
   const nick = state.currentUser?.displayName || normalizeNickname(nicknameInput.value);
-  if (topbarUser) topbarUser.classList.toggle("hidden", !signedIn);
-  if (topbarNickDisplay) topbarNickDisplay.textContent = nick;
-  if (topbarAvatar) topbarAvatar.textContent = nick.charAt(0).toUpperCase();
-  if (topbarAvatarButton) topbarAvatarButton.setAttribute("aria-expanded", String(signedIn && state.topbarMenuOpen));
-  if (topbarUserMenu) topbarUserMenu.classList.toggle("hidden", !(signedIn && state.topbarMenuOpen));
-  if (!signedIn) {
+  document.querySelectorAll("[data-topbar-user]").forEach((user) => {
+    user.classList.toggle("hidden", !signedIn);
+  });
+  document.querySelectorAll("[data-home-auth-controls]").forEach((controls) => {
+    controls.classList.toggle("hidden", signedIn);
+  });
+  document.querySelectorAll("[data-topbar-nick]").forEach((display) => {
+    display.textContent = nick;
+  });
+  document.querySelectorAll("[data-topbar-avatar]").forEach((avatar) => {
+    avatar.textContent = nick.charAt(0).toUpperCase();
+  });
+  document.querySelectorAll("[data-room-topbar-nick]").forEach((display) => {
+    display.textContent = nick;
+  });
+  document.querySelectorAll("[data-room-topbar-avatar]").forEach((avatar) => {
+    avatar.textContent = nick.charAt(0).toUpperCase();
+  });
+  topbarAvatarButtons.forEach((button) => {
+    button.setAttribute("aria-expanded", String(signedIn && state.topbarMenuOpen));
+  });
+  document.querySelectorAll("[data-topbar-user-menu]").forEach((menu) => {
+    const isRoomMenu = menu.classList.contains("concept-room-user-menu");
+    menu.classList.toggle("hidden", isRoomMenu
+      ? !(state.topbarMenuOpen && !state.languageMenuOpen)
+      : !(signedIn && state.topbarMenuOpen));
+  });
+  document.querySelectorAll(".concept-language-menu").forEach((menu) => {
+    menu.classList.toggle("hidden", !(state.topbarMenuOpen && state.languageMenuOpen));
+  });
+  signOutButtons.forEach((button) => button.classList.toggle("hidden", !signedIn));
+  if (!signedIn && !state.languageMenuOpen) {
     state.topbarMenuOpen = false;
-    state.languageMenuOpen = false;
   }
-  if (languageMenuButton) {
-    languageMenuButton.setAttribute("aria-expanded", String(signedIn && state.topbarMenuOpen && state.languageMenuOpen));
-  }
-  if (languageMenuDropdown) {
-    languageMenuDropdown.classList.toggle("hidden", !(signedIn && state.topbarMenuOpen && state.languageMenuOpen));
-  }
+  languageMenuButtons.forEach((button) => {
+    button.setAttribute("aria-expanded", String(state.topbarMenuOpen && state.languageMenuOpen));
+  });
+  languageDropdowns.forEach((dropdown) => {
+    dropdown.classList.toggle("hidden", !(state.topbarMenuOpen && state.languageMenuOpen));
+  });
 }
 
 function closeTopbarMenu() {
@@ -1634,13 +1752,19 @@ function closeTopbarMenu() {
 }
 
 function updateLastRoomButton() {
-  if (!lastRoomButton) return;
   const lastRoom = isAuthenticated()
     ? state.accountRoomCodes[0] || state.activeRoomId || state.joinedRooms[0] || loadStoredValue(STORAGE_KEYS.activeRoomId)
     : state.activeRoomId || state.joinedRooms[0] || loadStoredValue(STORAGE_KEYS.activeRoomId);
-  const hasRoom = Boolean(lastRoom);
-  lastRoomButton.classList.toggle("hidden", !hasRoom);
-  if (lastRoom) lastRoomButton.setAttribute("data-room", lastRoom);
+  lastRoomButtons.forEach((button) => {
+    button.classList.remove("hidden");
+    button.toggleAttribute("disabled", !lastRoom && button instanceof HTMLButtonElement);
+    button.setAttribute("aria-disabled", lastRoom ? "false" : "true");
+    if (lastRoom) {
+      button.setAttribute("data-room", lastRoom);
+    } else {
+      button.removeAttribute("data-room");
+    }
+  });
 }
 
 function setAccountRoomCodes(rooms) {
@@ -1687,11 +1811,15 @@ function updateGuestIdentityCard() {
 }
 
 function ensureVisibility() {
+  joinView.classList.remove("active");
+  dashboardView.classList.remove("active");
+  roomsView.classList.remove("active");
   if (pageMode === "rooms") {
     joinView.classList.add("hidden");
     dashboardView.classList.add("hidden");
     roomsView.classList.remove("hidden");
     roomsView.classList.add("is-visible");
+    roomsView.classList.add("active");
     renderRoomsAuthGate();
     return;
   }
@@ -1701,9 +1829,11 @@ function ensureVisibility() {
   if (queryRoom) {
     joinView.classList.add("hidden");
     dashboardView.classList.remove("hidden");
+    dashboardView.classList.add("active");
   } else {
     joinView.classList.remove("hidden");
     dashboardView.classList.add("hidden");
+    joinView.classList.add("active");
   }
 }
 
@@ -1791,10 +1921,17 @@ function getAvailableQualities() {
     ? getActiveSeriesContext().availableQualities
     : [];
 
-  return qualities.filter((quality) => {
-    const label = String(quality?.label || "").toLowerCase();
-    return label && !label.includes("ultra");
-  });
+  return qualities
+    .map((quality) => {
+      if (typeof quality === "string" || typeof quality === "number") {
+        return { label: String(quality) };
+      }
+
+      const label = quality?.label || quality?.name || quality?.quality || quality?.resolution ||
+        (Number.isFinite(Number(quality?.height)) ? `${Number(quality.height)}p` : "");
+      return label ? { ...quality, label: String(label) } : null;
+    })
+    .filter((quality) => quality && !quality.label.toLowerCase().includes("ultra"));
 }
 
 // Bridge for video.js settings panel to access quality data
@@ -1881,18 +2018,19 @@ function getSelectedEpisodeForActions() {
   if (pendingEpisode) {
     const seasons = getSeasons();
     const lockedSeason = seasons.find((season) => season.seasonId === pendingEpisode.seasonId) || seasons[0] || null;
-    const lockedEpisode = lockedSeason?.episodes?.find((episode) => episode.episodeId === pendingEpisode.episodeId) || null;
+    const lockedEpisode = getEpisodesForSeason(lockedSeason).find((episode) => episode.episodeId === pendingEpisode.episodeId) || null;
     if (lockedEpisode) {
       return lockedEpisode;
     }
   }
 
   const activeSeason = getActiveSeason();
-  if (!activeSeason?.episodes?.length) return null;
+  const activeSeasonEpisodes = getEpisodesForSeason(activeSeason);
+  if (!activeSeasonEpisodes.length) return null;
 
   const preferredEpisodeId = Number(getActiveUiState()?.episodeId);
   if (Number.isFinite(preferredEpisodeId)) {
-    const preferredEpisode = activeSeason.episodes.find((episode) => episode.episodeId === preferredEpisodeId);
+    const preferredEpisode = activeSeasonEpisodes.find((episode) => episode.episodeId === preferredEpisodeId);
     if (preferredEpisode) return preferredEpisode;
   }
 
@@ -1904,11 +2042,11 @@ function getSelectedEpisodeForActions() {
     Number.isFinite(currentEpisodeId) &&
     activeSeason.seasonId === currentSeasonId
   ) {
-    const currentEpisode = activeSeason.episodes.find((episode) => episode.episodeId === currentEpisodeId);
+    const currentEpisode = activeSeasonEpisodes.find((episode) => episode.episodeId === currentEpisodeId);
     if (currentEpisode) return currentEpisode;
   }
 
-  return activeSeason.episodes[0];
+  return activeSeasonEpisodes[0];
 }
 
 function extractMediaTitleAndYearSafe(text) {
@@ -1961,6 +2099,18 @@ function renderButtonGroup(container, items, selectedValue, getValue, getLabel, 
   });
 }
 
+function formatEpisodeDuration(episode) {
+  const rawDuration = episode?.duration ?? episode?.durationSeconds ?? episode?.runtime ?? episode?.length;
+  if (typeof rawDuration === "string" && rawDuration.trim()) return rawDuration.trim();
+
+  const durationMinutes = Number(rawDuration);
+  if (!Number.isFinite(durationMinutes) || durationMinutes <= 0) return "—";
+
+  const hours = Math.floor(durationMinutes / 60);
+  const minutes = Math.round(durationMinutes % 60);
+  return hours > 0 ? `${hours}h ${minutes}min` : `${minutes}min`;
+}
+
 function renderSeriesPanel() {
   const roomState = getActiveRoomState();
   const currentMedia = roomState?.currentMedia || null;
@@ -1968,7 +2118,7 @@ function renderSeriesPanel() {
   const seasons = Array.isArray(seriesContext?.seasons) ? seriesContext.seasons : [];
 
   if (!roomState || !currentMedia) {
-    seriesPanel.classList.add("hidden");
+    seriesPanel.classList.remove("hidden");
     seriesTitleEl.textContent = "";
     seriesMetaEl.textContent = "";
     if (seasonPickerValue) seasonPickerValue.textContent = "";
@@ -1978,11 +2128,16 @@ function renderSeriesPanel() {
     seasonButtonsEl.textContent = "";
     translatorButtonsEl.textContent = "";
     seriesEpisodesEl.textContent = "";
+    const emptyState = document.createElement("div");
+    emptyState.className = "concept-empty-episodes";
+    emptyState.textContent = "Load a series to see upcoming episodes.";
+    seriesEpisodesEl.appendChild(emptyState);
     if (qualityButtonsEl) qualityButtonsEl.textContent = "";
     seasonPicker?.removeAttribute("open");
-    episodePicker?.removeAttribute("open");
+    episodePicker?.setAttribute("open", "");
     translatorPicker?.removeAttribute("open");
     if (qualityPicker) qualityPicker?.removeAttribute("open");
+    updateSeriesEpisodeOverflow();
     return;
   }
 
@@ -1990,7 +2145,7 @@ function renderSeriesPanel() {
 
   const ui = getActiveUiState();
   const activeSeason = getActiveSeason();
-  const activeSeasonEpisodes = activeSeason?.episodes || [];
+  const activeSeasonEpisodes = getEpisodesForSeason(activeSeason, seriesContext);
   const currentSeasonId = Number(seriesContext?.currentSeasonId);
   const currentEpisodeId = Number(seriesContext?.currentEpisodeId);
   const mediaTitle = currentMedia.title || seriesContext?.title || "";
@@ -2001,7 +2156,7 @@ function renderSeriesPanel() {
   const selectedSeasonTitle = activeSeason?.title || `Season ${activeSeason?.seasonId || ""}`;
   const selectedEpisode = getSelectedEpisodeForActions();
   const selectedEpisodeIndex = selectedEpisode ? activeSeasonEpisodes.indexOf(selectedEpisode) + 1 : 0;
-  const selectedEpisodeTitle = selectedEpisode?.title || `Episode ${selectedEpisodeIndex > 0 ? selectedEpisodeIndex : 1}`;
+  const selectedEpisodeTitle = `Episode ${selectedEpisodeIndex > 0 ? selectedEpisodeIndex : 1}`;
   const selectedTranslatorTitle = getSelectedTranslatorTitle() || "Auto";
 
   seriesPanel.classList.remove("hidden");
@@ -2033,6 +2188,7 @@ function renderSeriesPanel() {
     episodePicker?.removeAttribute("open");
     translatorPicker?.removeAttribute("open");
     if (qualityPicker) qualityPicker?.removeAttribute("open");
+    updateSeriesEpisodeOverflow();
     return;
   }
 
@@ -2141,17 +2297,46 @@ function renderSeriesPanel() {
   seriesEpisodesEl.textContent = "";
   if (activeSeasonEpisodes.length < 1) {
     seriesEpisodesEl.classList.remove("is-visible");
+    updateSeriesEpisodeOverflow();
     return;
   }
 
   seriesEpisodesEl.classList.add("is-visible");
+  episodePicker?.setAttribute("open", "");
 
   activeSeasonEpisodes.forEach((episode, index) => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "series-episode-button";
     button.setAttribute("role", "listitem");
-    button.textContent = `Episode ${index + 1}`;
+
+    const thumbnail = document.createElement("span");
+    thumbnail.className = "series-episode-thumb";
+    const thumbnailUrl = episode?.thumbnail || episode?.thumbnailUrl || episode?.image || episode?.poster || "";
+    if (thumbnailUrl) {
+      thumbnail.style.backgroundImage = `url("${String(thumbnailUrl).replaceAll('"', '%22')}")`;
+      thumbnail.classList.add("has-image");
+    } else {
+      thumbnail.classList.add(`tone-${(index % 3) + 1}`);
+    }
+
+    const overlay = document.createElement("span");
+    overlay.className = "series-episode-overlay";
+
+    const title = document.createElement("strong");
+    title.className = "series-episode-title";
+    title.textContent = episode?.title || episode?.name || episode?.episodeTitle || `Episode ${index + 1}`;
+
+    const meta = document.createElement("span");
+    meta.className = "series-episode-meta";
+    const number = document.createElement("span");
+    number.textContent = `S${episode?.seasonId || activeSeason?.seasonId || 1} E${index + 1}`;
+    const duration = document.createElement("span");
+    duration.textContent = formatEpisodeDuration(episode);
+    meta.append(number, duration);
+    overlay.append(title, meta);
+    thumbnail.appendChild(overlay);
+    button.appendChild(thumbnail);
 
     const isSelected = String(episode.episodeId) === String(roomState.ui.episodeId);
 
@@ -2188,6 +2373,7 @@ function renderSeriesPanel() {
 
     seriesEpisodesEl.appendChild(button);
   });
+  requestAnimationFrame(updateSeriesEpisodeOverflow);
 }
 
 function applyRoomSnapshot(roomId, snapshot) {
@@ -2237,9 +2423,16 @@ function refreshActiveRoom() {
 
 function renderParticipants() {
   const roomState = getActiveRoomState();
+  const participants = Array.isArray(roomState?.participants)
+    ? roomState.participants.filter((participant) => participant?.connected !== false)
+    : [];
   participantsList.textContent = "";
+  const participantsCount = document.getElementById("participantsCount");
+  if (participantsCount) {
+    participantsCount.textContent = participants.length ? String(participants.length) : "";
+  }
 
-  if (!roomState?.participants?.length) {
+  if (!participants.length) {
     const placeholder = document.createElement("div");
     placeholder.className = "status";
     placeholder.textContent = "No participants yet.";
@@ -2247,15 +2440,15 @@ function renderParticipants() {
     return;
   }
 
-  roomState.participants.forEach((participant) => {
+  participants.forEach((participant) => {
     const item = document.createElement("div");
-    item.className = "participant-item";
+    item.className = "pw-item concept-participant-item";
     const participantMenuKey = getParticipantMenuKey(roomState, participant);
     item.dataset.participantKey = participantMenuKey;
     const isSelf = isSelfParticipant(participant);
 
     const actions = document.createElement("div");
-    actions.className = "participant-actions";
+    actions.className = "pw-actions";
 
     if (String(participant.role || "guest") === "host") {
       const hostBadge = document.createElement("span");
@@ -2290,31 +2483,34 @@ function renderParticipants() {
     }
 
     const avatarWrap = document.createElement("div");
-    avatarWrap.className = "participant-avatar-wrap";
-
-    const avatar = document.createElement("div");
-    avatar.className = "user-avatar participant-avatar";
-    avatar.textContent = getParticipantInitials(participant);
-    avatarWrap.appendChild(avatar);
+    avatarWrap.className = "pw-av";
+    avatarWrap.appendChild(createParticipantAvatar(participant));
 
     const nameRow = document.createElement("div");
-    nameRow.className = "participant-name-row";
+    nameRow.className = "pw-info";
 
     const name = document.createElement("div");
-    name.className = "participant-name";
+    name.className = "pw-name";
     name.textContent = participant.nickname || translate("guest");
-    if (isSelf) {
-      name.classList.add("participant-name-editable");
-      name.title = "Click to rename";
-      name.setAttribute("aria-label", "Rename your nickname");
-      name.addEventListener("click", () => promptParticipantNicknameChange(participant));
-    }
 
     nameRow.appendChild(name);
 
-    item.appendChild(actions);
+    const status = document.createElement("div");
+    status.className = "pw-status";
+    status.dataset.syncStatus = participantMenuKey;
+    const statusDot = document.createElement("span");
+    const syncMs = getParticipantSyncMs(participant);
+    const syncClass = participant.connected === false
+      ? "pw-dot-muted"
+      : syncMs >= 400 ? "pw-dot-red" : syncMs >= 150 ? "pw-dot-yellow" : "pw-dot-green";
+    statusDot.className = `pw-dot ${syncClass}`;
+    status.appendChild(statusDot);
+    status.appendChild(document.createTextNode(participant.connected === false ? "Offline" : `Sync ${syncMs}ms`));
+    nameRow.appendChild(status);
+
     item.appendChild(avatarWrap);
     item.appendChild(nameRow);
+    item.appendChild(actions);
 
     if (state.openParticipantMenuKey === participantMenuKey && canCurrentUserManageParticipants(roomState) && !isSelf) {
       const menu = document.createElement("div");
@@ -2358,6 +2554,58 @@ function renderParticipants() {
 
     participantsList.appendChild(item);
   });
+}
+
+function getParticipantSyncMs(participant) {
+  if (typeof window.__getPlaybackSyncInfo === "function" && participant?.clientId) {
+    const syncInfo = window.__getPlaybackSyncInfo(participant.clientId);
+    if (Number.isFinite(syncInfo?.offsetMs)) return Math.max(0, Math.round(syncInfo.offsetMs));
+  }
+
+  const value = Number(participant?.syncOffsetMs ?? participant?.latencyMs ?? participant?.pingMs ?? 0);
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+function refreshParticipantSyncIndicators() {
+  const roomState = getActiveRoomState();
+  if (!roomState || !participantsList) return;
+
+  participantsList.querySelectorAll("[data-sync-status]").forEach((status) => {
+    const participant = roomState.participants?.find((item) =>
+      getParticipantMenuKey(roomState, item) === status.dataset.syncStatus
+    );
+    if (!participant) return;
+
+    const syncMs = getParticipantSyncMs(participant);
+    const syncClass = participant.connected === false
+      ? "pw-dot-muted"
+      : syncMs >= 400 ? "pw-dot-red" : syncMs >= 150 ? "pw-dot-yellow" : "pw-dot-green";
+    const dot = status.querySelector(".pw-dot");
+    if (dot) dot.className = `pw-dot ${syncClass}`;
+    const text = status.lastChild;
+    if (text?.nodeType === Node.TEXT_NODE) {
+      text.textContent = participant.connected === false ? "Offline" : `Sync ${syncMs}ms`;
+    }
+  });
+}
+
+function handleSeriesEpisodesWheel(event) {
+  if (!seriesEpisodesEl || seriesEpisodesEl.scrollWidth <= seriesEpisodesEl.clientWidth) return;
+
+  const horizontalDelta = event.deltaX || event.deltaY;
+  if (!horizontalDelta) return;
+
+  event.preventDefault();
+  seriesEpisodesEl.scrollLeft += horizontalDelta;
+}
+
+function updateSeriesEpisodeOverflow() {
+  if (!seriesPanel || !seriesEpisodesEl) return;
+
+  const hasLeftOverflow = seriesEpisodesEl.scrollLeft > 1;
+  const hasRightOverflow = seriesEpisodesEl.scrollLeft + seriesEpisodesEl.clientWidth < seriesEpisodesEl.scrollWidth - 1;
+  seriesPanel.classList.toggle("has-episode-overflow-left", hasLeftOverflow);
+  seriesPanel.classList.toggle("has-episode-overflow-right", hasRightOverflow);
 }
 
 function isSelfParticipant(participant) {
@@ -2425,17 +2673,29 @@ function renderChat() {
 
   roomState.chat.forEach((message) => {
     const item = document.createElement("div");
-    item.className = "chat-item";
+    item.className = "chat-msg-group concept-chat-item";
+
+    const authorIdentity = message.author || { nickname: translate("system") };
+    const authorParticipant = roomState.participants?.find((participant) =>
+      (authorIdentity.clientId && participant.clientId === authorIdentity.clientId) ||
+      (authorIdentity.userId && participant.userId === authorIdentity.userId) ||
+      (authorIdentity.nickname && participant.nickname === authorIdentity.nickname)
+    );
+    const avatar = createParticipantAvatar(authorParticipant || authorIdentity, "chat-av");
+    item.appendChild(avatar);
+
+    const content = document.createElement("div");
+    content.className = "chat-content";
 
     const top = document.createElement("div");
-    top.className = "chat-top";
+    top.className = "chat-meta-row";
 
     const author = document.createElement("div");
     author.className = "chat-author";
     author.textContent = message.author?.nickname || translate("system");
 
     const meta = document.createElement("div");
-    meta.className = "chat-meta";
+    meta.className = "chat-time";
     meta.textContent = formatClock(message.sentAt);
 
     top.appendChild(author);
@@ -2445,8 +2705,9 @@ function renderChat() {
     body.className = "chat-body";
     body.textContent = message.text || "";
 
-    item.appendChild(top);
-    item.appendChild(body);
+    content.appendChild(top);
+    content.appendChild(body);
+    item.appendChild(content);
     chatMessages.appendChild(item);
   });
 
@@ -2467,10 +2728,17 @@ function renderPlaylist() {
 
   roomState.playlist.forEach((item) => {
     const card = document.createElement("div");
-    card.className = "playlist-item";
+    card.className = "playlist-item concept-playlist-item";
 
     const top = document.createElement("div");
     top.className = "playlist-top";
+
+    const icon = document.createElement("div");
+    icon.className = "concept-playlist-item-icon";
+    icon.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>';
+
+    const copy = document.createElement("div");
+    copy.className = "concept-playlist-item-copy";
 
     const title = document.createElement("div");
     title.className = "playlist-name";
@@ -2488,7 +2756,9 @@ function renderPlaylist() {
       });
     });
 
-    top.appendChild(title);
+    top.appendChild(icon);
+    copy.appendChild(title);
+    top.appendChild(copy);
     top.appendChild(action);
 
     const meta = document.createElement("div");
@@ -2529,67 +2799,71 @@ function renderRoomsDirectory() {
   state.roomsDirectory.forEach((room) => {
     const card = document.createElement("div");
     card.className = "room-card";
+    card.dataset.createdAt = String(room.createdAt || Date.now());
 
-    const top = document.createElement("div");
-    top.className = "room-card-top";
+    const banner = document.createElement("div");
+    banner.className = "room-card-banner";
+    const mediaUrl = String(room.currentMediaUrl || "").trim();
+    if (/\.(avif|gif|jpe?g|png|webp)(\?.*)?$/i.test(mediaUrl)) {
+      banner.style.backgroundImage = `url("${mediaUrl.replace(/"/g, "%22")}")`;
+      banner.classList.add("has-media-image");
+    }
 
-    const titleBlock = document.createElement("div");
-    titleBlock.className = "card-title";
-
-    const titleRow = document.createElement("div");
-    titleRow.className = "room-card-title-row";
-
+    const bannerOverlay = document.createElement("div");
+    bannerOverlay.className = "room-card-banner-overlay";
+    const bannerCopy = document.createElement("div");
+    bannerCopy.className = "room-card-banner-copy";
+    if (room.currentMediaTitle) {
+      const mediaTitle = document.createElement("div");
+      mediaTitle.className = "room-card-media-title";
+      mediaTitle.textContent = room.currentMediaTitle;
+      mediaTitle.setAttribute("title", room.currentMediaTitle);
+      bannerCopy.appendChild(mediaTitle);
+    }
+    const titleLine = document.createElement("div");
+    titleLine.className = "room-card-title-line";
     const title = document.createElement("div");
-    title.className = "room-card-title";
+    title.className = "room-card-banner-title";
     title.textContent = room.title || "Room";
     title.setAttribute("title", room.title || "Room");
-    title.style.minWidth = "0";
+    titleLine.appendChild(title);
+    const isPrivate = Boolean(room.isPrivate || room.private);
+    const privacyIcon = document.createElement("span");
+    privacyIcon.className = "room-card-privacy-icon";
+    privacyIcon.title = isPrivate ? "Private room" : "Public room";
+    privacyIcon.setAttribute("aria-label", privacyIcon.title);
+    privacyIcon.innerHTML = isPrivate
+      ? `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></svg>`
+      : `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18"></path><path d="M12 3c2.4 2.4 3.6 5.4 3.6 9s-1.2 6.6-3.6 9c-2.4-2.4-3.6-5.4-3.6-9S9.6 5.4 12 3Z"></path><path d="M5.2 6.8c2 1 4.3 1.5 6.8 1.5s4.8-.5 6.8-1.5"></path><path d="M5.2 17.2c2-1 4.3-1.5 6.8-1.5s4.8.5 6.8 1.5"></path></svg>`;
+    titleLine.appendChild(privacyIcon);
+    bannerCopy.appendChild(titleLine);
+    const privacy = document.createElement("button");
+    privacy.className = "room-card-code-copy";
+    privacy.type = "button";
+    privacy.textContent = room.code || "------";
+    privacy.title = translate("copyRoomCode");
+    privacy.setAttribute("aria-label", translate("copyRoomCode"));
+    privacy.addEventListener("click", () => copyToClipboard(room.code));
+    bannerOverlay.appendChild(bannerCopy);
+    bannerOverlay.appendChild(privacy);
+    banner.appendChild(bannerOverlay);
+    card.appendChild(banner);
 
-    const codeButton = document.createElement("button");
-    codeButton.type = "button";
-    codeButton.className = "code-chip room-code-chip room-card-code-button";
-    codeButton.title = translate("copyRoomCode");
-    codeButton.setAttribute("aria-label", translate("copyRoomCode"));
-    const hidden = getRoomCodeHidden(room.code);
-    codeButton.classList.toggle("is-blurred", hidden);
-    const codeText = document.createElement("span");
-    codeText.className = "code-text";
-    codeText.textContent = room.code;
-    codeButton.appendChild(codeText);
-    codeButton.addEventListener("click", () => copyToClipboard(room.code));
+    const body = document.createElement("div");
+    body.className = "room-card-body";
 
-    const codeToggleButton = document.createElement("button");
-    codeToggleButton.type = "button";
-    codeToggleButton.className = "room-code-toggle ghost room-card-code-toggle";
-    codeToggleButton.title = hidden ? translate("showRoomCode") : translate("hideRoomCode");
-    codeToggleButton.setAttribute("aria-label", hidden ? translate("showRoomCode") : translate("hideRoomCode"));
-    codeToggleButton.innerHTML = createInlineIcon(hidden ? "eye-off" : "eye");
-    codeToggleButton.addEventListener("click", () => {
-      setRoomCodeHidden(room.code, !getRoomCodeHidden(room.code));
-      renderRoomsDirectory();
-      if (state.activeRoomId === room.code) {
-        updateActiveRoomCodeControls();
-      }
-    });
-
-    titleRow.appendChild(title);
-    titleRow.appendChild(codeButton);
-    titleRow.appendChild(codeToggleButton);
-    titleBlock.appendChild(titleRow);
-
-    const metaRow = document.createElement("div");
-    metaRow.className = "room-card-meta-row";
+    const stats = document.createElement("div");
+    stats.className = "room-card-metrics";
     const memberCount = room.memberCount || 0;
-    const session = document.createElement("div");
-    session.className = "room-card-session";
-    session.dataset.sessionStartedAt = String(room.sessionStartedAt || Date.now());
-    session.dataset.memberLabel = getTranslatedCountLabel(memberCount, "member");
-    session.dataset.sessionLabel = translate("session");
-    session.textContent = `${session.dataset.memberLabel} - ${session.dataset.sessionLabel} ${formatDuration(Date.now() - room.sessionStartedAt)}`;
-    metaRow.appendChild(session);
-    titleBlock.appendChild(metaRow);
-
-    top.appendChild(titleBlock);
+    const membersStat = document.createElement("div");
+    membersStat.className = "room-card-metric";
+    membersStat.innerHTML = `<span class="room-card-metric-label">People</span><strong>${memberCount}</strong>`;
+    const ageStat = document.createElement("div");
+    ageStat.className = "room-card-metric room-card-session";
+    ageStat.innerHTML = `<span class="room-card-metric-label">Date</span><strong class="room-card-age-value">${formatRelativeTime(room.createdAt)}</strong>`;
+    stats.appendChild(membersStat);
+    stats.appendChild(ageStat);
+    body.appendChild(stats);
 
     const actions = document.createElement("div");
     actions.className = "room-card-actions";
@@ -2599,6 +2873,7 @@ function renderRoomsDirectory() {
 
     const openButton = document.createElement("button");
     openButton.type = "button";
+    openButton.className = "btn btn-primary btn-sm";
     openButton.textContent = translate("open");
     openButton.addEventListener("click", () => {
       window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(room.code)}`);
@@ -2606,6 +2881,7 @@ function renderRoomsDirectory() {
 
     const leaveButton = document.createElement("button");
     leaveButton.type = "button";
+    leaveButton.className = "btn btn-ghost btn-sm";
     leaveButton.textContent = translate("leave");
     leaveButton.addEventListener("click", () => leaveRoom(room.code));
     primaryActions.appendChild(openButton);
@@ -2629,23 +2905,46 @@ function renderRoomsDirectory() {
     deleteButton.addEventListener("click", () => deleteRoom(room.code));
     actions.appendChild(deleteButton);
 
-    card.appendChild(top);
-    card.appendChild(actions);
+    body.appendChild(actions);
+    card.appendChild(body);
     roomsGrid.appendChild(card);
   });
+}
+
+function createParticipantAvatar(participant, className = "participant-avatar") {
+  const avatarUrl = String(participant?.avatarUrl || participant?.avatar || participant?.photoUrl || "").trim();
+  const avatar = document.createElement("div");
+  avatar.className = className === "participant-avatar" ? className : `${className} participant-avatar`;
+  avatar.setAttribute("aria-hidden", "true");
+
+  if (avatarUrl) {
+    const image = document.createElement("img");
+    image.src = avatarUrl;
+    image.alt = "";
+    image.loading = "lazy";
+    image.addEventListener("error", () => {
+      image.remove();
+      avatar.classList.add("is-fallback");
+      avatar.textContent = getParticipantInitials(participant);
+    }, { once: true });
+    avatar.appendChild(image);
+    return avatar;
+  }
+
+  avatar.classList.add("is-fallback");
+  avatar.textContent = getParticipantInitials(participant);
+  return avatar;
 }
 
 function updateRoomsDirectoryClock() {
   if (pageMode !== "rooms" || !roomsGrid || roomsGrid.classList.contains("hidden")) return;
 
-  roomsGrid.querySelectorAll(".room-card-session[data-session-started-at]").forEach((session) => {
-    const startedAt = Number(session.dataset.sessionStartedAt);
-    if (Number.isFinite(startedAt)) {
-      const memberLabel = session.dataset.memberLabel || "";
-      const sessionLabel = session.dataset.sessionLabel || translate("session");
-      session.textContent = memberLabel
-        ? `${memberLabel} - ${sessionLabel} ${formatDuration(Date.now() - startedAt)}`
-        : `${sessionLabel} ${formatDuration(Date.now() - startedAt)}`;
+  roomsGrid.querySelectorAll(".room-card-session").forEach((session) => {
+    const roomCard = session.closest(".room-card");
+    const createdAt = Number(roomCard?.dataset.createdAt);
+    if (Number.isFinite(createdAt)) {
+      const value = session.querySelector(".room-card-age-value");
+      if (value) value.textContent = formatRelativeTime(createdAt);
     }
   });
 }
@@ -2833,6 +3132,10 @@ function clearMedia() {
     currentMediaBadge.textContent = "";
     currentMediaBadge.classList.add("hidden");
   }
+  const player = document.getElementById("player");
+  const idleState = document.querySelector(".player-idle-state");
+  if (player) player.style.display = "none";
+  if (idleState) idleState.classList.remove("hidden");
 }
 
 function applyPlaybackState() {}
@@ -2922,10 +3225,15 @@ function updateSearchControls() {
   suggestButton.disabled = !roomState?.currentMedia?.mediaUrl;
   chatSendButton.disabled = !roomState;
   leaveRoomButton.disabled = !roomState;
+  const canManageRoom = Boolean(roomState && canCurrentUserManageParticipants(roomState));
   if (renameRoomButton) {
-    renameRoomButton.classList.toggle("hidden", !(roomState && canCurrentUserManageParticipants(roomState)));
+    renameRoomButton.classList.remove("hidden");
+    renameRoomButton.disabled = !canManageRoom;
+    renameRoomButton.title = canManageRoom ? translate("renameRoom") : "Only the room owner can rename the room";
   }
-  deleteActiveRoomButton.classList.toggle("hidden", !(roomState && canCurrentUserManageParticipants(roomState)));
+  deleteActiveRoomButton.classList.remove("hidden");
+  deleteActiveRoomButton.disabled = !canManageRoom;
+  deleteActiveRoomButton.title = canManageRoom ? translate("deleteRoom") : "Only the room owner can delete the room";
 
   if (!roomState) {
     setSearchHint("Join or create a room to use playback controls.");
@@ -3325,7 +3633,7 @@ async function createRoom() {
     const response = await apiRequest("/api/rooms", {
       method: "POST",
       json: {
-        title: `${normalizeNickname(nicknameInput.value)}'s room`
+        title: String(roomNameInput?.value || "").trim() || `${normalizeNickname(nicknameInput.value)}'s room`
       }
     });
 
@@ -3339,7 +3647,6 @@ async function createRoom() {
       throw new Error("Server returned an invalid room code");
     }
 
-    requestActiveRoomAutoplay(roomCode);
     applyLocalRoomJoin(roomCode, data.room || null, true);
     createdRoomCodeValue.textContent = roomCode;
     createdRoomCodeButton.classList.remove("hidden");
@@ -3365,7 +3672,6 @@ async function handleRoomJoin(roomCode, options = {}) {
   }
 
   syncProfile();
-  requestActiveRoomAutoplay(normalized);
   applyLocalRoomJoin(normalized, null, options.setActive !== false);
   sendJoinMessage(normalized);
   if (isAuthenticated()) {
@@ -3382,6 +3688,9 @@ async function handleRoomJoin(roomCode, options = {}) {
 function sendJoinMessage(roomId) {
   const normalized = normalizeRoomCode(roomId);
   if (!normalized) return false;
+
+  ensureLocalParticipant(normalized);
+  if (state.activeRoomId === normalized) renderParticipants();
 
   if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
     pendingRoomJoins.add(normalized);
@@ -3920,7 +4229,6 @@ function autoJoinStoredRooms() {
 
     state.joinedRooms = uniqueRoomCodes(state.joinedRooms);
     state.activeRoomId = queryRoom;
-    requestActiveRoomAutoplay(queryRoom);
     ensureRoomState(queryRoom);
     saveJoinedRooms();
     return;
@@ -3944,28 +4252,59 @@ function updateRoomCodeInputs() {
 }
 
 function bindUi() {
-  homeLink.href = resolvePageUrl("./");
-  roomsLink.href = resolvePageUrl("./?page=rooms");
-  createRoomButton.addEventListener("click", createRoom);
-  createdRoomCodeButton.addEventListener("click", () => copyToClipboard(createdRoomCodeValue.textContent));
-  homeSignInButton.addEventListener("click", () => {
+  seriesEpisodesEl?.addEventListener("wheel", handleSeriesEpisodesWheel, { passive: false });
+  seriesEpisodesEl?.addEventListener("scroll", updateSeriesEpisodeOverflow, { passive: true });
+  window.addEventListener("resize", updateSeriesEpisodeOverflow);
+
+  document.querySelectorAll(".sidebar .playlist-header").forEach((toggle) => {
+    toggle.addEventListener("click", () => {
+      const panel = toggle.closest(".sidebar-section");
+      if (panel) panel.classList.toggle("is-collapsed");
+    });
+  });
+
+  document.querySelectorAll(".concept-panel-header").forEach((toggle) => {
+    toggle.addEventListener("click", () => {
+      const panel = toggle.closest(".concept-sidebar-panel");
+      if (panel) panel.classList.toggle("is-collapsed");
+    });
+  });
+
+  [seasonPicker, episodePicker, translatorPicker].forEach((picker) => {
+    const summary = picker?.querySelector(":scope > summary");
+    if (!picker || !summary) return;
+
+    summary.addEventListener("click", (event) => {
+      if (!event.target.closest("button")) return;
+      event.preventDefault();
+      picker.open = !picker.open;
+    });
+  });
+
+  if (homeLink) homeLink.href = resolvePageUrl("./");
+  roomsLinks.forEach((link) => {
+    link.href = resolvePageUrl("./?page=rooms");
+  });
+  createRoomButton?.addEventListener("click", createRoom);
+  createdRoomCodeButton?.addEventListener("click", () => copyToClipboard(createdRoomCodeValue.textContent));
+  homeSignInButton?.addEventListener("click", () => {
     window.location.href = resolvePageUrl("./?page=rooms&auth=signin");
   });
-  homeSignUpButton.addEventListener("click", () => {
+  homeSignUpButton?.addEventListener("click", () => {
     window.location.href = resolvePageUrl("./?page=rooms&auth=signup");
   });
-  joinRoomButton.addEventListener("click", () => handleRoomJoinInput(roomCodeInput));
-  roomsCreateButton.addEventListener("click", createRoom);
-  roomsJoinButton.addEventListener("click", handleRoomsJoinInput);
-  refreshRoomsButton.addEventListener("click", fetchRoomsDirectory);
-  reconnectButton.addEventListener("click", connectWs);
+  joinRoomButton?.addEventListener("click", () => handleRoomJoinInput(roomCodeInput));
+  roomsCreateButton?.addEventListener("click", createRoom);
+  roomsJoinButton?.addEventListener("click", handleRoomsJoinInput);
+  refreshRoomsButton?.addEventListener("click", fetchRoomsDirectory);
+  reconnectButton?.addEventListener("click", connectWs);
   clearPlaybackDebugButton?.addEventListener("click", () => {
     if (playbackDebugLog) {
       playbackDebugLog.textContent = "";
     }
   });
-  signOutButton.addEventListener("click", signOutAccount);
-  topbarAvatarButton?.addEventListener("click", (event) => {
+  signOutButtons.forEach((button) => button.addEventListener("click", signOutAccount));
+  topbarAvatarButtons.forEach((button) => button.addEventListener("click", (event) => {
     event.stopPropagation();
     if (!isAuthenticated()) return;
     state.topbarMenuOpen = !state.topbarMenuOpen;
@@ -3973,34 +4312,43 @@ function bindUi() {
       state.languageMenuOpen = false;
     }
     renderTopbarUser();
-  });
-  languageMenuButton?.addEventListener("click", (event) => {
+  }));
+  languageMenuButtons.forEach((button) => button.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (!isAuthenticated() || !state.topbarMenuOpen) return;
+    const isRoomLanguageButton = Boolean(button.closest(".concept-room-topbar-user"));
+    if (!isRoomLanguageButton && (!isAuthenticated() || !state.topbarMenuOpen)) return;
+    if (isRoomLanguageButton) {
+      state.topbarMenuOpen = true;
+    }
     state.languageMenuOpen = !state.languageMenuOpen;
     renderTopbarUser();
-  });
-  languageEnglishButton?.addEventListener("click", (event) => {
+  }));
+  languageEnglishButtons.forEach((button) => button.addEventListener("click", (event) => {
     event.stopPropagation();
     setLanguage("en");
     setLanguageMenuOpen(false);
-  });
-  languageRussianButton?.addEventListener("click", (event) => {
+  }));
+  languageRussianButtons.forEach((button) => button.addEventListener("click", (event) => {
     event.stopPropagation();
     setLanguage("ru");
     setLanguageMenuOpen(false);
-  });
-  lastRoomButton?.addEventListener("click", () => {
-    const roomCode = lastRoomButton.getAttribute("data-room") || state.activeRoomId || state.joinedRooms[0];
-    if (roomCode) window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(roomCode)}`);
-  });
-  deleteActiveRoomButton.addEventListener("click", () => {
+  }));
+  lastRoomButtons.forEach((button) => button.addEventListener("click", (event) => {
+    const roomCode = button.getAttribute("data-room") || state.activeRoomId || state.joinedRooms[0];
+    if (!roomCode) {
+      event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+    window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(roomCode)}`);
+  }));
+  deleteActiveRoomButton?.addEventListener("click", () => {
     if (state.activeRoomId) {
       deleteRoom(state.activeRoomId);
     }
   });
   renameRoomButton?.addEventListener("click", promptRoomRename);
-  leaveRoomButton.addEventListener("click", leaveActiveRoom);
+  leaveRoomButton?.addEventListener("click", leaveActiveRoom);
   activeRoomCodeButton?.addEventListener("click", () => {
     if (state.activeRoomId) {
       copyToClipboard(state.activeRoomId);
@@ -4015,7 +4363,7 @@ function bindUi() {
     }
   });
   document.addEventListener("click", (event) => {
-    if (state.topbarMenuOpen && !event.target.closest(".topbar-user")) {
+    if (state.topbarMenuOpen && !event.target.closest(".topbar-user, .concept-room-topbar-user")) {
       closeTopbarMenu();
     }
   });
@@ -4026,18 +4374,18 @@ function bindUi() {
     state.openParticipantMenuKey = null;
     renderParticipants();
   });
-  topbarRoomCodeButton.addEventListener("click", () => {
+  topbarRoomCodeButton?.addEventListener("click", () => {
     if (!state.activeRoomId) return;
     window.location.href = resolvePageUrl(`./?room=${encodeURIComponent(state.activeRoomId)}`);
   });
-  addToPlaylistButton.addEventListener("click", addCurrentMediaToPlaylist);
-  suggestButton.addEventListener("click", suggestCurrentMedia);
-  authToggleButton.addEventListener("click", () => setAuthMode(state.authMode === "signup" ? "signin" : "signup"));
-  googleSignInButton.addEventListener("click", () => setAuthStatus("Google sign-in is not configured yet.", true));
-  appleSignInButton.addEventListener("click", () => setAuthStatus("Apple sign-in is not configured yet.", true));
-  forgotPasswordButton.addEventListener("click", () => setAuthStatus("Password reset is not configured yet.", true));
+  addToPlaylistButton?.addEventListener("click", addCurrentMediaToPlaylist);
+  suggestButton?.addEventListener("click", suggestCurrentMedia);
+  authToggleButton?.addEventListener("click", () => setAuthMode(state.authMode === "signup" ? "signin" : "signup"));
+  googleSignInButton?.addEventListener("click", () => setAuthStatus("Google sign-in is not configured yet.", true));
+  appleSignInButton?.addEventListener("click", () => setAuthStatus("Apple sign-in is not configured yet.", true));
+  forgotPasswordButton?.addEventListener("click", () => setAuthStatus("Password reset is not configured yet.", true));
 
-  authForm.addEventListener("submit", async (event) => {
+  authForm?.addEventListener("submit", async (event) => {
     event.preventDefault();
     await signInAccount(state.authMode);
   });
@@ -4082,7 +4430,7 @@ function bindUi() {
     });
   }
 
-  searchButton.addEventListener("click", async () => {
+  async function handleSearchSubmit() {
     const query = searchInput.value.trim();
     if (!query) {
       setSearchHint("Enter a search query", true);
@@ -4107,22 +4455,6 @@ function bindUi() {
       appendPlaybackDebugEntry("Rezka hash saved for later", hashParams);
     }
 
-    if (!canCurrentUserManageContent()) {
-      await probeExtensionAvailability();
-      if (!hasLocalExtension()) {
-        const extensionInstallUrl = getExtensionInstallUrl();
-        setSearchHint(
-          extensionInstallUrl
-            ? `Extension required to search media. Install it here: ${extensionInstallUrl}`
-            : "Extension required to search media. Install the extension and try again.",
-          true
-        );
-      } else {
-        setSearchHint("Only users with media access can search media.", true);
-      }
-      return;
-    }
-
     _lastLoadedMediaKey = "";
 
     // Option D: Open DuckDuckGo search directly in popup window (not iframe)
@@ -4133,6 +4465,12 @@ function bindUi() {
       'height=' + Math.round(window.screen.height/1.5),
       'left=' + Math.round(window.screen.width/4),
       'top=' + Math.round(window.screen.height/4),
+      'toolbar=no',
+      'location=no',
+      'status=no',
+      'menubar=no',
+      'scrollbars=yes',
+      'resizable=yes',
       'popup=yes',
       'noopener=yes'
     ];
@@ -4140,6 +4478,10 @@ function bindUi() {
       try { _searchPopupWindow.close(); } catch {}
     }
     _searchPopupWindow = window.open(searchUrl, 'AnyTogetherSearch', features.join(','));
+    if (!_searchPopupWindow) {
+      setSearchHint("Allow popups for this site to open search results.", true);
+      return;
+    }
     appendPlaybackDebugEntry("Search opened in popup", { query, url: searchUrl });
 
     // Hide iframe widget since we're using popup instead
@@ -4152,46 +4494,55 @@ function bindUi() {
 
     // Don't send automatic SEARCH_REQUEST — that triggers hidden tab parsing.
     // User clicks on a result naturally in the popup, then we parse only that site.
-  });
+  }
 
-  searchInput.addEventListener("keydown", (event) => {
+  searchInput?.addEventListener("keydown", (event) => {
     if (event.key !== "Enter") return;
     event.preventDefault();
-    searchButton.click();
+    handleSearchSubmit();
   });
 
-  nicknameInput.addEventListener("change", syncProfile);
-  nicknameInput.addEventListener("blur", syncProfile);
+  searchClearButton?.addEventListener("click", () => {
+    searchInput.value = "";
+    setSearchHint("");
+    searchInput.focus();
+  });
 
-  roomCodeInput.addEventListener("keydown", (event) => {
+  searchButton?.addEventListener("click", handleSearchSubmit);
+  window.handleAnyTogetherSearch = handleSearchSubmit;
+
+  nicknameInput?.addEventListener("change", syncProfile);
+  nicknameInput?.addEventListener("blur", syncProfile);
+
+  roomCodeInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
       handleRoomJoinInput(roomCodeInput);
     }
   });
 
-  roomsJoinInput.addEventListener("keydown", (event) => {
+  roomsJoinInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
       handleRoomsJoinInput();
     }
   });
 
-  authIdentifierInput.addEventListener("keydown", (event) => {
+  authIdentifierInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && state.authMode === "signin") {
       event.preventDefault();
       authForm.requestSubmit();
     }
   });
 
-  authPasswordInput.addEventListener("keydown", (event) => {
+  authPasswordInput?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
       authForm.requestSubmit();
     }
   });
 
-  chatForm.addEventListener("submit", (event) => {
+  chatForm?.addEventListener("submit", (event) => {
     event.preventDefault();
 
     const text = chatInput.value.trim();
@@ -4220,6 +4571,7 @@ function startUiClock() {
     updateSessionCounter();
     updateRoomsDirectoryClock();
   }, 1000);
+  setInterval(refreshParticipantSyncIndicators, 250);
 }
 
 async function start() {
@@ -4564,6 +4916,14 @@ window.addEventListener("beforeunload", () => {
     storeValue(STORAGE_KEYS.nickname, normalizeNickname(nicknameInput.value));
     saveJoinedRooms();
   } catch {}
+});
+
+window.anyTogetherUI = Object.freeze({
+  createRoom,
+  joinRoom: () => handleRoomJoinInput(roomCodeInput),
+  leaveRoom: leaveActiveRoom,
+  addCurrentMediaToPlaylist,
+  suggestCurrentMedia
 });
 
 void start();

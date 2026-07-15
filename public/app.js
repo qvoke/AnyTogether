@@ -29,16 +29,38 @@ const gestureCommitDelayMs = 200;
 const gestureCommitRetryMs = 60;
 const gestureCommitMaxDelayMs = 650;
 const gestureCommitQuietWindowMs = 90;
-const remoteSeekSettlementTimeoutMs = 3000;
+const remoteSeekSettlementGraceMs = 250;
+const seekCorrectionThresholdMs = 100;
+const playbackCorrectionThresholdMs = 300;
+const playbackCorrectionCooldownMs = 1200;
+const playbackStatusIntervalMs = 200;
+const bufferingConfirmationMs = 500;
+const bufferingCorrectionMinimumMs = 700;
+function getTabClientId() {
+  if (typeof window.__anyTogetherClientId === "string" && window.__anyTogetherClientId) {
+    return window.__anyTogetherClientId;
+  }
+  window.__anyTogetherClientId = crypto.randomUUID();
+  return window.__anyTogetherClientId;
+}
 
 const state = {
-  clientId: crypto.randomUUID(),
+  clientId: getTabClientId(),
   connection: null,
   currentControl: null,
   currentMediaUrl: "",
   currentRevision: 0,
+  playbackSyncOffsets: new Map(),
+  lastPlaybackCorrectionAt: 0,
+  lastAppliedLoadActionId: null,
+  lastGuaranteedSeekActionId: null,
   isApplyingRemoteState: false,
   isBuffering: false,
+  bufferingDetectionTimer: null,
+  bufferingSignalActive: false,
+  bufferingProbeTime: 0,
+  bufferingStartedAt: 0,
+  lastBufferingDurationMs: 0,
   isConnected: false,
   pendingIntents: [],
   pendingPlaybackState: null,
@@ -54,6 +76,7 @@ const state = {
   pendingSeekRemoteStartedAt: 0,
   autoplayPending: false,
   remoteSeekPending: false,
+  remoteSeekSettlementTimer: null,
   remoteApplyTimer: null,
   remoteSeekActivityAt: 0,
   programmaticSeekEvents: 0,
@@ -189,15 +212,28 @@ function clearPendingSeekCommitTimer() {
 }
 
 function clearRemoteSeekSettlement() {
+  if (state.remoteSeekSettlementTimer) {
+    clearTimeout(state.remoteSeekSettlementTimer);
+    state.remoteSeekSettlementTimer = null;
+  }
   state.pendingSeekIsRemote = false;
   state.pendingSeekObservedSeeked = false;
   state.pendingSeekRemoteStartedAt = 0;
   state.remoteSeekPending = false;
 }
 
+function scheduleRemoteSeekSettlementAttempt(delayMs = remoteSeekSettlementGraceMs) {
+  if (state.remoteSeekSettlementTimer) clearTimeout(state.remoteSeekSettlementTimer);
+  state.remoteSeekSettlementTimer = setTimeout(() => {
+    state.remoteSeekSettlementTimer = null;
+    void attemptRemoteSeekSettlement("grace-timeout");
+  }, delayMs);
+}
+
 function beginRemoteSeekSettlement() {
   if (!state.pendingSeekIsRemote) {
     state.pendingSeekRemoteStartedAt = performance.now();
+    scheduleRemoteSeekSettlementAttempt();
   }
 
   state.pendingSeekIsRemote = true;
@@ -214,42 +250,27 @@ function attemptRemoteSeekSettlement(trigger = "seeked") {
   const startedAt = state.pendingSeekRemoteStartedAt || now;
   const ageMs = now - startedAt;
 
-  // Hard timeout: force settlement after remoteSeekSettlementTimeoutMs regardless of state
-  if (ageMs >= remoteSeekSettlementTimeoutMs) {
-    const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
-    const nextPlaybackState = state.pendingPlaybackState;
-    logEvent("Remote seek force settled", {
-      trigger,
-      ageMs: Math.round(ageMs).toString(),
-      currentTime: currentTime.toFixed(2)
-    });
-
-    clearRemoteSeekSettlement();
-    state.remoteSeekActivityAt = Date.now();
-    state.pendingSeek = null;
-    state.pendingPlaybackState = null;
-    state.programmaticSeekEvents = 0;
-
-    resumeStreamBuffering(currentTime);
-
-    if (typeof nextPlaybackState === "boolean") {
-      applyPlaybackState(nextPlaybackState);
+  if (state.pendingSeek !== null) {
+    if (elements.player.readyState >= 1) {
+      const targetTime = state.pendingSeek;
+      state.pendingSeek = null;
+      state.pendingSeekObservedSeeked = false;
+      state.pendingSeekRemoteStartedAt = now;
+      markProgrammaticSeek(5);
+      elements.player.currentTime = targetTime;
+      scheduleRemoteSeekSettlementAttempt();
+      return false;
     }
-    return true;
-  }
 
-  if (!state.pendingSeekObservedSeeked && ageMs < gestureCommitMaxDelayMs) {
+    if (ageMs < 2000) scheduleRemoteSeekSettlementAttempt(100);
     return false;
   }
 
-  if (state.pendingSeek !== null) {
-    const playerTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
-    if (Math.abs(playerTime - state.pendingSeek) > 0.35 && ageMs < gestureCommitMaxDelayMs) {
-      return false;
-    }
+  if (!state.pendingSeekObservedSeeked && ageMs < remoteSeekSettlementGraceMs) {
+    return false;
   }
 
-  if (elements.player.seeking && ageMs < gestureCommitMaxDelayMs) {
+  if (elements.player.seeking && ageMs < remoteSeekSettlementGraceMs) {
     return false;
   }
 
@@ -547,6 +568,8 @@ async function loadPlayerSource(url, forceReload = false) {
 
 function destroyHls() {
   clearStallRecoveryTimer();
+  clearBufferingDetectionTimer();
+  state.bufferingSignalActive = false;
 
   if (state.hls) {
     state.hls.destroy();
@@ -755,6 +778,9 @@ function loadSource(url, options = {}) {
   state.programmaticPauseEvents = 0;
   clearPendingSeekCommitTimer();
 
+  elements.player.style.display = "block";
+  document.querySelector(".player-idle-state")?.classList.add("hidden");
+
   void loadPlayerSource(nextUrl, forceReload);
 
   logEvent("Media source loaded", {
@@ -883,32 +909,36 @@ function applyRemoteState(snapshot) {
 
   try {
     const mediaUrl = typeof snapshot.mediaUrl === "string" ? snapshot.mediaUrl.trim() : "";
-    const currentTime = typeof snapshot.currentTime === "number" && Number.isFinite(snapshot.currentTime)
+    const mediaChanged = Boolean(mediaUrl && mediaUrl !== state.currentMediaUrl);
+    const snapshotTime = typeof snapshot.currentTime === "number" && Number.isFinite(snapshot.currentTime)
       ? Math.max(0, snapshot.currentTime)
       : null;
+    const snapshotAgeSeconds = snapshotTime !== null && snapshot.paused === false && Number.isFinite(snapshot.updatedAt)
+      ? Math.min(1, Math.max(0, Date.now() - snapshot.updatedAt) / 1000)
+      : 0;
+    const currentTime = snapshotTime === null ? null : snapshotTime + snapshotAgeSeconds;
 
     if (mediaUrl) {
-      const shouldReload = snapshot.lastAction === "load" || mediaUrl !== state.currentMediaUrl;
+      const isNewLoadAction = snapshot.lastAction === "load" &&
+        snapshot.lastActionId &&
+        snapshot.lastActionId !== state.lastAppliedLoadActionId;
+      const shouldReload = mediaUrl !== state.currentMediaUrl || isNewLoadAction;
       loadSource(mediaUrl, {
         forceReload: shouldReload,
         reason: "remote",
         suppressMs: 1500
       });
-    }
-
-    if (typeof snapshot.volume === "number") {
-      elements.player.volume = Math.min(1, Math.max(0, snapshot.volume));
-    }
-
-    if (typeof snapshot.muted === "boolean") {
-      elements.player.muted = snapshot.muted;
+      if (isNewLoadAction) state.lastAppliedLoadActionId = snapshot.lastActionId;
     }
 
     if (typeof snapshot.playbackRate === "number") {
       elements.player.playbackRate = snapshot.playbackRate;
     }
 
-    if (currentTime !== null) {
+    const timelineAction = ["load", "play", "pause", "seek"].includes(snapshot.lastAction);
+    const guaranteedSeekHandled = snapshot.lastAction === "seek" &&
+      snapshot.lastActionId === state.lastGuaranteedSeekActionId;
+    if (currentTime !== null && (timelineAction || mediaChanged) && !guaranteedSeekHandled) {
       const playerTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
       const timeDiff = Math.abs(playerTime - currentTime);
       
@@ -919,7 +949,7 @@ function applyRemoteState(snapshot) {
           state.pendingPlaybackState = snapshot.paused;
         }
 
-        if (elements.player.readyState >= 1 && !elements.player.seeking) {
+        if (elements.player.readyState >= 1) {
           markProgrammaticSeek(5);
           elements.player.currentTime = currentTime;
           state.pendingSeek = null;
@@ -969,6 +999,41 @@ function scheduleRemoteSnapshot(snapshot) {
   }, 40);
 }
 
+function applyGuaranteedRemoteSeek(message) {
+  if (!message || message.originClientId === state.clientId) return;
+  const targetTime = Number(message.currentTime);
+  if (!Number.isFinite(targetTime)) return;
+
+  if (state.lastGuaranteedSeekActionId === message.actionId) {
+    if (state.pendingSeek !== null) state.pendingSeek = Math.max(0, targetTime);
+    return;
+  }
+
+  const playerTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
+  if (Math.abs(playerTime - targetTime) <= 0.25) return;
+
+  state.lastGuaranteedSeekActionId = message.actionId || null;
+  clearPendingSeekCommitTimer();
+  state.seekGestureActive = false;
+  suppressOutgoingEvents(500);
+  beginRemoteSeekSettlement();
+  state.remoteSeekPending = true;
+  state.pendingPlaybackState = typeof message.paused === "boolean" ? message.paused : null;
+
+  if (elements.player.readyState >= 1) {
+    markProgrammaticSeek(5);
+    elements.player.currentTime = Math.max(0, targetTime);
+    state.pendingSeek = null;
+  } else {
+    state.pendingSeek = Math.max(0, targetTime);
+  }
+
+  logEvent("Guaranteed seek applied", {
+    actionId: message.actionId || "none",
+    currentTime: targetTime.toFixed(2)
+  });
+}
+
 function sendMessage(payload) {
   if (!state.connection || state.connection.readyState !== WebSocket.OPEN) {
     // Queue the message to be sent once WebSocket connects
@@ -993,6 +1058,55 @@ function flushPendingIntents() {
       action: payload.action || payload.type || "unknown"
     });
   }
+}
+
+function clearBufferingDetectionTimer() {
+  if (!state.bufferingDetectionTimer) return;
+  clearTimeout(state.bufferingDetectionTimer);
+  state.bufferingDetectionTimer = null;
+}
+
+function reportPlaybackStatus() {
+  if (!state.connection || state.connection.readyState !== WebSocket.OPEN || !elements.player) return;
+
+  state.connection.send(JSON.stringify({
+    type: "playback-status",
+    roomId: state.room,
+    clientId: state.clientId,
+    currentTime: Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0,
+    paused: elements.player.paused,
+    buffering: state.isBuffering,
+    applyingSeek: state.remoteSeekPending || elements.player.seeking
+  }));
+}
+
+function correctPlaybackDrift(syncEntry, recoveredFromBuffering = false) {
+  const correctionThresholdMs = syncEntry?.reason === "seek"
+    ? seekCorrectionThresholdMs
+    : playbackCorrectionThresholdMs;
+  if (
+    !syncEntry ||
+    (!syncEntry.active && !recoveredFromBuffering) ||
+    !Number.isFinite(syncEntry.offsetMs) ||
+    syncEntry.offsetMs <= correctionThresholdMs ||
+    syncEntry.buffering ||
+    (elements.player.paused && syncEntry.reason !== "seek") ||
+    elements.player.seeking ||
+    state.remoteSeekPending
+  ) {
+    return;
+  }
+
+  const timestamp = performance.now();
+  if (timestamp - state.lastPlaybackCorrectionAt < playbackCorrectionCooldownMs) return;
+
+  state.lastPlaybackCorrectionAt = timestamp;
+  markProgrammaticSeek(4);
+  const adjustmentMs = Number.isFinite(syncEntry.adjustmentMs)
+    ? syncEntry.adjustmentMs
+    : syncEntry.offsetMs;
+  elements.player.currentTime = Math.max(0, elements.player.currentTime + adjustmentMs / 1000);
+  logEvent("Playback drift corrected", { offsetMs: syncEntry.offsetMs, adjustmentMs });
 }
 
 function intentPayloadSummary(action, payload) {
@@ -1034,6 +1148,7 @@ function sendPlayerIntent(action, payload = {}, options = {}) {
   }
 
   const actionId = crypto.randomUUID();
+  if (action === "load") state.lastAppliedLoadActionId = actionId;
   const message = {
     type: "player-intent",
     action,
@@ -1237,6 +1352,11 @@ function connectRoom() {
       return;
     }
 
+    if (message.type === "seek-command") {
+      applyGuaranteedRemoteSeek(message);
+      return;
+    }
+
     if (message.type === "room-snapshot") {
       if (typeof message.revision === "number" && message.revision > state.currentRevision) {
         state.currentRevision = message.revision;
@@ -1287,6 +1407,22 @@ function connectRoom() {
         scheduleRemoteSnapshot(message.snapshot);
       }
 
+      return;
+    }
+
+    if (message.type === "playback-sync") {
+      const previousOwnSync = state.playbackSyncOffsets.get(state.clientId);
+      state.playbackSyncOffsets = new Map(
+        (Array.isArray(message.offsets) ? message.offsets : [])
+          .filter((entry) => entry?.clientId)
+          .map((entry) => [entry.clientId, entry])
+      );
+      const ownSync = state.playbackSyncOffsets.get(state.clientId);
+      const recoveredFromBuffering = Boolean(previousOwnSync?.buffering && !ownSync?.buffering);
+      const confirmedBufferingRecovery = recoveredFromBuffering &&
+        state.lastBufferingDurationMs >= bufferingCorrectionMinimumMs;
+      correctPlaybackDrift(ownSync, confirmedBufferingRecovery);
+      if (recoveredFromBuffering) state.lastBufferingDurationMs = 0;
       return;
     }
 
@@ -1361,6 +1497,51 @@ window.__sendQualityRequest = sendQualityRequest;
 window.__sendTranslationRequest = sendTranslationRequest;
 window.__sendMediaRequest = sendMediaRequest;
 window.__anyTogetherRequestAutoplay = requestProgrammaticAutoplay;
+window.anyTogetherSyncBridge = {
+  connectRoom(room, role, name) {
+    const nextRoom = String(room || "").trim() || "lobby";
+    const nextRole = String(role || "guest");
+    const nextName = String(name || "Guest").trim() || "Guest";
+    const connectionIsActive = state.connection &&
+      (state.connection.readyState === WebSocket.OPEN || state.connection.readyState === WebSocket.CONNECTING);
+    const connectionMatches = state.room === nextRoom &&
+      elements.roleSelect.value === nextRole &&
+      elements.displayName.value === nextName;
+
+    elements.roomInput.value = nextRoom;
+    elements.roleSelect.value = nextRole;
+    elements.displayName.value = nextName;
+
+    if (connectionIsActive && connectionMatches) return true;
+    connectRoom();
+    return true;
+  },
+  loadMedia(url) {
+    const mediaUrl = String(url || "").trim();
+    if (!mediaUrl) return false;
+    if (state.currentMediaUrl === mediaUrl) return true;
+    elements.mediaUrl.value = mediaUrl;
+    loadManualMedia();
+    return true;
+  }
+};
+window.__getPlaybackSyncInfo = (participantClientId = state.clientId) => {
+  const reportedSync = state.playbackSyncOffsets.get(participantClientId);
+  if (reportedSync && Number.isFinite(reportedSync.offsetMs)) {
+    return {
+      offsetMs: reportedSync.active ? Math.max(0, Math.round(reportedSync.offsetMs)) : 0,
+      buffering: Boolean(reportedSync.buffering),
+      active: Boolean(reportedSync.active)
+    };
+  }
+  if (participantClientId !== state.clientId) return null;
+  return {
+    offsetMs: 0,
+    buffering: false
+  };
+};
+
+setInterval(reportPlaybackStatus, playbackStatusIntervalMs);
 
 function renderMembers(members) {
   elements.memberList.innerHTML = "";
@@ -1510,15 +1691,32 @@ function handlePluginMessage(event) {
 }
 
 function handleHlsPlayingActivity() {
+  state.bufferingSignalActive = false;
+  clearBufferingDetectionTimer();
+  if (state.isBuffering && state.bufferingStartedAt > 0) {
+    state.lastBufferingDurationMs = performance.now() - state.bufferingStartedAt;
+  }
   state.isBuffering = false;
+  state.bufferingStartedAt = 0;
   resetHlsRecoveryState();
   void attemptRemoteSeekSettlement("playback-activity");
   void attemptPendingSeekCommit("playback-activity");
 }
 
 function handleWaitingLikeEvent() {
-  state.isBuffering = true;
-  scheduleStallRecovery("waiting");
+  state.bufferingSignalActive = true;
+  if (state.bufferingDetectionTimer || state.isBuffering) return;
+
+  state.bufferingProbeTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
+  state.bufferingDetectionTimer = setTimeout(() => {
+    state.bufferingDetectionTimer = null;
+    if (!state.bufferingSignalActive || elements.player.paused) return;
+    const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
+    if (currentTime - state.bufferingProbeTime > 0.05) return;
+    state.isBuffering = true;
+    state.bufferingStartedAt = performance.now();
+    scheduleStallRecovery("waiting");
+  }, bufferingConfirmationMs);
 }
 
 void initializeShakaPlayer();
@@ -1540,6 +1738,7 @@ elements.player.addEventListener("play", () => {
   if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
     if (!isProgrammaticPlay) {
       commitSeek(elements.player.currentTime, false, "play");
+      void attemptPendingSeekCommit("play");
     }
 
     setPlaybackState();
@@ -1567,6 +1766,7 @@ elements.player.addEventListener("pause", () => {
       handleHlsPlayingActivity();
     } else {
       commitSeek(elements.player.currentTime, true, "pause");
+      void attemptPendingSeekCommit("pause");
     }
 
     setPlaybackState();
@@ -1643,13 +1843,6 @@ elements.player.addEventListener("ratechange", () => {
 });
 
 elements.player.addEventListener("volumechange", () => {
-  if (canBroadcastLocalChange()) {
-    sendPlayerIntent("volumechange", {
-      volume: elements.player.volume,
-      muted: elements.player.muted
-    });
-  }
-
   setPlaybackState();
 });
 
