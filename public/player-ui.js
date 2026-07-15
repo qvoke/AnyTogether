@@ -20,6 +20,8 @@ const UI = {
   volumeBtn: null,
   volumeBar: null,
   volumeFill: null,
+  skipBackBtn: null,
+  skipForwardBtn: null,
   settingsBtn: null,
   fullscreenBtn: null,
   centerSpinner: null,
@@ -31,6 +33,7 @@ const UI = {
 };
 
 let _isDragging = false;
+let _pendingSeekTime = null;
 let _isVolumeDragging = false;
 let _menuOpen = false;
 
@@ -48,6 +51,8 @@ function createControls() {
       <button class="ctrl-btn play-btn" title="Play/Pause">
         <svg viewBox="0 0 24 24" width="20" height="20"><polygon points="6,4 20,12 6,20" fill="currentColor"/></svg>
       </button>
+      <button class="ctrl-btn skip-btn skip-back-btn" title="Back 10 seconds"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8a8 8 0 1 1-1 7M5 4v4h4"/></svg></span></button>
+      <button class="ctrl-btn skip-btn skip-forward-btn" title="Forward 10 seconds"><span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19 8a8 8 0 1 0 1 7M19 4v4h-4"/></svg></span></button>
       <div class="volume-container">
         <button class="ctrl-btn volume-btn" title="Mute">
           <svg viewBox="0 0 24 24" width="20" height="20">
@@ -56,6 +61,11 @@ function createControls() {
           </svg>
         </button>
         <div class="volume-bar"><div class="volume-fill"></div></div>
+      </div>
+      <div class="time-display">
+        <span class="current-time">00:00</span>
+        <span class="time-sep">/</span>
+        <span class="duration">00:00</span>
       </div>
     </div>
     <div class="controls-center">
@@ -68,11 +78,7 @@ function createControls() {
       </div>
     </div>
     <div class="controls-right">
-      <div class="time-display">
-        <span class="current-time">00:00</span>
-        <span class="time-sep">/</span>
-        <span class="duration">00:00</span>
-      </div>
+      <button class="ctrl-btn cc-btn" title="Closed captions"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2.5" y="4" width="19" height="16" rx="2"/><text x="12" y="15.2" text-anchor="middle">CC</text></svg></button>
       <button class="ctrl-btn settings-btn" title="Settings">
         <svg viewBox="0 0 24 24" width="20" height="20">
           <path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" fill="none" stroke="currentColor" stroke-width="2"/>
@@ -99,6 +105,8 @@ function createControls() {
   UI.volumeBtn = div.querySelector('.volume-btn');
   UI.volumeBar = div.querySelector('.volume-bar');
   UI.volumeFill = div.querySelector('.volume-fill');
+  UI.skipBackBtn = div.querySelector('.skip-back-btn');
+  UI.skipForwardBtn = div.querySelector('.skip-forward-btn');
   UI.settingsBtn = div.querySelector('.settings-btn');
   UI.fullscreenBtn = div.querySelector('.fullscreen-btn');
 
@@ -147,24 +155,34 @@ function bindEvents() {
 
   // Progress bar drag
   UI.progressBar.addEventListener('mousedown', (e) => {
+    e.preventDefault();
     _isDragging = true;
-    seekFromMouse(e);
+    updateSeekPreview(e);
     document.addEventListener('mousemove', onDrag);
     document.addEventListener('mouseup', onEnd);
   });
-  function onDrag(e) { if (_isDragging) { seekFromMouse(e); UI.progressBar.classList.add('seeking'); } }
-  function onEnd() {
+  function onDrag(e) {
+    if (!_isDragging) return;
+    updateSeekPreview(e);
+    UI.progressBar.classList.add('seeking');
+  }
+  function onEnd(e) {
+    if (!_isDragging) return;
+    updateSeekPreview(e);
     _isDragging = false;
     UI.progressBar.classList.remove('seeking');
     document.removeEventListener('mousemove', onDrag);
     document.removeEventListener('mouseup', onEnd);
+    if (Number.isFinite(_pendingSeekTime)) {
+      video.currentTime = _pendingSeekTime;
+    }
+    _pendingSeekTime = null;
   }
-  function seekFromMouse(e) {
+  function updateSeekPreview(e) {
     const rect = UI.progressBar.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    // Мгновенно двигаем fill и handle, не дожидаясь timeupdate видео
     setProgressVisual(pct);
-    if (video.duration) video.currentTime = pct * video.duration;
+    _pendingSeekTime = Number.isFinite(video.duration) ? pct * video.duration : null;
   }
 
   // Volume
@@ -185,6 +203,14 @@ function bindEvents() {
   UI.volumeBtn.addEventListener('click', () => {
     video.muted = !video.muted;
     updateVolumeIcon();
+  });
+
+  UI.skipBackBtn.addEventListener('click', () => {
+    video.currentTime = Math.max(0, (video.currentTime || 0) - 10);
+  });
+  UI.skipForwardBtn.addEventListener('click', () => {
+    const duration = Number.isFinite(video.duration) ? video.duration : Infinity;
+    video.currentTime = Math.min(duration, (video.currentTime || 0) + 10);
   });
 
   // Settings
@@ -291,14 +317,10 @@ function updateTime() {
 }
 
 function updateProgress() {
-  if (!video || !video.duration || !UI.progressFill || !UI.progressHandle) return;
+  if (_isDragging || !video || !video.duration || !UI.progressFill || !UI.progressHandle) return;
   const pct = Math.min(100, (video.currentTime / video.duration) * 100);
   UI.progressFill.style.width = `${pct}%`;
   UI.progressHandle.style.left = `${pct}%`;
-
-  // Когда пользователь тянет ползунок (seeking), цвет fill уже установлен,
-  // но если видео не загрузилось — fill не двигается. А handle уже на нужной позиции.
-  // Цвет fill'а будет восстановлен при воспроизведении.
 }
 
 function updateBuffer() {
