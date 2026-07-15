@@ -1,0 +1,5 @@
+* text=auto eol=lf
+/.*/** -text
+/node_modules/** -text
+/.editorconfig text eol=lf
+/.gitattributes text eol=lf

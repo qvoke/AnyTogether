@@ -1950,14 +1950,14 @@ window.__settingsSetQualityLabel = function(label) {
   if (qualities.length > 0 && !qualities.some((quality) => quality.label === label)) {
     return;
   }
-  
+
   // Save the playback position before the video is reloaded.
   const video = document.getElementById('player');
   if (video && Number.isFinite(video.currentTime) && video.currentTime > 0) {
     window._qualityChangePendingTime = video.currentTime;
     appendPlaybackDebugEntry("Quality save position", { time: video.currentTime.toFixed(2) });
   }
-  
+
   roomState.ui.qualityLabel = label;
   // Update the picker display
   if (qualityPickerValue) {
@@ -4170,9 +4170,9 @@ function connectWs() {
         ? JSON.parse(JSON.stringify(prevRoomState.currentMedia.seriesContext))
         : null;
       const prevUi = prevRoomState ? { ...prevRoomState.ui } : null;
-      
+
       updateRoomFromMediaPayload(roomId, msg, false);
-      
+
       const newRoomState = getRoomState(roomId);
       const newSeriesContext = newRoomState?.currentMedia?.seriesContext || null;
       const seriesChanged = JSON.stringify(newSeriesContext) !== JSON.stringify(prevSeriesContext);
@@ -4407,7 +4407,7 @@ function bindUi() {
       } catch {}
       appendPlaybackDebugEntry(_snifferEnabled ? "Sniffer enabled" : "Sniffer disabled", {});
       setSearchHint(_snifferEnabled ? "Media sniffing enabled — open other tabs with video" : "Media sniffing disabled");
-      
+
       // Notify background.js about the state change via content-script bridge
       try {
         window.postMessage({
@@ -4448,7 +4448,7 @@ function bindUi() {
       const url = new URL(query);
       hashParams = parseRezkaHash(url.hash);
     } catch {}
-    
+
     // Keep the hash so it can be applied after the series media finishes loading.
     _pendingRezkaHash = hashParams;
     if (hashParams) {
@@ -4459,7 +4459,7 @@ function bindUi() {
 
     // Option D: Open DuckDuckGo search directly in popup window (not iframe)
     const searchUrl = 'https://html.duckduckgo.com/html/?q=' + encodeURIComponent(query);
-    
+
     const features = [
       'width=' + Math.round(window.screen.width/1.5),
       'height=' + Math.round(window.screen.height/1.5),
@@ -4768,15 +4768,15 @@ async function start() {
         appendPlaybackDebugEntry("Load throttled (5s window)", { url: mediaUrl.substring(0, 80), remainingMs: _lastLoadBlockedUntil - now });
         return;
       }
-      
+
       _lastLoadedMediaKey = mediaUrl;
       _lastLoadBlockedUntil = now + LOAD_BLOCK_DURATION_MS;
       _lastLoadHadContext = hasSeriesContext;
 
-      
+
       // Show selected quality from extension in indicator
       const selectedLabel = payload.seriesContext?.selectedQualityLabel || null;
-      
+
       appendPlaybackDebugEntry("Extension payload received", {
         masterPlaylistUrl: payload.masterPlaylistUrl || "null",
         mediaUrl: (payload.mediaUrl || "").substring(0, 80),
@@ -4785,7 +4785,7 @@ async function start() {
         hasSeriesContext: payload.seriesContext ? "yes" : "no",
         selectedQuality: selectedLabel || "not specified"
       });
-      
+
       updateRoomFromMediaPayload(effectiveRoomId, payload, true);
 
       // Apply any deferred translator, season, or episode hash.
@@ -4808,7 +4808,7 @@ async function start() {
         }
         _pendingRezkaHash = null;
       }
-      
+
       // After updateRoomFromMediaPayload, roomState.ui.qualityLabel is now set via sanitizeRoomUi
       // Force sync it to app.js BEFORE syncActiveRoomMedia triggers hls.js
       const roomStateAfterLoad = getRoomState(effectiveRoomId);

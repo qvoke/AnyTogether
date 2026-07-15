@@ -33,7 +33,6 @@ const UI = {
 };
 
 let _isDragging = false;
-let _pendingSeekTime = null;
 let _isVolumeDragging = false;
 let _menuOpen = false;
 
@@ -155,34 +154,24 @@ function bindEvents() {
 
   // Progress bar drag
   UI.progressBar.addEventListener('mousedown', (e) => {
-    e.preventDefault();
     _isDragging = true;
-    updateSeekPreview(e);
+    seekFromMouse(e);
     document.addEventListener('mousemove', onDrag);
     document.addEventListener('mouseup', onEnd);
   });
-  function onDrag(e) {
-    if (!_isDragging) return;
-    updateSeekPreview(e);
-    UI.progressBar.classList.add('seeking');
-  }
-  function onEnd(e) {
-    if (!_isDragging) return;
-    updateSeekPreview(e);
+  function onDrag(e) { if (_isDragging) { seekFromMouse(e); UI.progressBar.classList.add('seeking'); } }
+  function onEnd() {
     _isDragging = false;
     UI.progressBar.classList.remove('seeking');
     document.removeEventListener('mousemove', onDrag);
     document.removeEventListener('mouseup', onEnd);
-    if (Number.isFinite(_pendingSeekTime)) {
-      video.currentTime = _pendingSeekTime;
-    }
-    _pendingSeekTime = null;
   }
-  function updateSeekPreview(e) {
+  function seekFromMouse(e) {
     const rect = UI.progressBar.getBoundingClientRect();
     const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    // Мгновенно двигаем fill и handle, не дожидаясь timeupdate видео
     setProgressVisual(pct);
-    _pendingSeekTime = Number.isFinite(video.duration) ? pct * video.duration : null;
+    if (video.duration) video.currentTime = pct * video.duration;
   }
 
   // Volume
@@ -317,10 +306,14 @@ function updateTime() {
 }
 
 function updateProgress() {
-  if (_isDragging || !video || !video.duration || !UI.progressFill || !UI.progressHandle) return;
+  if (!video || !video.duration || !UI.progressFill || !UI.progressHandle) return;
   const pct = Math.min(100, (video.currentTime / video.duration) * 100);
   UI.progressFill.style.width = `${pct}%`;
   UI.progressHandle.style.left = `${pct}%`;
+
+  // Когда пользователь тянет ползунок (seeking), цвет fill уже установлен,
+  // но если видео не загрузилось — fill не двигается. А handle уже на нужной позиции.
+  // Цвет fill'а будет восстановлен при воспроизведении.
 }
 
 function updateBuffer() {

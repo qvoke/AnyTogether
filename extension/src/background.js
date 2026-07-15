@@ -363,14 +363,14 @@ function guessResolutionFromFilename(filename) {
 
 function pickBestM3u8ByFilename(urls) {
   if (!urls || urls.length === 0) return null;
-  
+
   const scored = urls.map(url => {
     const filename = url.split('/').pop() || '';
     const isMaster = isMasterByFilename(filename);
     const resolution = isMaster ? 99999 : guessResolutionFromFilename(filename);
     return { url, filename, isMaster, resolution, score: isMaster ? 100000 + resolution : resolution };
   });
-  
+
   scored.sort((a, b) => b.score - a.score);
   return scored[0];
 }
@@ -644,10 +644,10 @@ function waitForMediaUrl(tabId, timeoutMs = 15000) {
     const collectedUrls = [];
     const timeoutId = setTimeout(async () => {
       chrome.webRequest.onBeforeRequest.removeListener(listener);
-      
+
       const m3u8Urls = [...new Set(collectedUrls.filter(url => /\.m3u8/i.test(url)))];
       const mp4Urls = [...new Set(collectedUrls.filter(url => /\.mp4/i.test(url)))];
-      
+
       if (m3u8Urls.length > 0) {
         for (const url of m3u8Urls) {
           const resolved = await resolveBestQualityHls(url);
@@ -666,12 +666,12 @@ function waitForMediaUrl(tabId, timeoutMs = 15000) {
         resolve(m3u8Urls[0]);
         return;
       }
-      
+
       if (mp4Urls.length > 0) {
         resolve(mp4Urls[0]);
         return;
       }
-      
+
       resolve(null);
     }, timeoutMs);
 
@@ -757,11 +757,11 @@ async function extractMediaUrlFromPage(tabId) {
               }
               return { isMaster: true, bestUrl: url, variants: [] };
             }
-            
+
             if (isMediaPlaylist(text)) {
               return { isMaster: false, bestUrl: url, variants: null };
             }
-            
+
             return null;
           } catch {
             return null;
@@ -1413,18 +1413,18 @@ async function resolvePageToMedia(pageUrl, hostTabId, statusPrefix, targetEpisod
     let mediaUrl = resolution.mediaUrl;
     const resolvedSeriesContext = resolution.seriesContext || seriesContext;
     sendStatus(hostTabId, targetEpisode ? "Media URL captured after episode switch" : "Media URL captured from network");
-    
+
     let finalMediaUrl = mediaUrl;
     let finalMasterUrl = null;
     let finalVariants = null;
-    
+
     if (/\.m3u8/i.test(mediaUrl)) {
       const qualityResolved = await resolveBestQualityHls(mediaUrl);
       finalMediaUrl = qualityResolved.url;
       finalMasterUrl = qualityResolved.masterUrl;
       finalVariants = qualityResolved.variants;
     }
-    
+
     const cachedSeriesContext = getCachedSeriesContext(currentPageUrl);
     const finalSeriesContext = resolvedSeriesContext || cachedSeriesContext;
 
@@ -1618,7 +1618,7 @@ chrome.webRequest.onBeforeRequest.addListener(
     if (Number.isFinite(tabId) && RESOLVER_TAB_IDS.has(tabId)) {
       return;
     }
-    
+
     if (
       isExtensionPageUrl(details.initiator) ||
       isExtensionPageUrl(details.documentUrl) ||
@@ -1634,31 +1634,31 @@ chrome.webRequest.onBeforeRequest.addListener(
     if (details.documentUrl && details.documentUrl.includes('localhost:3000')) {
       return;
     }
-    
+
     // Always sniff from the search popup (opened via "Search" button).
     // Support tabId === -1 for media requests triggered directly by Chrome's media subsystem on the popup tab.
     const isSearchPopup = (tabId > 0 && tabId === _searchPopupTabId) || (_searchPopupTabId !== null && tabId === -1);
-    
+
     // Gate: only sniff when user explicitly enabled it (or it's the search popup)
     if (!_snifferActive && !isSearchPopup) return;
-    
+
     const url = details.url || '';
     if (!isValidMediaUrlSniffer(url)) return;
-    
+
     // Skip URLs from our own player (localhost:3000)
     if (tabId > 0 && MEDIA_SNIFFER_UI_CACHE.has(tabId)) return;
-    
+
     console.log("[Background] Media URL sniffed:", url.substring(0, 100));
-    
+
     chrome.tabs.query({}, (allTabs) => {
       if (!allTabs || !allTabs.length) return;
       const uiTabs = allTabs.filter(t => t.status === 'complete' && t.url && t.url.includes('localhost:3000'));
-      
+
       // Cache UI tab IDs to skip them on future requests
       for (const tab of uiTabs) {
         MEDIA_SNIFFER_UI_CACHE.add(tab.id);
       }
-      
+
       // Check if this request is from our own UI tab
       if (uiTabs.some(t => t.id === tabId)) return;
 

@@ -36,6 +36,9 @@ const playbackCorrectionCooldownMs = 1200;
 const playbackStatusIntervalMs = 200;
 const bufferingConfirmationMs = 500;
 const bufferingCorrectionMinimumMs = 700;
+const programmaticSeekLifetimeMs = 10000;
+const programmaticSeekToleranceSeconds = 0.75;
+
 function getTabClientId() {
   if (typeof window.__anyTogetherClientId === "string" && window.__anyTogetherClientId) {
     return window.__anyTogetherClientId;
@@ -79,7 +82,8 @@ const state = {
   remoteSeekSettlementTimer: null,
   remoteApplyTimer: null,
   remoteSeekActivityAt: 0,
-  programmaticSeekEvents: 0,
+  programmaticSeekExpiresAt: 0,
+  programmaticSeekTarget: null,
   programmaticPlayEvents: 0,
   programmaticPauseEvents: 0,
   seekGestureActive: false,
@@ -256,7 +260,7 @@ function attemptRemoteSeekSettlement(trigger = "seeked") {
       state.pendingSeek = null;
       state.pendingSeekObservedSeeked = false;
       state.pendingSeekRemoteStartedAt = now;
-      markProgrammaticSeek(5);
+      markProgrammaticSeek(targetTime);
       elements.player.currentTime = targetTime;
       scheduleRemoteSeekSettlementAttempt();
       return false;
@@ -281,7 +285,7 @@ function attemptRemoteSeekSettlement(trigger = "seeked") {
   state.remoteSeekActivityAt = Date.now();
   state.pendingSeek = null;
   state.pendingPlaybackState = null;
-  state.programmaticSeekEvents = 0;
+  clearProgrammaticSeek();
 
   logEvent("Remote buffering resumed", {
     trigger,
@@ -396,16 +400,34 @@ function suppressOutgoingEvents(durationMs = 500) {
   state.suppressOutgoingUntil = Math.max(state.suppressOutgoingUntil, performance.now() + durationMs);
 }
 
-function markProgrammaticSeek(eventCount = 2) {
-  state.programmaticSeekEvents += Math.max(1, eventCount);
+function clearProgrammaticSeek() {
+  state.programmaticSeekTarget = null;
+  state.programmaticSeekExpiresAt = 0;
 }
 
-function consumeProgrammaticSeekEvent() {
-  if (state.programmaticSeekEvents <= 0) {
+function markProgrammaticSeek(targetTime) {
+  state.programmaticSeekTarget = Math.max(0, Number.isFinite(targetTime) ? targetTime : 0);
+  state.programmaticSeekExpiresAt = performance.now() + programmaticSeekLifetimeMs;
+}
+
+function consumeProgrammaticSeekEvent(eventType) {
+  if (state.programmaticSeekTarget === null) {
     return false;
   }
 
-  state.programmaticSeekEvents -= 1;
+  const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
+  const markerExpired = performance.now() > state.programmaticSeekExpiresAt;
+  const matchesTarget = Math.abs(currentTime - state.programmaticSeekTarget) <= programmaticSeekToleranceSeconds;
+
+  if (markerExpired || !matchesTarget) {
+    clearProgrammaticSeek();
+    return false;
+  }
+
+  if (eventType === "seeked") {
+    clearProgrammaticSeek();
+  }
+
   return true;
 }
 
@@ -625,7 +647,7 @@ function rebuildPlaybackPipeline(reason, startPosition = elements.player.current
   suppressOutgoingEvents(2000);
   resetHlsRecoveryState();
   state.isBuffering = false;
-  state.programmaticSeekEvents = 0;
+  clearProgrammaticSeek();
   state.programmaticPlayEvents = 0;
   state.programmaticPauseEvents = 0;
   clearRemoteSeekSettlement();
@@ -773,7 +795,7 @@ function loadSource(url, options = {}) {
   state.remoteSeekActivityAt = 0;
   state.pendingSeekCommitStartedAt = 0;
   state.pendingSeekLastUpdatedAt = 0;
-  state.programmaticSeekEvents = 0;
+  clearProgrammaticSeek();
   state.programmaticPlayEvents = 0;
   state.programmaticPauseEvents = 0;
   clearPendingSeekCommitTimer();
@@ -855,7 +877,7 @@ function handleQualityOrTranslationRequest(message) {
       episodeId: message.requestedEpisodeId || "unchanged",
       requestToken: message.requestToken || "none"
     });
-    
+
     // Dispatch custom event for interface-ui.js to pick up
     window.dispatchEvent(new CustomEvent("anytogether:media-request", {
       detail: {
@@ -941,7 +963,7 @@ function applyRemoteState(snapshot) {
     if (currentTime !== null && (timelineAction || mediaChanged) && !guaranteedSeekHandled) {
       const playerTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
       const timeDiff = Math.abs(playerTime - currentTime);
-      
+
       if (timeDiff > 0.2 || state.pendingSeekIsRemote) {
         beginRemoteSeekSettlement();
         state.remoteSeekPending = true;
@@ -950,7 +972,7 @@ function applyRemoteState(snapshot) {
         }
 
         if (elements.player.readyState >= 1) {
-          markProgrammaticSeek(5);
+          markProgrammaticSeek(currentTime);
           elements.player.currentTime = currentTime;
           state.pendingSeek = null;
         } else {
@@ -1003,14 +1025,27 @@ function applyGuaranteedRemoteSeek(message) {
   if (!message || message.originClientId === state.clientId) return;
   const targetTime = Number(message.currentTime);
   if (!Number.isFinite(targetTime)) return;
+  const requestedPaused = typeof message.paused === "boolean" ? message.paused : null;
 
   if (state.lastGuaranteedSeekActionId === message.actionId) {
     if (state.pendingSeek !== null) state.pendingSeek = Math.max(0, targetTime);
+    if (requestedPaused !== null) {
+      if (state.pendingSeekIsRemote) {
+        state.pendingPlaybackState = requestedPaused;
+      } else {
+        applyPlaybackState(requestedPaused);
+      }
+    }
     return;
   }
 
   const playerTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
-  if (Math.abs(playerTime - targetTime) <= 0.25) return;
+  if (Math.abs(playerTime - targetTime) <= 0.25) {
+    state.lastGuaranteedSeekActionId = message.actionId || null;
+    suppressOutgoingEvents(500);
+    if (requestedPaused !== null) applyPlaybackState(requestedPaused);
+    return;
+  }
 
   state.lastGuaranteedSeekActionId = message.actionId || null;
   clearPendingSeekCommitTimer();
@@ -1018,11 +1053,12 @@ function applyGuaranteedRemoteSeek(message) {
   suppressOutgoingEvents(500);
   beginRemoteSeekSettlement();
   state.remoteSeekPending = true;
-  state.pendingPlaybackState = typeof message.paused === "boolean" ? message.paused : null;
+  state.pendingPlaybackState = requestedPaused;
 
   if (elements.player.readyState >= 1) {
-    markProgrammaticSeek(5);
-    elements.player.currentTime = Math.max(0, targetTime);
+    const seekTarget = Math.max(0, targetTime);
+    markProgrammaticSeek(seekTarget);
+    elements.player.currentTime = seekTarget;
     state.pendingSeek = null;
   } else {
     state.pendingSeek = Math.max(0, targetTime);
@@ -1050,7 +1086,7 @@ function sendMessage(payload) {
 
 function flushPendingIntents() {
   if (!state.connection || state.connection.readyState !== WebSocket.OPEN) return;
-  
+
   while (state.pendingIntents.length > 0) {
     const payload = state.pendingIntents.shift();
     state.connection.send(JSON.stringify(payload));
@@ -1092,6 +1128,9 @@ function correctPlaybackDrift(syncEntry, recoveredFromBuffering = false) {
     syncEntry.buffering ||
     (elements.player.paused && syncEntry.reason !== "seek") ||
     elements.player.seeking ||
+    state.seekGestureActive ||
+    state.pendingSeekTimer !== null ||
+    state.pendingSeekTarget !== null ||
     state.remoteSeekPending
   ) {
     return;
@@ -1101,11 +1140,12 @@ function correctPlaybackDrift(syncEntry, recoveredFromBuffering = false) {
   if (timestamp - state.lastPlaybackCorrectionAt < playbackCorrectionCooldownMs) return;
 
   state.lastPlaybackCorrectionAt = timestamp;
-  markProgrammaticSeek(4);
   const adjustmentMs = Number.isFinite(syncEntry.adjustmentMs)
     ? syncEntry.adjustmentMs
     : syncEntry.offsetMs;
-  elements.player.currentTime = Math.max(0, elements.player.currentTime + adjustmentMs / 1000);
+  const correctionTarget = Math.max(0, elements.player.currentTime + adjustmentMs / 1000);
+  markProgrammaticSeek(correctionTarget);
+  elements.player.currentTime = correctionTarget;
   logEvent("Playback drift corrected", { offsetMs: syncEntry.offsetMs, adjustmentMs });
 }
 
@@ -1245,6 +1285,15 @@ function finalizeLocalSeek() {
   resumeStreamBuffering(elements.player.currentTime);
   void attemptPendingSeekCommit("seeked");
   setPlaybackState();
+}
+
+function cancelPendingSeekForPlaybackToggle() {
+  clearPendingSeekCommitTimer();
+  state.pendingSeekTarget = null;
+  state.pendingSeekPaused = null;
+  state.pendingSeekCommitStartedAt = 0;
+  state.pendingSeekLastUpdatedAt = 0;
+  state.seekGestureActive = false;
 }
 
 let _wsReconnectCount = 0;
@@ -1737,8 +1786,10 @@ elements.player.addEventListener("play", () => {
 
   if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
     if (!isProgrammaticPlay) {
-      commitSeek(elements.player.currentTime, false, "play");
-      void attemptPendingSeekCommit("play");
+      cancelPendingSeekForPlaybackToggle();
+      sendPlayerIntent("play", {
+        currentTime: elements.player.currentTime
+      }, { force: true });
     }
 
     setPlaybackState();
@@ -1765,8 +1816,10 @@ elements.player.addEventListener("pause", () => {
     if (isProgrammaticPause) {
       handleHlsPlayingActivity();
     } else {
-      commitSeek(elements.player.currentTime, true, "pause");
-      void attemptPendingSeekCommit("pause");
+      cancelPendingSeekForPlaybackToggle();
+      sendPlayerIntent("pause", {
+        currentTime: elements.player.currentTime
+      }, { force: true });
     }
 
     setPlaybackState();
@@ -1787,7 +1840,7 @@ elements.player.addEventListener("pause", () => {
 });
 
 elements.player.addEventListener("seeking", () => {
-  if (consumeProgrammaticSeekEvent()) {
+  if (consumeProgrammaticSeekEvent("seeking")) {
     return;
   }
 
@@ -1795,7 +1848,7 @@ elements.player.addEventListener("seeking", () => {
 });
 
 elements.player.addEventListener("seeked", () => {
-  if (consumeProgrammaticSeekEvent()) {
+  if (consumeProgrammaticSeekEvent("seeked")) {
     if (state.pendingSeekIsRemote) {
       state.pendingSeekObservedSeeked = true;
       void attemptRemoteSeekSettlement("seeked");
@@ -1809,8 +1862,9 @@ elements.player.addEventListener("seeked", () => {
 
 elements.player.addEventListener("loadedmetadata", () => {
   if (state.pendingSeek !== null) {
-    markProgrammaticSeek();
-    elements.player.currentTime = Math.max(0, state.pendingSeek);
+    const seekTarget = Math.max(0, state.pendingSeek);
+    markProgrammaticSeek(seekTarget);
+    elements.player.currentTime = seekTarget;
     state.pendingSeek = null;
   }
 
