@@ -2481,9 +2481,8 @@ function refreshActiveRoom() {
 
 function renderParticipants() {
   const roomState = getActiveRoomState();
-  const participants = Array.isArray(roomState?.participants)
-    ? roomState.participants.filter((participant) => participant?.connected !== false)
-    : [];
+  const participants = Array.isArray(roomState?.participants) ? roomState.participants : [];
+  const hasMedia = Boolean(roomState?.currentMedia?.mediaUrl);
   participantsList.textContent = "";
   const participantsCount = document.getElementById("participantsCount");
   if (participantsCount) {
@@ -2524,7 +2523,7 @@ function renderParticipants() {
       actions.appendChild(accessBadge);
     }
 
-    if (canCurrentUserManageParticipants(roomState) && !isSelf) {
+    if (canCurrentUserManageParticipants(roomState) && !isSelf && participant.connected !== false) {
       const settingsButton = createIconButton(
         "gear",
         "participant-icon-btn settings-btn",
@@ -2556,29 +2555,36 @@ function renderParticipants() {
     const status = document.createElement("div");
     status.className = "pw-status";
     status.dataset.syncStatus = participantMenuKey;
+    const presenceStatus = getParticipantPresenceStatus(participant);
     const syncMs = getParticipantSyncMs(participant);
-    const syncClass = participant.connected === false
+    const syncClass = presenceStatus !== "online"
       ? "pw-dot-muted"
       : syncMs >= 400 ? "pw-dot-red" : syncMs >= 150 ? "pw-dot-yellow" : "pw-dot-green";
     const playbackState = participantPlaybackStates.get(participant.clientId) || "loading";
-    const playbackIconKind = playbackState === "playing"
+    const playbackIconKind = !hasMedia ? "empty" : playbackState === "playing"
       ? "play"
       : playbackState === "paused" ? "pause" : "loading";
     const playbackIcon = document.createElement("span");
-    playbackIcon.className = `participant-playback-status ${syncClass} ${playbackIconKind === "loading" ? "is-loading" : ""}`;
+    playbackIcon.className = `participant-playback-status ${syncClass} ${playbackIconKind === "loading" ? "is-loading" : ""} ${playbackIconKind === "empty" ? "is-empty" : ""}`;
     playbackIcon.dataset.playbackStatus = participantMenuKey;
     playbackIcon.dataset.playbackKind = playbackIconKind;
-    playbackIcon.title = playbackState;
-    playbackIcon.innerHTML = createInlineIcon(playbackIconKind);
+    playbackIcon.title = playbackIconKind === "empty" ? "No media loaded" : playbackState;
+    playbackIcon.textContent = playbackIconKind === "empty" ? "-" : "";
+    if (playbackIconKind !== "empty") playbackIcon.innerHTML = createInlineIcon(playbackIconKind);
     status.appendChild(playbackIcon);
-    status.appendChild(document.createTextNode(participant.connected === false ? "Offline" : `Sync ${syncMs}ms`));
+    const statusText = presenceStatus === "offline"
+      ? "Offline"
+      : presenceStatus === "not-in-room"
+        ? "Not in room"
+        : !hasMedia ? "No media loaded" : `Sync ${syncMs}ms`;
+    status.appendChild(document.createTextNode(statusText));
     nameRow.appendChild(status);
 
     item.appendChild(avatarWrap);
     item.appendChild(nameRow);
     item.appendChild(actions);
 
-    if (state.openParticipantMenuKey === participantMenuKey && canCurrentUserManageParticipants(roomState) && !isSelf) {
+    if (state.openParticipantMenuKey === participantMenuKey && canCurrentUserManageParticipants(roomState) && !isSelf && participant.connected !== false) {
       const menu = document.createElement("div");
       menu.className = "participant-menu";
 
@@ -2622,6 +2628,12 @@ function renderParticipants() {
   });
 }
 
+function getParticipantPresenceStatus(participant) {
+  if (participant?.presenceStatus === "not-in-room") return "not-in-room";
+  if (participant?.presenceStatus === "offline") return "offline";
+  return participant?.connected === false ? "offline" : "online";
+}
+
 function getParticipantSyncMs(participant) {
   if (typeof window.__getPlaybackSyncInfo === "function" && participant?.clientId) {
     const syncInfo = window.__getPlaybackSyncInfo(participant.clientId);
@@ -2643,7 +2655,8 @@ function refreshParticipantSyncIndicators() {
     if (!participant) return;
 
     const syncMs = getParticipantSyncMs(participant);
-    const syncClass = participant.connected === false
+    const presenceStatus = getParticipantPresenceStatus(participant);
+    const syncClass = presenceStatus !== "online"
       ? "pw-dot-muted"
       : syncMs >= 400 ? "pw-dot-red" : syncMs >= 150 ? "pw-dot-yellow" : "pw-dot-green";
     const icon = status.querySelector(".participant-playback-status");
@@ -2653,7 +2666,11 @@ function refreshParticipantSyncIndicators() {
     }
     const text = status.lastChild;
     if (text?.nodeType === Node.TEXT_NODE) {
-      text.textContent = participant.connected === false ? "Offline" : `Sync ${syncMs}ms`;
+      text.textContent = presenceStatus === "offline"
+        ? "Offline"
+        : presenceStatus === "not-in-room"
+          ? "Not in room"
+          : !roomState.currentMedia?.mediaUrl ? "No media loaded" : `Sync ${syncMs}ms`;
     }
   });
 }
@@ -2669,15 +2686,17 @@ function refreshParticipantPlaybackIndicators() {
     if (!participant) return;
 
     const playbackState = participantPlaybackStates.get(participant.clientId) || "loading";
-    const playbackIconKind = playbackState === "playing"
+    const playbackIconKind = !roomState.currentMedia?.mediaUrl ? "empty" : playbackState === "playing"
       ? "play"
       : playbackState === "paused" ? "pause" : "loading";
     if (icon.dataset.playbackKind !== playbackIconKind) {
-      icon.innerHTML = createInlineIcon(playbackIconKind);
+      icon.textContent = playbackIconKind === "empty" ? "-" : "";
+      if (playbackIconKind !== "empty") icon.innerHTML = createInlineIcon(playbackIconKind);
       icon.dataset.playbackKind = playbackIconKind;
     }
     icon.classList.toggle("is-loading", playbackIconKind === "loading");
-    icon.title = playbackState;
+    icon.classList.toggle("is-empty", playbackIconKind === "empty");
+    icon.title = playbackIconKind === "empty" ? "No media loaded" : playbackState;
   });
 }
 
