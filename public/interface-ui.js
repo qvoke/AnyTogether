@@ -864,29 +864,7 @@ function canCurrentUserManageParticipants(roomState = getActiveRoomState()) {
 }
 
 function getParticipantKey(participant) {
-  return String(participant?.userId || participant?.nickname || participant?.clientId || participant?.socketId || "participant");
-}
-
-function mergeParticipantPresence(previousParticipants, incomingParticipants) {
-  const incoming = Array.isArray(incomingParticipants) ? incomingParticipants : [];
-  const incomingByKey = new Map();
-  incoming.forEach((participant) => {
-    const key = getParticipantKey(participant);
-    const existing = incomingByKey.get(key);
-    incomingByKey.set(key, existing
-      ? { ...existing, ...participant, connected: existing.connected !== false || participant.connected !== false }
-      : { ...participant, connected: participant.connected !== false });
-  });
-  const seen = new Set(incomingByKey.keys());
-  const merged = [...incomingByKey.values()];
-
-  previousParticipants.forEach((participant) => {
-    if (!seen.has(getParticipantKey(participant))) {
-      merged.push({ ...participant, connected: false });
-    }
-  });
-
-  return merged;
+  return String(participant?.socketId || participant?.clientId || participant?.userId || participant?.nickname || "participant");
 }
 
 function createInlineIcon(kind) {
@@ -1119,10 +1097,8 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
     ? snapshot.sessionStartedAt
     : existing.sessionStartedAt;
   existing.memberCount = Number.isFinite(snapshot.memberCount) ? snapshot.memberCount : existing.memberCount;
-  if (Array.isArray(snapshot.participants)) {
-    existing.participants = mergeParticipantPresence(existing.participants, snapshot.participants);
-  }
-  if (state.activeRoomId === roomId) {
+  existing.participants = Array.isArray(snapshot.participants) ? snapshot.participants : existing.participants;
+  if (state.activeRoomId === roomId && !existing.participants.some((participant) => isSelfParticipant(participant))) {
     const localParticipant = {
       clientId,
       userId: state.currentUser?.id || null,
@@ -1134,19 +1110,7 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
       joinedAt: Date.now(),
       lastSeenAt: Date.now()
     };
-    const localParticipantIndex = existing.participants.findIndex((participant) =>
-      isSelfParticipant(participant) ||
-      (!state.currentUser?.id && !participant.userId && participant.nickname === localParticipant.nickname)
-    );
-    if (localParticipantIndex >= 0) {
-      existing.participants[localParticipantIndex] = {
-        ...existing.participants[localParticipantIndex],
-        ...localParticipant,
-        connected: true
-      };
-    } else {
-      existing.participants = [...existing.participants, localParticipant];
-    }
+    existing.participants = [...existing.participants, localParticipant];
   }
   existing.chat = Array.isArray(snapshot.chat) ? snapshot.chat : existing.chat;
   existing.playlist = Array.isArray(snapshot.playlist) ? snapshot.playlist : existing.playlist;
@@ -2517,7 +2481,9 @@ function refreshActiveRoom() {
 
 function renderParticipants() {
   const roomState = getActiveRoomState();
-  const participants = Array.isArray(roomState?.participants) ? roomState.participants : [];
+  const participants = Array.isArray(roomState?.participants)
+    ? roomState.participants.filter((participant) => participant?.connected !== false)
+    : [];
   participantsList.textContent = "";
   const participantsCount = document.getElementById("participantsCount");
   if (participantsCount) {
@@ -2558,7 +2524,7 @@ function renderParticipants() {
       actions.appendChild(accessBadge);
     }
 
-    if (canCurrentUserManageParticipants(roomState) && !isSelf && participant.connected !== false) {
+    if (canCurrentUserManageParticipants(roomState) && !isSelf) {
       const settingsButton = createIconButton(
         "gear",
         "participant-icon-btn settings-btn",
@@ -3755,7 +3721,6 @@ async function signInAccount(mode = state.authMode) {
 
 async function signOutAccount() {
   const token = getAuthToken();
-  const previousUserId = state.currentUser?.id || null;
   try {
     if (token) {
       await apiRequest("/api/auth/logout", { method: "POST" });
@@ -3764,32 +3729,9 @@ async function signOutAccount() {
 
   storeAuthToken(null);
   state.currentUser = null;
-  currentRole = "guest";
   state.roomsDirectory = [];
   nicknameInput.value = getPersistentGuestNickname();
   storeValue(STORAGE_KEYS.nickname, nicknameInput.value);
-  for (const roomState of state.roomStates.values()) {
-    roomState.participants = Array.isArray(roomState.participants)
-      ? roomState.participants.map((participant) => {
-        const wasAuthenticatedUser =
-          (previousUserId && participant.userId === previousUserId) || participant.clientId === clientId;
-        return wasAuthenticatedUser ? { ...participant, connected: false } : participant;
-      })
-      : [];
-    if (roomState.code === state.activeRoomId) {
-      roomState.participants.push({
-        clientId,
-        userId: null,
-        nickname: nicknameInput.value,
-        role: "guest",
-        canManageContent: false,
-        hasExtension: hasLocalExtension(),
-        connected: true,
-        joinedAt: Date.now(),
-        lastSeenAt: Date.now()
-      });
-    }
-  }
   if (state.ws && state.ws.readyState === WebSocket.OPEN) {
     sendWs({
       type: "auth:identify",
@@ -3802,8 +3744,6 @@ async function signOutAccount() {
   renderRoomsDirectory();
   renderTopbarUser();
   updateGuestIdentityCard();
-  renderParticipants();
-  renderChat();
 }
 
 async function createRoom() {
