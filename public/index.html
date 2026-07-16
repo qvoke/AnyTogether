@@ -193,10 +193,9 @@
       font-weight: 800;
       color: #fff;
       cursor: pointer;
-      transition: box-shadow 0.15s;
-      box-shadow: 0 0 0 2px transparent;
+      transition: opacity 0.15s;
     }
-    .topbar-avatar:hover { box-shadow: 0 0 0 2px var(--accent); }
+    .topbar-avatar:hover { opacity: .88; }
 
     .topbar-user { position: relative; }
     .topbar-user-menu {
@@ -1095,7 +1094,6 @@
     .player-settings-panel.is-open {
       display: flex;
       flex-direction: column;
-      animation: concept-picker-menu-in .18s ease-out both;
     }
     .player-settings-panel .settings-section { display:flex; flex-direction:column; gap:6px; padding:8px 12px; }
     .player-settings-panel .settings-label,
@@ -2081,7 +2079,7 @@
       width: 32px;
       height: 32px;
       place-items: center;
-      border: 2px solid rgba(152,124,255,.75);
+      border: 0;
       border-radius: 50%;
       background: #765be8;
       color: #fff;
@@ -2090,13 +2088,23 @@
     }
     .concept-room-topbar-avatar span { display:grid; width:100%; height:100%; place-items:center; }
     .concept-room-user-menu { position:absolute; top:calc(100% + 8px); right:0; z-index:40; min-width:150px; padding:6px; border:1px solid rgba(255,255,255,.08); border-radius:10px; background:#202137; box-shadow:0 14px 30px rgba(0,0,0,.35); }
-    .concept-language-menu { position:absolute; top:calc(100% + 8px); left:0; z-index:41; display:flex; min-width:128px; flex-direction:column; gap:2px; padding:8px; border:1px solid rgba(255,255,255,.08); border-radius:9px; background:#202137; box-shadow:0 14px 30px rgba(0,0,0,.35); transform-origin:top left; animation:concept-picker-menu-in .18s ease-out both; }
+    .concept-language-menu { position:absolute; top:calc(100% + 8px); left:50%; z-index:41; display:flex; min-width:128px; flex-direction:column; gap:2px; padding:8px; border:1px solid rgba(255,255,255,.08); border-radius:9px; background:#202137; box-shadow:0 14px 30px rgba(0,0,0,.35); transform:translateX(-50%); transform-origin:top center; animation:concept-picker-menu-in .18s ease-out both; }
     .concept-language-menu.hidden { display:none; }
     .concept-language-menu button { display:flex; width:100%; min-height:30px; align-items:center; padding:7px 8px; border:0; border-radius:6px; background:transparent; color:#d9d6e8; font-size:.72rem; text-align:left; }
     .concept-language-menu button:hover, .concept-language-menu button.is-active { background:rgba(152,124,255,.18); color:#fff; }
     .concept-room-topbar-user { position:relative; }
-    .concept-room-user-menu button { display:flex; width:100%; min-height:30px; align-items:center; padding:7px 9px; border:0; border-radius:7px; background:transparent; color:#d9d6e8; font-size:.72rem; text-align:left; }
+    .topbar-auth-controls { display:flex; align-items:center; gap:8px; }
+    .topbar-auth-controls button { min-height:32px; padding:6px 12px; border:1px solid transparent; border-radius:8px; background:#292a3d; color:#d9d6e8; font:inherit; font-size:.8rem; font-weight:700; cursor:pointer; }
+    .topbar-auth-controls button:hover { background:rgba(152,124,255,.16); color:#fff; }
+    .topbar-auth-controls [data-topbar-signup] { background:#a06bff; border-color:#a06bff; color:#fff; }
+    .shared-topbar-home .shared-topbar-user,
+    .shared-topbar-rooms .shared-topbar-user { grid-column:auto; margin-left:auto; }
+    .concept-room-user-menu button { display:flex; width:100%; min-height:34px; align-items:center; padding:8px 9px; border:0; border-radius:7px; background:transparent; color:#d9d6e8; font-size:.875rem; text-align:left; }
     .concept-room-user-menu button:hover { background:rgba(152,124,255,.16); }
+    .topbar-menu-icon { display:inline-flex; width:18px; margin-right:8px; align-items:center; justify-content:center; color:var(--muted); font-size:1rem; line-height:1; }
+    .topbar-menu-icon svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+    [data-topbar-signup] .topbar-menu-icon svg path:last-child { stroke-width:2.5; }
+    .concept-room-user-menu [data-topbar-signout] .topbar-menu-icon { color:inherit; }
     .concept-room-user-menu [data-topbar-language-dropdown] { display:flex; flex-direction:column; gap:2px; padding:2px 0; }
     .concept-room-user-menu [data-topbar-language-dropdown].hidden { display:none; }
     .room-search-adapters { display: none; }
@@ -2233,11 +2241,11 @@
     .concept-participant-item.pw-item .pw-actions { order:3; margin-left:auto; opacity:1; }
     .concept-participant-item .pw-info { order:2; }
     .concept-participant-item .pw-av { order:1; width:32px; height:32px; }
-    .participant-avatar { display:grid; width:100%; height:100%; place-items:center; overflow:hidden; border:2px solid rgba(152,124,255,.75); border-radius:50%; background:#765be8; color:#fff; font-size:.68rem; font-weight:800; }
+    .participant-avatar { display:grid; width:100%; height:100%; place-items:center; overflow:hidden; border:0; border-radius:50%; background:#765be8; color:#fff; font-size:.68rem; font-weight:800; }
     .participant-avatar img { width:100%; height:100%; object-fit:cover; }
     .chat-av { display:grid; width:30px; height:30px; flex:0 0 30px; place-items:center; margin-top:2px; }
     .chat-av .participant-avatar { font-size:.62rem; }
-    .concept-chat-item .chat-av .participant-avatar { width:30px; height:30px; border-width:2px; background:#765be8; }
+    .concept-chat-item .chat-av .participant-avatar { width:30px; height:30px; }
     .concept-chat-item .chat-content { min-width:0; }
     .concept-chat-item .chat-meta-row { align-items:baseline; }
     .concept-participant-item .pw-dot-yellow { background:#f5c451; box-shadow:0 0 4px #f5c451; }
@@ -3550,10 +3558,15 @@
         <button data-topbar-language-en type="button">English</button>
         <button data-topbar-language-ru type="button">Русский</button>
       </div>
-      <span class="concept-room-topbar-name" data-room-topbar-nick>Guest</span>
-      <button class="concept-room-topbar-avatar" data-topbar-avatar-button type="button" aria-label="Open account menu" aria-expanded="false"><span data-room-topbar-avatar>G</span></button>
-      <div class="topbar-user-menu concept-room-user-menu hidden" data-topbar-user-menu>
-        <button data-topbar-signout type="button">Sign out</button>
+      <div class="topbar-auth-controls" data-topbar-auth-controls>
+        <button data-topbar-signin type="button">Sign in</button>
+        <button data-topbar-signup type="button">Sign up</button>
+      </div>
+      <span class="concept-room-topbar-name" data-topbar-account data-room-topbar-nick>Guest</span>
+      <button class="concept-room-topbar-avatar" data-topbar-account data-topbar-avatar-button type="button" aria-label="Open account menu" aria-expanded="false"><span data-room-topbar-avatar>G</span></button>
+      <div class="topbar-user-menu concept-room-user-menu hidden" data-topbar-account data-topbar-user-menu>
+        <button data-topbar-change-nickname type="button"><span class="topbar-menu-icon" aria-hidden="true">✎</span><span>Change name</span></button>
+        <button data-topbar-signout type="button"><span class="topbar-menu-icon" aria-hidden="true">↩</span><span>Sign out</span></button>
       </div>
     </div>
   </header>

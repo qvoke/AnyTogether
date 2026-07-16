@@ -170,6 +170,9 @@ const languageMenuDropdown = document.getElementById("languageMenuDropdown");
 const languageEnglishButton = document.getElementById("languageEnglishButton");
 const languageRussianButton = document.getElementById("languageRussianButton");
 const signOutButtons = Array.from(document.querySelectorAll("[data-topbar-signout]"));
+const changeNicknameButtons = Array.from(document.querySelectorAll("[data-topbar-change-nickname]"));
+const signInButtons = Array.from(document.querySelectorAll("[data-topbar-signin]"));
+const signUpButtons = Array.from(document.querySelectorAll("[data-topbar-signup]"));
 const languageMenuButtons = Array.from(document.querySelectorAll("[data-topbar-language-button]"));
 const languageEnglishButtons = Array.from(document.querySelectorAll("[data-topbar-language-en]"));
 const languageRussianButtons = Array.from(document.querySelectorAll("[data-topbar-language-ru]"));
@@ -234,6 +237,7 @@ const I18N = {
     lastRoom: "Last room",
     returnLastRoom: "Return to last room",
     signOut: "Sign out",
+    changeName: "Change name",
     selectLanguage: "Select site language",
     room: "Room",
     language: "Language",
@@ -335,6 +339,7 @@ const I18N = {
     lastRoom: "Последняя комната",
     returnLastRoom: "Вернуться в последнюю комнату",
     signOut: "Выйти",
+    changeName: "Изменить имя",
     selectLanguage: "Выберите язык сайта",
     room: "Комната",
     language: "Язык",
@@ -536,6 +541,7 @@ function setLanguage(language) {
 
 function setLanguageMenuOpen(nextOpen) {
   state.languageMenuOpen = Boolean(nextOpen);
+  state.topbarMenuOpen = state.languageMenuOpen;
   renderTopbarUser();
 }
 
@@ -858,7 +864,29 @@ function canCurrentUserManageParticipants(roomState = getActiveRoomState()) {
 }
 
 function getParticipantKey(participant) {
-  return String(participant?.socketId || participant?.clientId || participant?.userId || participant?.nickname || "participant");
+  return String(participant?.userId || participant?.nickname || participant?.clientId || participant?.socketId || "participant");
+}
+
+function mergeParticipantPresence(previousParticipants, incomingParticipants) {
+  const incoming = Array.isArray(incomingParticipants) ? incomingParticipants : [];
+  const incomingByKey = new Map();
+  incoming.forEach((participant) => {
+    const key = getParticipantKey(participant);
+    const existing = incomingByKey.get(key);
+    incomingByKey.set(key, existing
+      ? { ...existing, ...participant, connected: existing.connected !== false || participant.connected !== false }
+      : { ...participant, connected: participant.connected !== false });
+  });
+  const seen = new Set(incomingByKey.keys());
+  const merged = [...incomingByKey.values()];
+
+  previousParticipants.forEach((participant) => {
+    if (!seen.has(getParticipantKey(participant))) {
+      merged.push({ ...participant, connected: false });
+    }
+  });
+
+  return merged;
 }
 
 function createInlineIcon(kind) {
@@ -1091,8 +1119,10 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
     ? snapshot.sessionStartedAt
     : existing.sessionStartedAt;
   existing.memberCount = Number.isFinite(snapshot.memberCount) ? snapshot.memberCount : existing.memberCount;
-  existing.participants = Array.isArray(snapshot.participants) ? snapshot.participants : existing.participants;
-  if (state.activeRoomId === roomId && !existing.participants.some((participant) => isSelfParticipant(participant))) {
+  if (Array.isArray(snapshot.participants)) {
+    existing.participants = mergeParticipantPresence(existing.participants, snapshot.participants);
+  }
+  if (state.activeRoomId === roomId) {
     const localParticipant = {
       clientId,
       userId: state.currentUser?.id || null,
@@ -1104,7 +1134,19 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
       joinedAt: Date.now(),
       lastSeenAt: Date.now()
     };
-    existing.participants = [...existing.participants, localParticipant];
+    const localParticipantIndex = existing.participants.findIndex((participant) =>
+      isSelfParticipant(participant) ||
+      (!state.currentUser?.id && !participant.userId && participant.nickname === localParticipant.nickname)
+    );
+    if (localParticipantIndex >= 0) {
+      existing.participants[localParticipantIndex] = {
+        ...existing.participants[localParticipantIndex],
+        ...localParticipant,
+        connected: true
+      };
+    } else {
+      existing.participants = [...existing.participants, localParticipant];
+    }
   }
   existing.chat = Array.isArray(snapshot.chat) ? snapshot.chat : existing.chat;
   existing.playlist = Array.isArray(snapshot.playlist) ? snapshot.playlist : existing.playlist;
@@ -1501,12 +1543,26 @@ function updateLanguageDependentText() {
   topbarRoomCodeButton.querySelector("small").textContent = translate("room");
   signOutButtons.forEach((button) => {
     button.title = translate("signOut");
-    const label = button.querySelector("span");
+    const label = button.querySelector("span:last-child");
     if (label) {
       label.textContent = translate("signOut");
     } else {
       button.textContent = translate("signOut");
     }
+  });
+  changeNicknameButtons.forEach((button) => {
+    const label = button.querySelector("span:last-child");
+    if (label) label.textContent = translate("changeName");
+  });
+  signInButtons.forEach((button) => {
+    const label = button.querySelector("span:last-child");
+    if (label) label.textContent = translate("signIn");
+    else button.textContent = translate("signIn");
+  });
+  signUpButtons.forEach((button) => {
+    const label = button.querySelector("span:last-child");
+    if (label) label.textContent = translate("signUp");
+    else button.textContent = translate("signUp");
   });
 
   authTitle.textContent = translate("authTitle");
@@ -1714,8 +1770,12 @@ function updateActiveRoomHeader() {
 }
 
 function renderTopbarUser() {
-  const signedIn = isAuthenticated();
+  const signedIn = Boolean(getAuthToken());
   const nick = state.currentUser?.displayName || normalizeNickname(nicknameInput.value);
+  const avatarIdentity = {
+    userId: state.currentUser?.id,
+    nickname: nick
+  };
   document.querySelectorAll("[data-topbar-user]").forEach((user) => {
     user.classList.toggle("hidden", !signedIn);
   });
@@ -1727,34 +1787,55 @@ function renderTopbarUser() {
   });
   document.querySelectorAll("[data-topbar-avatar]").forEach((avatar) => {
     avatar.textContent = nick.charAt(0).toUpperCase();
+    avatar.closest("button")?.style.setProperty("background", getAvatarGradient(avatarIdentity));
   });
   document.querySelectorAll("[data-room-topbar-nick]").forEach((display) => {
     display.textContent = nick;
   });
   document.querySelectorAll("[data-room-topbar-avatar]").forEach((avatar) => {
     avatar.textContent = nick.charAt(0).toUpperCase();
+    avatar.closest("button")?.style.setProperty("background", getAvatarGradient(avatarIdentity));
+  });
+  document.querySelectorAll("[data-topbar-account]").forEach((account) => {
+    account.classList.toggle("hidden", !signedIn);
+  });
+  document.querySelectorAll("[data-topbar-auth-controls]").forEach((controls) => {
+    controls.classList.toggle("hidden", signedIn);
   });
   topbarAvatarButtons.forEach((button) => {
     button.setAttribute("aria-expanded", String(signedIn && state.topbarMenuOpen));
   });
   document.querySelectorAll("[data-topbar-user-menu]").forEach((menu) => {
     const isRoomMenu = menu.classList.contains("concept-room-user-menu");
-    menu.classList.toggle("hidden", isRoomMenu
-      ? !(state.topbarMenuOpen && !state.languageMenuOpen)
-      : !(signedIn && state.topbarMenuOpen));
+    menu.classList.toggle("hidden", !(signedIn && state.topbarMenuOpen && (!isRoomMenu || !state.languageMenuOpen)));
   });
   document.querySelectorAll(".concept-language-menu").forEach((menu) => {
     menu.classList.toggle("hidden", !(state.topbarMenuOpen && state.languageMenuOpen));
   });
   signOutButtons.forEach((button) => button.classList.toggle("hidden", !signedIn));
-  if (!signedIn && !state.languageMenuOpen) {
-    state.topbarMenuOpen = false;
-  }
+  changeNicknameButtons.forEach((button) => button.classList.toggle("hidden", !signedIn));
+  signInButtons.forEach((button) => button.classList.toggle("hidden", signedIn));
+  signUpButtons.forEach((button) => button.classList.toggle("hidden", signedIn));
   languageMenuButtons.forEach((button) => {
     button.setAttribute("aria-expanded", String(state.topbarMenuOpen && state.languageMenuOpen));
   });
   languageDropdowns.forEach((dropdown) => {
     dropdown.classList.toggle("hidden", !(state.topbarMenuOpen && state.languageMenuOpen));
+  });
+  positionLanguageDropdowns();
+}
+
+function positionLanguageDropdowns() {
+  languageMenuButtons.forEach((button, index) => {
+    const dropdown = languageDropdowns[index];
+    const parent = dropdown?.offsetParent;
+    if (!dropdown || !parent || dropdown.classList.contains("hidden")) return;
+
+    const buttonRect = button.getBoundingClientRect();
+    const parentRect = parent.getBoundingClientRect();
+    dropdown.style.left = `${buttonRect.left + buttonRect.width / 2 - parentRect.left}px`;
+    dropdown.style.right = "auto";
+    dropdown.style.transform = "translateX(-50%)";
   });
 }
 
@@ -2436,9 +2517,7 @@ function refreshActiveRoom() {
 
 function renderParticipants() {
   const roomState = getActiveRoomState();
-  const participants = Array.isArray(roomState?.participants)
-    ? roomState.participants.filter((participant) => participant?.connected !== false)
-    : [];
+  const participants = Array.isArray(roomState?.participants) ? roomState.participants : [];
   participantsList.textContent = "";
   const participantsCount = document.getElementById("participantsCount");
   if (participantsCount) {
@@ -2479,7 +2558,7 @@ function renderParticipants() {
       actions.appendChild(accessBadge);
     }
 
-    if (canCurrentUserManageParticipants(roomState) && !isSelf) {
+    if (canCurrentUserManageParticipants(roomState) && !isSelf && participant.connected !== false) {
       const settingsButton = createIconButton(
         "gear",
         "participant-icon-btn settings-btn",
@@ -2699,6 +2778,15 @@ async function promptParticipantNicknameChange(participant) {
         (state.currentUser?.id && item.userId && item.userId === state.currentUser.id);
       return isLocalParticipant ? { ...item, nickname: nextName } : item;
     });
+    if (Array.isArray(roomState.chat)) {
+      roomState.chat = roomState.chat.map((message) => {
+        const author = message.author;
+        const isLocalAuthor =
+          (author?.clientId && author.clientId === clientId) ||
+          (state.currentUser?.id && author?.userId && author.userId === state.currentUser.id);
+        return isLocalAuthor ? { ...message, author: { ...author, nickname: nextName } } : message;
+      });
+    }
   }
   renderTopbarUser();
   updateGuestIdentityCard();
@@ -2739,7 +2827,7 @@ function renderChat() {
 
     const author = document.createElement("div");
     author.className = "chat-author";
-    author.textContent = message.author?.nickname || translate("system");
+    author.textContent = authorParticipant?.nickname || message.author?.nickname || translate("system");
 
     const meta = document.createElement("div");
     meta.className = "chat-time";
@@ -2958,11 +3046,33 @@ function renderRoomsDirectory() {
   });
 }
 
+const AVATAR_GRADIENTS = [
+  ["#7c5dfa", "#c084fc"],
+  ["#34d399", "#059669"],
+  ["#38bdf8", "#3b82f6"],
+  ["#fb7185", "#e11d48"],
+  ["#f59e0b", "#ea580c"],
+  ["#22d3ee", "#0891b2"]
+];
+
+function getAvatarGradient(participant) {
+  const identity = String(
+    participant?.userId || participant?.id || participant?.nickname || participant?.clientId || "guest"
+  );
+  let hash = 0;
+  for (const character of identity) {
+    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  }
+  const [from, to] = AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length];
+  return `linear-gradient(135deg, ${from}, ${to})`;
+}
+
 function createParticipantAvatar(participant, className = "participant-avatar") {
   const avatarUrl = String(participant?.avatarUrl || participant?.avatar || participant?.photoUrl || "").trim();
   const avatar = document.createElement("div");
   avatar.className = className === "participant-avatar" ? className : `${className} participant-avatar`;
   avatar.setAttribute("aria-hidden", "true");
+  avatar.style.background = getAvatarGradient(participant);
 
   if (avatarUrl) {
     const image = document.createElement("img");
@@ -3645,6 +3755,7 @@ async function signInAccount(mode = state.authMode) {
 
 async function signOutAccount() {
   const token = getAuthToken();
+  const previousUserId = state.currentUser?.id || null;
   try {
     if (token) {
       await apiRequest("/api/auth/logout", { method: "POST" });
@@ -3653,9 +3764,32 @@ async function signOutAccount() {
 
   storeAuthToken(null);
   state.currentUser = null;
+  currentRole = "guest";
   state.roomsDirectory = [];
   nicknameInput.value = getPersistentGuestNickname();
   storeValue(STORAGE_KEYS.nickname, nicknameInput.value);
+  for (const roomState of state.roomStates.values()) {
+    roomState.participants = Array.isArray(roomState.participants)
+      ? roomState.participants.map((participant) => {
+        const wasAuthenticatedUser =
+          (previousUserId && participant.userId === previousUserId) || participant.clientId === clientId;
+        return wasAuthenticatedUser ? { ...participant, connected: false } : participant;
+      })
+      : [];
+    if (roomState.code === state.activeRoomId) {
+      roomState.participants.push({
+        clientId,
+        userId: null,
+        nickname: nicknameInput.value,
+        role: "guest",
+        canManageContent: false,
+        hasExtension: hasLocalExtension(),
+        connected: true,
+        joinedAt: Date.now(),
+        lastSeenAt: Date.now()
+      });
+    }
+  }
   if (state.ws && state.ws.readyState === WebSocket.OPEN) {
     sendWs({
       type: "auth:identify",
@@ -3668,6 +3802,8 @@ async function signOutAccount() {
   renderRoomsDirectory();
   renderTopbarUser();
   updateGuestIdentityCard();
+  renderParticipants();
+  renderChat();
 }
 
 async function createRoom() {
@@ -4348,24 +4484,38 @@ function bindUi() {
     }
   });
   signOutButtons.forEach((button) => button.addEventListener("click", signOutAccount));
+  signInButtons.forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeTopbarMenu();
+    window.location.href = resolvePageUrl("./?page=rooms&auth=signin");
+  }));
+  signUpButtons.forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    closeTopbarMenu();
+    window.location.href = resolvePageUrl("./?page=rooms&auth=signup");
+  }));
+  changeNicknameButtons.forEach((button) => button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const participant = getSelfParticipant(getActiveRoomState()) || { clientId };
+    promptParticipantNicknameChange(participant);
+    closeTopbarMenu();
+  }));
   topbarAvatarButtons.forEach((button) => button.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (!isAuthenticated()) return;
-    state.topbarMenuOpen = !state.topbarMenuOpen;
-    if (!state.topbarMenuOpen) {
-      state.languageMenuOpen = false;
+    const accountMenuIsOpen = state.topbarMenuOpen && !state.languageMenuOpen;
+    if (accountMenuIsOpen) {
+      closeTopbarMenu();
+      return;
     }
+    state.topbarMenuOpen = true;
+    state.languageMenuOpen = false;
     renderTopbarUser();
   }));
   languageMenuButtons.forEach((button) => button.addEventListener("click", (event) => {
     event.stopPropagation();
     const isRoomLanguageButton = Boolean(button.closest(".concept-room-topbar-user"));
     if (!isRoomLanguageButton && (!isAuthenticated() || !state.topbarMenuOpen)) return;
-    if (isRoomLanguageButton) {
-      state.topbarMenuOpen = true;
-    }
-    state.languageMenuOpen = !state.languageMenuOpen;
-    renderTopbarUser();
+    setLanguageMenuOpen(!state.languageMenuOpen);
   }));
   languageEnglishButtons.forEach((button) => button.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -4407,10 +4557,17 @@ function bindUi() {
     }
   });
   document.addEventListener("click", (event) => {
-    if (state.topbarMenuOpen && !event.target.closest(".topbar-user, .concept-room-topbar-user")) {
+    const target = event.target instanceof Element ? event.target : null;
+    if (state.topbarMenuOpen && (!target || !target.closest(".topbar-user, .concept-room-topbar-user"))) {
       closeTopbarMenu();
     }
-  });
+  }, true);
+  document.addEventListener("pointerdown", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+    if (state.topbarMenuOpen && (!target || !target.closest(".topbar-user, .concept-room-topbar-user"))) {
+      closeTopbarMenu();
+    }
+  }, true);
   document.addEventListener("click", (event) => {
     if (!state.openParticipantMenuKey) return;
     if (event.target.closest(".participant-actions")) return;

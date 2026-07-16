@@ -46,24 +46,21 @@ function createTopbarMarkup(view) {
       ` : ""}
       <button id="${lastRoomId}" data-last-room class="topbar-pill topbar-pill-accent" type="button">Last room ›</button>
       <span class="topbar-spacer"></span>
-      ${isHome ? `
-        <div data-home-auth-controls>
-          <button id="homeSignInButton" class="btn btn-ghost btn-sm">Sign in</button>
-          <button id="homeSignUpButton" class="btn btn-primary btn-sm">Sign up</button>
+      <div class="concept-room-topbar-user shared-topbar-user" aria-label="User controls">
+        <button class="concept-language-button" data-topbar-language-button type="button" aria-label="Choose language" aria-expanded="false"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.4 2.4 3.6 5.4 3.6 9S14.4 20 12 21c-2.4-1-3.6-4.6-3.6-9S9.6 4 12 3Z"/></svg></button>
+        <div class="concept-language-menu hidden" data-topbar-language-dropdown>
+          <button data-topbar-language-en type="button">English</button>
+          <button data-topbar-language-ru type="button">Русский</button>
         </div>
-      ` : ""}
-      <div id="topbarUser" data-topbar-user class="topbar-user hidden" style="display:flex;align-items:center;gap:6px">
-        <span id="topbarNickDisplay" data-topbar-nick>Guest</span>
-        <button id="topbarAvatarButton" data-topbar-avatar-button class="topbar-avatar" type="button" aria-expanded="false" aria-label="Open account menu">
-          <span id="topbarAvatar" data-topbar-avatar>G</span>
-        </button>
-        <div id="topbarUserMenu" data-topbar-user-menu class="topbar-user-menu hidden">
-          <button id="languageMenuButton" data-topbar-language-button type="button"><span id="languageMenuLabel" data-topbar-language-label></span></button>
-          <div id="languageMenuDropdown" data-topbar-language-dropdown>
-            <button id="languageEnglishButton" data-topbar-language-en type="button"></button>
-            <button id="languageRussianButton" data-topbar-language-ru type="button"></button>
-          </div>
-          <button id="signOutButton" data-topbar-signout type="button"><span>Sign out</span></button>
+        <div class="topbar-auth-controls" data-topbar-auth-controls>
+          <button data-topbar-signin type="button">Sign in</button>
+          <button data-topbar-signup type="button">Sign up</button>
+        </div>
+        <span class="concept-room-topbar-name" data-topbar-account data-room-topbar-nick>Guest</span>
+        <button class="concept-room-topbar-avatar" data-topbar-account data-topbar-avatar-button type="button" aria-expanded="false" aria-label="Open account menu"><span data-room-topbar-avatar>G</span></button>
+        <div class="topbar-user-menu concept-room-user-menu hidden" data-topbar-account data-topbar-user-menu>
+          <button data-topbar-change-nickname type="button"><span class="topbar-menu-icon" aria-hidden="true">✎</span><span>Change name</span></button>
+          <button data-topbar-signout type="button"><span class="topbar-menu-icon" aria-hidden="true">↩</span><span>Sign out</span></button>
         </div>
       </div>
       ${isRooms || isRoom ? `
