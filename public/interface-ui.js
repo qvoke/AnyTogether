@@ -214,6 +214,7 @@ let _snifferEnabled = false;
 let loadedMediaKey = null;
 let pendingSearchStatusTimer = null;
 const pendingRoomJoins = new Set();
+const participantPlaybackStates = new Map();
 // Store the hash parameters (#t:56-s:2-e:1) so they can be applied after the series loads.
 let _pendingRezkaHash = null;
 let _lastLoadedMediaKey = "";
@@ -861,6 +862,18 @@ function getParticipantKey(participant) {
 }
 
 function createInlineIcon(kind) {
+  if (kind === "play") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="m8 5 11 7-11 7V5Z" /></svg>`;
+  }
+
+  if (kind === "pause") {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M7 5h3v14H7V5Zm7 0h3v14h-3V5Z" /></svg>`;
+  }
+
+  if (kind === "loading") {
+    return `<svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="8" /></svg>`;
+  }
+
   if (kind === "eye-off") {
     return `
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -2498,13 +2511,21 @@ function renderParticipants() {
     const status = document.createElement("div");
     status.className = "pw-status";
     status.dataset.syncStatus = participantMenuKey;
-    const statusDot = document.createElement("span");
     const syncMs = getParticipantSyncMs(participant);
     const syncClass = participant.connected === false
       ? "pw-dot-muted"
       : syncMs >= 400 ? "pw-dot-red" : syncMs >= 150 ? "pw-dot-yellow" : "pw-dot-green";
-    statusDot.className = `pw-dot ${syncClass}`;
-    status.appendChild(statusDot);
+    const playbackState = participantPlaybackStates.get(participant.clientId) || "loading";
+    const playbackIconKind = playbackState === "playing"
+      ? "play"
+      : playbackState === "paused" ? "pause" : "loading";
+    const playbackIcon = document.createElement("span");
+    playbackIcon.className = `participant-playback-status ${syncClass} ${playbackIconKind === "loading" ? "is-loading" : ""}`;
+    playbackIcon.dataset.playbackStatus = participantMenuKey;
+    playbackIcon.dataset.playbackKind = playbackIconKind;
+    playbackIcon.title = playbackState;
+    playbackIcon.innerHTML = createInlineIcon(playbackIconKind);
+    status.appendChild(playbackIcon);
     status.appendChild(document.createTextNode(participant.connected === false ? "Offline" : `Sync ${syncMs}ms`));
     nameRow.appendChild(status);
 
@@ -2580,12 +2601,38 @@ function refreshParticipantSyncIndicators() {
     const syncClass = participant.connected === false
       ? "pw-dot-muted"
       : syncMs >= 400 ? "pw-dot-red" : syncMs >= 150 ? "pw-dot-yellow" : "pw-dot-green";
-    const dot = status.querySelector(".pw-dot");
-    if (dot) dot.className = `pw-dot ${syncClass}`;
+    const icon = status.querySelector(".participant-playback-status");
+    if (icon) {
+      icon.classList.remove("pw-dot-green", "pw-dot-yellow", "pw-dot-red", "pw-dot-muted");
+      icon.classList.add(syncClass);
+    }
     const text = status.lastChild;
     if (text?.nodeType === Node.TEXT_NODE) {
       text.textContent = participant.connected === false ? "Offline" : `Sync ${syncMs}ms`;
     }
+  });
+}
+
+function refreshParticipantPlaybackIndicators() {
+  const roomState = getActiveRoomState();
+  if (!roomState || !participantsList) return;
+
+  participantsList.querySelectorAll("[data-playback-status]").forEach((icon) => {
+    const participant = roomState.participants?.find((item) =>
+      getParticipantMenuKey(roomState, item) === icon.dataset.playbackStatus
+    );
+    if (!participant) return;
+
+    const playbackState = participantPlaybackStates.get(participant.clientId) || "loading";
+    const playbackIconKind = playbackState === "playing"
+      ? "play"
+      : playbackState === "paused" ? "pause" : "loading";
+    if (icon.dataset.playbackKind !== playbackIconKind) {
+      icon.innerHTML = createInlineIcon(playbackIconKind);
+      icon.dataset.playbackKind = playbackIconKind;
+    }
+    icon.classList.toggle("is-loading", playbackIconKind === "loading");
+    icon.title = playbackState;
   });
 }
 
@@ -4611,6 +4658,21 @@ async function start() {
 
     if (event.data?.type) {
       console.log("[Interface UI] Message received:", event.data.type);
+    }
+    if (event.data?.type === "anytogether:participant-playback") {
+      const roomId = normalizeRoomCode(event.data.roomId);
+      if (!roomId || roomId !== state.activeRoomId) return;
+      for (const member of Array.isArray(event.data.members) ? event.data.members : []) {
+        if (member?.clientId) {
+          participantPlaybackStates.set(member.clientId, member.playbackState || "loading");
+        }
+      }
+      if (participantsList.querySelector("[data-playback-status]")) {
+        refreshParticipantPlaybackIndicators();
+      } else {
+        renderParticipants();
+      }
+      return;
     }
     if (event.data?.type === PAGE_EVENT_SERIES_CONTEXT_FOUND) {
       const payload = event.data?.payload || {};

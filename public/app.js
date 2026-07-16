@@ -1593,7 +1593,7 @@ window.__getPlaybackSyncInfo = (participantClientId = state.clientId) => {
   const reportedSync = state.playbackSyncOffsets.get(participantClientId);
   if (reportedSync && Number.isFinite(reportedSync.offsetMs)) {
     return {
-      offsetMs: reportedSync.active ? Math.max(0, Math.round(reportedSync.offsetMs)) : 0,
+      offsetMs: Math.max(0, Math.round(reportedSync.offsetMs)),
       buffering: Boolean(reportedSync.buffering),
       active: Boolean(reportedSync.active)
     };
@@ -1609,6 +1609,14 @@ setInterval(reportPlaybackStatus, playbackStatusIntervalMs);
 
 function renderMembers(members) {
   elements.memberList.innerHTML = "";
+  window.postMessage({
+    type: "anytogether:participant-playback",
+    roomId: state.room,
+    members: members.map((member) => ({
+      clientId: member.clientId,
+      playbackState: member.playbackState || "loading"
+    }))
+  }, "*");
 
   if (!members.length) {
     const empty = document.createElement("div");

@@ -2469,6 +2469,24 @@
     }
     .pw-dot-green { background: var(--green); box-shadow: 0 0 4px var(--green); }
     .pw-dot-grey  { background: #4a5568; }
+    .participant-playback-status {
+      display: inline-grid;
+      width: 12px;
+      height: 12px;
+      place-items: center;
+      flex-shrink: 0;
+    }
+    .participant-playback-status svg { width: 11px; height: 11px; fill: currentColor; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+    .participant-playback-status.pw-dot-green { color: var(--green); }
+    .participant-playback-status.pw-dot-yellow { color: #f5c451; }
+    .participant-playback-status.pw-dot-red { color: #f05b70; }
+    .participant-playback-status.pw-dot-muted { color: #4a5568; }
+    .participant-playback-status.pw-dot-green,
+    .participant-playback-status.pw-dot-yellow,
+    .participant-playback-status.pw-dot-red,
+    .participant-playback-status.pw-dot-muted { background: transparent; box-shadow: none; }
+    .participant-playback-status.is-loading svg { fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-dasharray: 18 32; transform-origin: center; animation: participant-loading-spin 0.9s linear infinite; }
+    @keyframes participant-loading-spin { to { transform: rotate(360deg); } }
 
     .pw-badges { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
     .pw-actions { display: flex; gap: 4px; align-items: center; flex-shrink: 0; }
