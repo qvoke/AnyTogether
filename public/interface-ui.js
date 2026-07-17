@@ -1098,7 +1098,7 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
     : existing.sessionStartedAt;
   existing.memberCount = Number.isFinite(snapshot.memberCount) ? snapshot.memberCount : existing.memberCount;
   existing.participants = Array.isArray(snapshot.participants) ? snapshot.participants : existing.participants;
-  if (state.activeRoomId === roomId && !existing.participants.some((participant) => isSelfParticipant(participant))) {
+  if (state.activeRoomId === roomId) {
     const localParticipant = {
       clientId,
       userId: state.currentUser?.id || null,
@@ -1110,7 +1110,19 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
       joinedAt: Date.now(),
       lastSeenAt: Date.now()
     };
-    existing.participants = [...existing.participants, localParticipant];
+    const localParticipantIndex = existing.participants.findIndex((participant) =>
+      isSelfParticipant(participant) ||
+      (!state.currentUser?.id && !participant.userId && participant.nickname === localParticipant.nickname)
+    );
+    if (localParticipantIndex >= 0) {
+      existing.participants[localParticipantIndex] = {
+        ...existing.participants[localParticipantIndex],
+        ...localParticipant,
+        connected: true
+      };
+    } else {
+      existing.participants = [...existing.participants, localParticipant];
+    }
   }
   existing.chat = Array.isArray(snapshot.chat) ? snapshot.chat : existing.chat;
   existing.playlist = Array.isArray(snapshot.playlist) ? snapshot.playlist : existing.playlist;
@@ -2561,7 +2573,7 @@ function renderParticipants() {
       ? "pw-dot-muted"
       : syncMs >= 400 ? "pw-dot-red" : syncMs >= 150 ? "pw-dot-yellow" : "pw-dot-green";
     const playbackState = participantPlaybackStates.get(participant.clientId) || "loading";
-    const playbackIconKind = !hasMedia ? "empty" : playbackState === "playing"
+    const playbackIconKind = !hasMedia || presenceStatus !== "online" ? "empty" : playbackState === "playing"
       ? "play"
       : playbackState === "paused" ? "pause" : "loading";
     const playbackIcon = document.createElement("span");
@@ -2686,7 +2698,7 @@ function refreshParticipantPlaybackIndicators() {
     if (!participant) return;
 
     const playbackState = participantPlaybackStates.get(participant.clientId) || "loading";
-    const playbackIconKind = !roomState.currentMedia?.mediaUrl ? "empty" : playbackState === "playing"
+    const playbackIconKind = !roomState.currentMedia?.mediaUrl || getParticipantPresenceStatus(participant) !== "online" ? "empty" : playbackState === "playing"
       ? "play"
       : playbackState === "paused" ? "pause" : "loading";
     if (icon.dataset.playbackKind !== playbackIconKind) {
@@ -3580,6 +3592,13 @@ function syncProfile() {
   const canManageContent = canCurrentUserManageContent();
 
   if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+    if (!queryRoom) {
+      sendWs({
+        type: "presence:active",
+        nickname,
+        userId: state.currentUser?.id || null
+      });
+    }
     state.joinedRooms.forEach((roomId) => {
       sendWs({
       type: "room:profile",
@@ -4135,6 +4154,16 @@ function leaveActiveRoom() {
   leaveRoom(state.activeRoomId);
 }
 
+function notifyRoomExitForNavigation() {
+  if (!queryRoom || !state.activeRoomId || state.ws?.readyState !== WebSocket.OPEN) return;
+  state.ws.send(JSON.stringify({
+    type: "room:leave",
+    roomId: state.activeRoomId,
+    keepNotInRoom: true,
+    originId: clientId
+  }));
+}
+
 function renderRoomsPageNow() {
   if (pageMode !== "rooms") return;
   renderRoomsDirectory();
@@ -4157,8 +4186,15 @@ function connectWs() {
       });
     }
     syncProfile();
+    sendWs({
+      type: "presence:active",
+      nickname: normalizeNickname(nicknameInput.value),
+      userId: state.currentUser?.id || null
+    });
 
-    const roomsToJoin = new Set([...pendingRoomJoins, ...state.joinedRooms]);
+    const roomsToJoin = queryRoom
+      ? new Set([...pendingRoomJoins, queryRoom])
+      : new Set();
     roomsToJoin.forEach((roomId) => {
       sendJoinMessage(roomId);
     });
@@ -4421,6 +4457,16 @@ function bindUi() {
   });
 
   if (homeLink) homeLink.href = resolvePageUrl("./");
+  document.querySelectorAll("a[href]").forEach((link) => {
+    link.addEventListener("click", () => {
+      if (queryRoom) {
+        const targetUrl = new URL(link.href, window.location.href);
+        if (targetUrl.searchParams.get("room") !== queryRoom) {
+          notifyRoomExitForNavigation();
+        }
+      }
+    });
+  });
   roomsLinks.forEach((link) => {
     link.href = resolvePageUrl("./?page=rooms");
   });
@@ -4732,6 +4778,15 @@ function startUiClock() {
     updateRoomsDirectoryClock();
   }, 1000);
   setInterval(refreshParticipantSyncIndicators, 250);
+  setInterval(() => {
+    if (!queryRoom && state.ws?.readyState === WebSocket.OPEN) {
+      sendWs({
+        type: "presence:active",
+        nickname: normalizeNickname(nicknameInput.value),
+        userId: state.currentUser?.id || null
+      });
+    }
+  }, 2000);
 }
 
 async function start() {
