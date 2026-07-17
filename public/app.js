@@ -50,6 +50,7 @@ function getTabClientId() {
 const state = {
   clientId: getTabClientId(),
   connection: null,
+  hasExtension: false,
   currentControl: null,
   currentMediaUrl: "",
   pendingInterfaceMediaUrl: null,
@@ -474,13 +475,14 @@ function canBroadcastLocalChange() {
   return !state.isApplyingRemoteState && performance.now() >= state.suppressOutgoingUntil;
 }
 
-function getWsUrl(room, role, name) {
+function getWsUrl(room, role, name, hasExtension = false) {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const params = new URLSearchParams({
     room,
     role,
     name,
-    clientId: state.clientId
+    clientId: state.clientId,
+    hasExtension: hasExtension ? "true" : "false"
   });
 
   return `${protocol}//${location.host}/ws?${params.toString()}`;
@@ -1348,7 +1350,7 @@ function connectRoom() {
   elements.activeRoom.textContent = state.room;
   setConnectionLabel("Connecting");
 
-  const socket = new WebSocket(getWsUrl(state.room, state.role, name));
+  const socket = new WebSocket(getWsUrl(state.room, state.role, name, state.hasExtension));
   state.connection = socket;
 
   socket.addEventListener("open", () => {
@@ -1588,10 +1590,11 @@ window.__sendTranslationRequest = sendTranslationRequest;
 window.__sendMediaRequest = sendMediaRequest;
 window.__anyTogetherRequestAutoplay = requestProgrammaticAutoplay;
 window.anyTogetherSyncBridge = {
-  connectRoom(room, role, name) {
+  connectRoom(room, role, name, hasExtension = false) {
     const nextRoom = String(room || "").trim() || "lobby";
     const nextRole = String(role || "guest");
     const nextName = String(name || "Guest").trim() || "Guest";
+    const nextHasExtension = hasExtension === true;
     const connectionIsActive = state.connection &&
       (state.connection.readyState === WebSocket.OPEN || state.connection.readyState === WebSocket.CONNECTING);
     const connectionMatches = state.room === nextRoom;
@@ -1599,6 +1602,7 @@ window.anyTogetherSyncBridge = {
     elements.roomInput.value = nextRoom;
     elements.roleSelect.value = nextRole;
     elements.displayName.value = nextName;
+    state.hasExtension = nextHasExtension;
 
     if (connectionIsActive && connectionMatches) {
       state.role = nextRole;
@@ -1607,7 +1611,8 @@ window.anyTogetherSyncBridge = {
           type: "join",
           roomId: nextRoom,
           name: nextName,
-          role: nextRole
+          role: nextRole,
+          hasExtension: nextHasExtension
         });
       }
       return true;

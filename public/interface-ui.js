@@ -39,7 +39,7 @@ const backendBaseUrl = resolveBackendBaseUrl(
     DEFAULT_BACKEND_BASE_URL
 );
 
-const EXTENSION_PROBE_TIMEOUT_MS = 500;
+const EXTENSION_PROBE_TIMEOUT_MS = 1000;
 let pendingExtensionProbe = null;
 
 function getTabClientId() {
@@ -206,7 +206,7 @@ const state = {
   pendingAutoplayRoomId: null,
   openParticipantMenuKey: null,
   topbarMenuOpen: false,
-  extensionDetected: Boolean(window.anyTogetherSyncBridge),
+  extensionDetected: false,
   roomsDirectory: [],
   roomStates: new Map(),
   loadingRooms: false,
@@ -787,7 +787,7 @@ function promoteToHost() {
 }
 
 function hasLocalExtension() {
-  return state.extensionDetected || Boolean(window.anyTogetherSyncBridge);
+  return state.extensionDetected;
 }
 
 function resolvePendingExtensionProbe(isDetected) {
@@ -3256,7 +3256,7 @@ function bridgeToSyncEngine() {
   const nextRole = currentRole || "guest";
 
   if (window.anyTogetherSyncBridge?.connectRoom) {
-    window.anyTogetherSyncBridge.connectRoom(nextRoom, nextRole, nextName);
+    window.anyTogetherSyncBridge.connectRoom(nextRoom, nextRole, nextName, hasLocalExtension());
     return;
   }
 
@@ -3701,15 +3701,17 @@ function syncProfile() {
     }
     state.joinedRooms.forEach((roomId) => {
       sendWs({
-      type: "room:profile",
-      roomId,
-      nickname,
-      canManageContent,
-      hasExtension: hasLocalExtension(),
-      clientId
-    });
+        type: "room:profile",
+        roomId,
+        nickname,
+        canManageContent,
+        hasExtension: hasLocalExtension(),
+        clientId
+      });
     });
   }
+
+  bridgeToSyncEngine();
 }
 
 async function fetchRoomsDirectory() {
@@ -5232,7 +5234,9 @@ async function start() {
     }
   });
 
-  void probeExtensionAvailability();
+  void probeExtensionAvailability().then((detected) => {
+    console.log("[Interface UI] Extension availability:", detected ? "detected" : "not detected");
+  });
 
   // Reset duplicate guard when iframe navigates to a new page (only if throttle expired)
   if (searchResultsFrame) {
@@ -5249,7 +5253,15 @@ async function start() {
   window.addEventListener("anytogether:media-request", (event) => {
     const detail = event.detail || {};
     const roomState = getActiveRoomState();
-    if (!roomState || !isCurrentUserCreator(roomState) || !hasLocalExtension()) return;
+    if (!roomState || !hasLocalExtension()) return;
+
+    console.log("[Interface UI] Media picker request received:", {
+      seasonId: detail.requestedSeasonId ?? null,
+      episodeId: detail.requestedEpisodeId ?? null,
+      translatorId: detail.requestedTranslatorId ?? null,
+      qualityLabel: detail.requestedQualityLabel || null,
+      from: detail.requestedBy || null
+    });
 
     appendPlaybackDebugEntry("Host received media request", {
       seasonId: detail.requestedSeasonId,
