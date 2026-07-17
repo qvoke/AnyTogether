@@ -52,6 +52,9 @@ const state = {
   connection: null,
   currentControl: null,
   currentMediaUrl: "",
+  pendingInterfaceMediaUrl: null,
+  lastPlaybackStatusDebugSignature: "",
+  lastPresenceDebugSignature: "",
   currentRevision: 0,
   playbackSyncOffsets: new Map(),
   lastPlaybackCorrectionAt: 0,
@@ -129,6 +132,7 @@ function formatDetail(detail) {
 }
 
 function logEvent(title, detail = "") {
+  console.log("[Playback]", title, detail);
   const entry = document.createElement("article");
   entry.className = "event";
 
@@ -173,6 +177,14 @@ function setPlaybackState() {
   elements.currentMediaLabel.textContent = mediaLabel;
   elements.playbackState.textContent = elements.player.paused ? "Paused" : "Playing";
   elements.revisionLabel.textContent = String(state.currentRevision);
+}
+
+function showMediaPlayer() {
+  elements.player.style.display = "block";
+  elements.player
+    .closest(".player-shell")
+    ?.querySelector(".player-idle-state")
+    ?.classList.add("hidden");
 }
 
 function updateControlState(control, source = "room") {
@@ -800,8 +812,7 @@ function loadSource(url, options = {}) {
   state.programmaticPauseEvents = 0;
   clearPendingSeekCommitTimer();
 
-  elements.player.style.display = "block";
-  document.querySelector(".player-idle-state")?.classList.add("hidden");
+  showMediaPlayer();
 
   void loadPlayerSource(nextUrl, forceReload);
 
@@ -810,7 +821,6 @@ function loadSource(url, options = {}) {
     sourceUrl: nextUrl
   });
   setPlaybackState();
-  // Force update the play/pause button icon in custom UI
   if (window.__updatePlayButton) {
     window.__updatePlayButton();
   }
@@ -944,12 +954,14 @@ function applyRemoteState(snapshot) {
       const isNewLoadAction = snapshot.lastAction === "load" &&
         snapshot.lastActionId &&
         snapshot.lastActionId !== state.lastAppliedLoadActionId;
-      const shouldReload = mediaUrl !== state.currentMediaUrl || isNewLoadAction;
+      const matchesInterfaceLoad = state.pendingInterfaceMediaUrl === mediaUrl;
+      const shouldReload = mediaUrl !== state.currentMediaUrl || (isNewLoadAction && !matchesInterfaceLoad);
       loadSource(mediaUrl, {
         forceReload: shouldReload,
         reason: "remote",
         suppressMs: 1500
       });
+      if (matchesInterfaceLoad) state.pendingInterfaceMediaUrl = null;
       if (isNewLoadAction) state.lastAppliedLoadActionId = snapshot.lastActionId;
     }
 
@@ -1105,15 +1117,33 @@ function clearBufferingDetectionTimer() {
 function reportPlaybackStatus() {
   if (!state.connection || state.connection.readyState !== WebSocket.OPEN || !elements.player) return;
 
-  state.connection.send(JSON.stringify({
+  const payload = {
     type: "playback-status",
     roomId: state.room,
     clientId: state.clientId,
     currentTime: Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0,
     paused: elements.player.paused,
-    buffering: state.isBuffering,
+    buffering: !elements.player.paused && state.isBuffering,
     applyingSeek: state.remoteSeekPending || elements.player.seeking
-  }));
+  };
+  const debugSignature = JSON.stringify({
+    paused: payload.paused,
+    buffering: payload.buffering,
+    applyingSeek: payload.applyingSeek
+  });
+
+  if (debugSignature !== state.lastPlaybackStatusDebugSignature) {
+    state.lastPlaybackStatusDebugSignature = debugSignature;
+    logEvent("Playback status sent", {
+      clientId: state.clientId,
+      paused: payload.paused,
+      buffering: payload.buffering,
+      applyingSeek: payload.applyingSeek,
+      currentTime: payload.currentTime.toFixed(2)
+    });
+  }
+
+  state.connection.send(JSON.stringify(payload));
 }
 
 function correctPlaybackDrift(syncEntry, recoveredFromBuffering = false) {
@@ -1175,14 +1205,11 @@ function intentPayloadSummary(action, payload) {
 }
 
 function sendPlayerIntent(action, payload = {}, options = {}) {
-  // Play and pause always go through, bypassing suppression and remoteSeekPending
   if (action === "play" || action === "pause") {
-    // skip canBroadcastLocalChange check
   } else if (!options.force && !canBroadcastLocalChange()) {
     return false;
   }
 
-  // Don't send seek while remote seek settlement is active
   if (action === "seek" && state.remoteSeekPending && !options.force) {
     return false;
   }
@@ -1296,21 +1323,9 @@ function cancelPendingSeekForPlaybackToggle() {
   state.seekGestureActive = false;
 }
 
-let _wsReconnectCount = 0;
-const WS_MAX_RECONNECT = 3;
-
 function connectRoom() {
-
   if (state.connection) {
     state.connection.close();
-  }
-
-  // Limit reconnect attempts to prevent infinite loop in console
-  _wsReconnectCount++;
-  if (_wsReconnectCount > WS_MAX_RECONNECT) {
-    setConnectionLabel("Server offline");
-    logEvent("Connection limited", "Max reconnect attempts reached. Refresh to retry.");
-    return;
   }
 
   state.room = elements.roomInput.value.trim() || "lobby";
@@ -1330,7 +1345,7 @@ function connectRoom() {
     }
 
     state.isConnected = true;
-    _wsReconnectCount = 0;
+    state.role = elements.roleSelect.value;
     setConnectionLabel("Connected");
     logEvent("Connected", {
       room: state.room,
@@ -1340,7 +1355,7 @@ function connectRoom() {
     sendMessage({
       type: "join",
       roomId: state.room,
-      name,
+      name: elements.displayName.value.trim() || "Guest",
       role: state.role
     });
 
@@ -1556,7 +1571,6 @@ function sendMediaRequest(params) {
   });
 }
 
-// Expose functions for interface-ui.js
 window.__sendQualityRequest = sendQualityRequest;
 window.__sendTranslationRequest = sendTranslationRequest;
 window.__sendMediaRequest = sendMediaRequest;
@@ -1568,15 +1582,24 @@ window.anyTogetherSyncBridge = {
     const nextName = String(name || "Guest").trim() || "Guest";
     const connectionIsActive = state.connection &&
       (state.connection.readyState === WebSocket.OPEN || state.connection.readyState === WebSocket.CONNECTING);
-    const connectionMatches = state.room === nextRoom &&
-      elements.roleSelect.value === nextRole &&
-      elements.displayName.value === nextName;
+    const connectionMatches = state.room === nextRoom;
 
     elements.roomInput.value = nextRoom;
     elements.roleSelect.value = nextRole;
     elements.displayName.value = nextName;
 
-    if (connectionIsActive && connectionMatches) return true;
+    if (connectionIsActive && connectionMatches) {
+      state.role = nextRole;
+      if (state.connection.readyState === WebSocket.OPEN) {
+        sendMessage({
+          type: "join",
+          roomId: nextRoom,
+          name: nextName,
+          role: nextRole
+        });
+      }
+      return true;
+    }
     connectRoom();
     return true;
   },
@@ -1585,7 +1608,18 @@ window.anyTogetherSyncBridge = {
     if (!mediaUrl) return false;
     if (state.currentMediaUrl === mediaUrl) return true;
     elements.mediaUrl.value = mediaUrl;
-    loadManualMedia();
+    state.pendingInterfaceMediaUrl = mediaUrl;
+    logEvent("Interface media load requested", {
+      mediaUrl,
+      connected: state.connection?.readyState === WebSocket.OPEN
+    });
+    loadSource(mediaUrl, {
+      forceReload: true,
+      reason: "interface",
+      suppressMs: 2000
+    });
+    state.pendingSeek = 0;
+    state.pendingPlaybackState = true;
     return true;
   }
 };
@@ -1609,12 +1643,22 @@ setInterval(reportPlaybackStatus, playbackStatusIntervalMs);
 
 function renderMembers(members) {
   elements.memberList.innerHTML = "";
+  const playbackStates = members
+    .map((member) => `${member.clientId}:${member.playbackState || "paused"}`)
+    .sort();
+  const debugSignature = playbackStates.join(",");
+
+  if (debugSignature !== state.lastPresenceDebugSignature) {
+    state.lastPresenceDebugSignature = debugSignature;
+    logEvent("Participant playback received", debugSignature || "none");
+  }
+
   window.postMessage({
     type: "anytogether:participant-playback",
     roomId: state.room,
     members: members.map((member) => ({
       clientId: member.clientId,
-      playbackState: member.playbackState || "loading"
+      playbackState: member.playbackState || "paused"
     }))
   }, "*");
 
@@ -1805,7 +1849,16 @@ elements.seekButton.addEventListener("click", () => {
 elements.syncButton.addEventListener("click", () => sendMessage({ type: "request-sync" }));
 
 elements.player.addEventListener("play", () => {
+  showMediaPlayer();
   const isProgrammaticPlay = consumeProgrammaticPlaybackEvent(false);
+  logEvent("Player play event", {
+    clientId: state.clientId,
+    programmatic: isProgrammaticPlay,
+    buffering: state.isBuffering,
+    seekGesture: state.seekGestureActive,
+    pendingSeek: state.pendingSeekTarget !== null || state.pendingSeekTimer !== null,
+    connected: state.connection?.readyState === WebSocket.OPEN
+  });
 
   if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
     if (!isProgrammaticPlay) {
@@ -1826,7 +1879,6 @@ elements.player.addEventListener("play", () => {
     return;
   }
 
-  // Play intent always sent (sendPlayerIntent bypasses suppression for play/pause)
   sendPlayerIntent("play", {
     currentTime: elements.player.currentTime
   });
@@ -1834,6 +1886,14 @@ elements.player.addEventListener("play", () => {
 
 elements.player.addEventListener("pause", () => {
   const isProgrammaticPause = consumeProgrammaticPlaybackEvent(true);
+  logEvent("Player pause event", {
+    clientId: state.clientId,
+    programmatic: isProgrammaticPause,
+    buffering: state.isBuffering,
+    seekGesture: state.seekGestureActive,
+    pendingSeek: state.pendingSeekTarget !== null || state.pendingSeekTimer !== null,
+    connected: state.connection?.readyState === WebSocket.OPEN
+  });
 
   if (state.seekGestureActive || state.isBuffering || state.pendingSeekTimer || state.pendingSeekTarget !== null) {
     if (isProgrammaticPause) {
@@ -1856,7 +1916,6 @@ elements.player.addEventListener("pause", () => {
     return;
   }
 
-  // Pause intent always sent (sendPlayerIntent bypasses suppression for play/pause)
   sendPlayerIntent("pause", {
     currentTime: elements.player.currentTime
   });
@@ -1884,6 +1943,7 @@ elements.player.addEventListener("seeked", () => {
 });
 
 elements.player.addEventListener("loadedmetadata", () => {
+  showMediaPlayer();
   if (state.pendingSeek !== null) {
     const seekTarget = Math.max(0, state.pendingSeek);
     markProgrammaticSeek(seekTarget);
@@ -1903,9 +1963,18 @@ elements.player.addEventListener("loadedmetadata", () => {
   setPlaybackState();
 });
 
-elements.player.addEventListener("loadeddata", handleHlsPlayingActivity);
-elements.player.addEventListener("canplay", handleHlsPlayingActivity);
-elements.player.addEventListener("playing", handleHlsPlayingActivity);
+elements.player.addEventListener("loadeddata", () => {
+  showMediaPlayer();
+  handleHlsPlayingActivity();
+});
+elements.player.addEventListener("canplay", () => {
+  showMediaPlayer();
+  handleHlsPlayingActivity();
+});
+elements.player.addEventListener("playing", () => {
+  showMediaPlayer();
+  handleHlsPlayingActivity();
+});
 elements.player.addEventListener("waiting", handleWaitingLikeEvent);
 elements.player.addEventListener("stalled", handleWaitingLikeEvent);
 

@@ -218,13 +218,12 @@ let loadedMediaKey = null;
 let pendingSearchStatusTimer = null;
 const pendingRoomJoins = new Set();
 const participantPlaybackStates = new Map();
-// Store the hash parameters (#t:56-s:2-e:1) so they can be applied after the series loads.
 let _pendingRezkaHash = null;
 let _lastLoadedMediaKey = "";
 let _lastLoadBlockedUntil = 0;
 let _lastLoadHadContext = false;
-
-let _lastSyncActiveRoomAt = 0;
+let syncMediaBlockUntil = 0;
+let lastSyncMediaKey = null;
 let _searchPopupWindow = null;
 const LOAD_BLOCK_DURATION_MS = 5000;
 const SYNC_BLOCK_DURATION_MS = 2000;
@@ -2572,7 +2571,7 @@ function renderParticipants() {
     const syncClass = presenceStatus !== "online"
       ? "pw-dot-muted"
       : syncMs >= 400 ? "pw-dot-red" : syncMs >= 150 ? "pw-dot-yellow" : "pw-dot-green";
-    const playbackState = participantPlaybackStates.get(participant.clientId) || "loading";
+    const playbackState = participantPlaybackStates.get(participant.clientId) || "paused";
     const playbackIconKind = !hasMedia || presenceStatus !== "online" ? "empty" : playbackState === "playing"
       ? "play"
       : playbackState === "paused" ? "pause" : "loading";
@@ -2697,7 +2696,7 @@ function refreshParticipantPlaybackIndicators() {
     );
     if (!participant) return;
 
-    const playbackState = participantPlaybackStates.get(participant.clientId) || "loading";
+    const playbackState = participantPlaybackStates.get(participant.clientId) || "paused";
     const playbackIconKind = !roomState.currentMedia?.mediaUrl || getParticipantPresenceStatus(participant) !== "online" ? "empty" : playbackState === "playing"
       ? "play"
       : playbackState === "paused" ? "pause" : "loading";
@@ -3314,13 +3313,6 @@ function triggerPendingAutoplay(roomId) {
 }
 
 function syncActiveRoomMedia(forceReload = false) {
-  // Throttle: prevent repeated syncs within SYNC_BLOCK_DURATION_MS
-  const now = Date.now();
-  if (now < _lastSyncActiveRoomAt) {
-    appendPlaybackDebugEntry("syncActiveRoomMedia throttled", { remainingMs: _lastSyncActiveRoomAt - now });
-    return;
-  }
-
   const roomState = getActiveRoomState();
   bridgeToSyncEngine();
 
@@ -3337,6 +3329,7 @@ function syncActiveRoomMedia(forceReload = false) {
   const mediaUrlInput = document.getElementById("mediaUrl");
   const currentLoadedUrl = String(mediaUrlInput?.value || "").trim();
   const shouldAutoplay = state.pendingAutoplayRoomId === roomState.code;
+  const now = Date.now();
 
   if (currentLoadedUrl && currentLoadedUrl === effectiveUrl) {
     loadedMediaKey = mediaKey;
@@ -3348,11 +3341,18 @@ function syncActiveRoomMedia(forceReload = false) {
   const shouldReload = forceReload || loadedMediaKey !== mediaKey;
 
   if (shouldReload) {
-    _lastSyncActiveRoomAt = now + SYNC_BLOCK_DURATION_MS;
-    // Save master playlist URL so loadManualMedia / loadSource can use it
+    if (lastSyncMediaKey === mediaKey && now < syncMediaBlockUntil) {
+      appendPlaybackDebugEntry("syncActiveRoomMedia throttled", {
+        mediaKey,
+        remainingMs: syncMediaBlockUntil - now
+      });
+      return;
+    }
+
+    lastSyncMediaKey = mediaKey;
+    syncMediaBlockUntil = now + SYNC_BLOCK_DURATION_MS;
     if (roomState.currentMedia.masterPlaylistUrl) {
       const masterUrl = roomState.currentMedia.masterPlaylistUrl;
-      // Store in a data attribute on the mediaUrl input for loadManualMedia
       const mediaUrlInput = document.getElementById("mediaUrl");
       if (mediaUrlInput) {
         mediaUrlInput.dataset.masterPlaylistUrl = masterUrl;
@@ -4813,7 +4813,9 @@ async function start() {
 
   appendPlaybackDebugEntry("Debug log ready", "Playback events will appear here.");
   window.addEventListener("anytogether:sync-log", (event) => {
-    appendPlaybackDebugEntry(event.detail?.title || "Playback event", event.detail?.detail || "");
+    const title = event.detail?.title || "Playback event";
+    const detail = event.detail?.detail || "";
+    appendPlaybackDebugEntry(title, detail);
   });
 
   window.addEventListener("message", (event) => {
@@ -4835,7 +4837,7 @@ async function start() {
       if (!roomId || roomId !== state.activeRoomId) return;
       for (const member of Array.isArray(event.data.members) ? event.data.members : []) {
         if (member?.clientId) {
-          participantPlaybackStates.set(member.clientId, member.playbackState || "loading");
+          participantPlaybackStates.set(member.clientId, member.playbackState || "paused");
         }
       }
       if (participantsList.querySelector("[data-playback-status]")) {
