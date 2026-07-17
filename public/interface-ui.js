@@ -1150,6 +1150,7 @@ function createDefaultUi(seriesContext) {
   const seasons = Array.isArray(seriesContext?.seasons) ? seriesContext.seasons : [];
   const translators = Array.isArray(seriesContext?.translators) ? seriesContext.translators : [];
   const qualities = Array.isArray(seriesContext?.availableQualities) ? seriesContext.availableQualities : [];
+  const highestQuality = getHighestQuality(qualities);
 
   return {
     seasonId:
@@ -1165,9 +1166,19 @@ function createDefaultUi(seriesContext) {
       null,
     qualityLabel:
       seriesContext?.selectedQualityLabel ??
-      qualities[0]?.label ??
+      highestQuality?.label ??
       null
   };
+}
+
+function getHighestQuality(qualities) {
+  if (!Array.isArray(qualities) || qualities.length === 0) return null;
+  return qualities
+    .map((quality) => ({
+      quality,
+      value: Number.parseInt(String(quality?.label || "").replace(/[^0-9]/g, ""), 10) || 0
+    }))
+    .sort((left, right) => right.value - left.value)[0]?.quality || qualities[0];
 }
 
 function buildSeriesContextSignature(seriesContext) {
@@ -2237,7 +2248,7 @@ function renderSeriesPanel() {
 
   const qualities = getAvailableQualities();
   if (qualityPickerValue) {
-    qualityPickerValue.textContent = ui.qualityLabel || (qualities.length > 0 ? qualities[0].label : "");
+    qualityPickerValue.textContent = ui.qualityLabel || getHighestQuality(qualities)?.label || "";
   }
 
   if (!seriesContext || seasons.length < 1) {
@@ -4905,7 +4916,13 @@ async function start() {
     }
 
     if (event.data?.type === PAGE_EVENT_MEDIA_FOUND) {
-      console.log("[Interface UI] PAGE_EVENT_MEDIA_FOUND payload:", event.data?.payload?.mediaUrl?.substring(0, 80));
+      console.log("[Interface UI] PAGE_EVENT_MEDIA_FOUND payload:", {
+        mediaUrl: event.data?.payload?.mediaUrl?.substring(0, 80),
+        qualities: Array.isArray(event.data?.payload?.seriesContext?.availableQualities)
+          ? event.data.payload.seriesContext.availableQualities.length
+          : 0,
+        resolver: event.data?.payload?.seriesContext?.resolver?.provider || null
+      });
       clearPendingSearchStatusTimer();
       const payload = event.data?.payload || {};
       const incomingRoomId = normalizeRoomCode(payload.roomId);

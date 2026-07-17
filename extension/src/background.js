@@ -139,6 +139,13 @@ function pickStreamOption(options, preferredQualityLabel, defaultQualityLabel) {
   return options[0];
 }
 
+function pickHighestStreamOption(options) {
+  if (!Array.isArray(options) || options.length === 0) return null;
+  return options
+    .map((option) => ({ option, resolution: Number.parseInt(String(option?.label || "").replace(/[^0-9]/g, ""), 10) || 0 }))
+    .sort((left, right) => right.resolution - left.resolution)[0]?.option || options[0];
+}
+
 const parseRezkaStreamOptions = parseStreamOptions;
 const pickRezkaStreamOption = pickStreamOption;
 
@@ -214,8 +221,8 @@ function buildDirectStreamResolution(resolverConfig, ajaxData, seriesContext, ta
   const streamOptions = parseStreamOptions(streamList);
   const selectedStream = pickRezkaStreamOption(
     streamOptions,
-    options.qualityLabel || readObjectPath(ajaxData, responseConfig.qualityPath),
-    readObjectPath(ajaxData, responseConfig.defaultQualityPath)
+    options.qualityLabel,
+    null
   );
 
   if (!selectedStream?.url) return null;
@@ -1087,8 +1094,8 @@ async function resolveMediaViaProfile(tabId, currentPageUrl, profile, seriesCont
           const streamOptions = parseRezkaStreamOptions(ajaxData.url);
           const selectedStream = pickRezkaStreamOption(
             streamOptions,
-            targetEpisode.selectedQualityLabel || ajaxData.quality,
-            ajaxData.default_quality
+            targetEpisode.selectedQualityLabel,
+            null
           );
           const resolved = finalizeAjaxPayload(ajaxData, selectedStream, activeContext);
           if (resolved) {
@@ -1113,8 +1120,8 @@ async function resolveMediaViaProfile(tabId, currentPageUrl, profile, seriesCont
             const streamOptions = parseRezkaStreamOptions(ajaxData.url);
             const selectedStream = pickRezkaStreamOption(
               streamOptions,
-              activeContext?.selectedQualityLabel || ajaxData.quality,
-              ajaxData.default_quality
+              activeContext?.selectedQualityLabel,
+              null
             );
             const resolved = finalizeAjaxPayload(ajaxData, selectedStream, activeContext);
             if (resolved) {
@@ -1603,10 +1610,11 @@ function isExtensionPageUrl(value) {
   return /^chrome-extension:\/\//i.test(String(value || ""));
 }
 
-// Sniff media URLs (m3u8/mp4) from sites the user visits in the popup
-// and forward them to our UI page for playback.
-// Only active when user explicitly enables it via the sniffer toggle button.
-// Skip requests from our own page (localhost:3000) to avoid loops.
+function isMediaLikePageUrl(value) {
+  const text = String(value || "");
+  return /(?:stream|crimson|red|indigo)\.voidboost\.cc|\.m3u8(?:\?|$)|\.mp4(?:\?|$)/i.test(text);
+}
+
 // Sniff media URLs (m3u8/mp4) from sites the user visits in the popup
 // and forward them to our UI page for playback.
 // Only active when user explicitly enables it via the sniffer toggle button.
@@ -1662,11 +1670,6 @@ chrome.webRequest.onBeforeRequest.addListener(
       // Check if this request is from our own UI tab
       if (uiTabs.some(t => t.id === tabId)) return;
 
-      const isMediaLikePageUrl = (value) => {
-        const text = String(value || "");
-        return /(?:stream|crimson|red|indigo)\.voidboost\.cc|\.m3u8(?:\?|$)|\.mp4(?:\?|$)/i.test(text);
-      };
-
       const pickSourcePageUrl = (...candidates) => {
         for (const candidate of candidates) {
           if (typeof candidate !== "string" || !candidate) continue;
@@ -1692,19 +1695,7 @@ chrome.webRequest.onBeforeRequest.addListener(
           }
         }
 
-        for (const tab of uiTabs) {
-          sendTabMessage(tab.id, {
-            type: "WT_MEDIA_FOUND",
-            payload: {
-              roomId: null,
-              mediaUrl: url,
-              masterPlaylistUrl: null,
-              pageUrl: resolvedSourcePageUrl || url,
-              sourcePageUrl: resolvedSourcePageUrl || url,
-              seriesContext: seriesContext || null
-            }
-          });
-        }
+        void forwardMediaToUi(url, resolvedSourcePageUrl || url, seriesContext, resolvedSourcePageUrl || url, sourceTabId);
       };
 
       if (typeof tabId === "number" && tabId > 0) {
@@ -1724,7 +1715,7 @@ chrome.webRequest.onBeforeRequest.addListener(
 );
 
 // Forward media URL found by content-script (from XHR interception, video elements, etc.)
-function forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl = null) {
+async function forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl = null, sourceTabId = null) {
   const signature = buildMediaForwardSignature(mediaUrl, pageUrl, seriesContext, sourcePageUrl);
   const now = Date.now();
   const lastSeen = FORWARDED_MEDIA_CACHE.get(signature) || 0;
@@ -1733,7 +1724,87 @@ function forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl = null
   }
   FORWARDED_MEDIA_CACHE.set(signature, now);
 
-  console.log("[Background] Forwarding media from content-script:", mediaUrl.substring(0, 100));
+  let resolvedMediaUrl = mediaUrl;
+  let resolvedMasterPlaylistUrl = null;
+  let resolvedSeriesContext = seriesContext || null;
+  const availableQualities = resolvedSeriesContext?.availableQualities;
+  let hlsQualities = null;
+
+  if (/\.m3u8(?:\?|$)/i.test(mediaUrl) && (!Array.isArray(availableQualities) || availableQualities.length === 0)) {
+    const qualityResolved = await resolveBestQualityHls(mediaUrl);
+    if (qualityResolved?.variants?.length) {
+      resolvedMediaUrl = qualityResolved.url || mediaUrl;
+      resolvedMasterPlaylistUrl = qualityResolved.masterUrl || null;
+      hlsQualities = qualityResolved.variants;
+    }
+  }
+
+  if (!resolvedSeriesContext && Number.isFinite(sourceTabId)) {
+    const resolverPageUrl = sourcePageUrl || pageUrl;
+    resolvedSeriesContext = getCachedSeriesContext(resolverPageUrl);
+    if (!resolvedSeriesContext && resolverPageUrl && !isMediaLikePageUrl(resolverPageUrl)) {
+      try {
+        resolvedSeriesContext = await extractSeriesContextFromPage(sourceTabId, resolverPageUrl);
+        if (resolvedSeriesContext) {
+          cacheSeriesContext(resolverPageUrl, resolvedSeriesContext);
+        }
+      } catch {
+        resolvedSeriesContext = null;
+      }
+    }
+  }
+
+  if (resolvedSeriesContext && hlsQualities?.length) {
+    resolvedSeriesContext = {
+      ...resolvedSeriesContext,
+      masterPlaylistUrl: resolvedMasterPlaylistUrl,
+      availableQualities: hlsQualities.map((variant) => ({
+        label: String(variant.label || "").trim(),
+        normalizedLabel: String(variant.label || "").toLowerCase().replace(/[^a-z0-9]/g, "")
+      })),
+      selectedQualityLabel: resolvedSeriesContext.selectedQualityLabel || pickHighestStreamOption(hlsQualities)?.label || null
+    };
+  }
+
+  if (
+    (!Array.isArray(resolvedSeriesContext?.availableQualities) || resolvedSeriesContext.availableQualities.length === 0) &&
+    Number.isFinite(sourceTabId) &&
+    resolvedSeriesContext?.resolver?.provider === "rezka"
+  ) {
+    const fallbackEpisode = Array.isArray(resolvedSeriesContext.episodes)
+      ? resolvedSeriesContext.episodes[Number(resolvedSeriesContext.currentEpisodeIndex) || 0]
+      : null;
+    const targetEpisode = {
+      seasonId: resolvedSeriesContext.currentSeasonId ?? fallbackEpisode?.seasonId,
+      episodeId: resolvedSeriesContext.currentEpisodeId ?? fallbackEpisode?.episodeId
+    };
+    if (Number.isFinite(Number(targetEpisode.seasonId)) && Number.isFinite(Number(targetEpisode.episodeId))) {
+      const ajaxData = await fetchRezkaEpisodeMediaInTab(sourceTabId, resolvedSeriesContext, targetEpisode, {
+        translatorId: resolvedSeriesContext.selectedTranslatorId
+      });
+      const streamOptions = ajaxData?.url ? parseRezkaStreamOptions(ajaxData.url) : [];
+      if (streamOptions.length > 0) {
+        const highestStream = pickHighestStreamOption(streamOptions);
+        if (highestStream?.url) {
+          resolvedMediaUrl = highestStream.url;
+        }
+        resolvedSeriesContext = {
+          ...resolvedSeriesContext,
+          availableQualities: streamOptions.map((option) => ({
+            label: option.label,
+            normalizedLabel: option.normalizedLabel
+          })),
+          selectedQualityLabel: resolvedSeriesContext.selectedQualityLabel || highestStream?.label || null
+        };
+      }
+    }
+  }
+
+  console.log("[Background] Forwarding media from content-script:", {
+    mediaUrl: mediaUrl.substring(0, 100),
+    qualities: Array.isArray(resolvedSeriesContext?.availableQualities) ? resolvedSeriesContext.availableQualities.length : 0,
+    resolver: resolvedSeriesContext?.resolver?.provider || null
+  });
   chrome.tabs.query({}, (allTabs) => {
     if (!allTabs) return;
     allTabs.filter(t => t.status === 'complete' && t.url && t.url.includes('localhost:3000'))
@@ -1742,11 +1813,11 @@ function forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl = null
           type: "WT_MEDIA_FOUND",
           payload: {
             roomId: null,
-            mediaUrl: mediaUrl,
-            masterPlaylistUrl: null,
+            mediaUrl: resolvedMediaUrl,
+            masterPlaylistUrl: resolvedMasterPlaylistUrl,
             pageUrl: pageUrl || mediaUrl,
             sourcePageUrl: sourcePageUrl || pageUrl || mediaUrl,
-            seriesContext: seriesContext || null
+            seriesContext: resolvedSeriesContext
           }
         });
       });
@@ -1771,7 +1842,8 @@ function keepAlive() {
             pending.payload.mediaUrl,
             pending.payload.pageUrl,
             pending.payload.seriesContext,
-            pending.payload.sourcePageUrl || null
+            pending.payload.sourcePageUrl || null,
+            null
           );
         }
       }
@@ -1826,7 +1898,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log("[Background] Received WT_MEDIA_FOUND from content-script:", mediaUrl?.substring(0, 100));
     if (mediaUrl) {
       if (seriesContext) {
-        forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl);
+        forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl, sender?.tab?.id);
       } else if (sender?.tab?.id) {
         extractSeriesContextFromPage(sender.tab.id, pageUrl || sourcePageUrl || mediaUrl)
           .then((resolvedSeriesContext) => {
@@ -1834,13 +1906,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (pageUrl && nextSeriesContext) {
               cacheSeriesContext(pageUrl, nextSeriesContext);
             }
-            forwardMediaToUi(mediaUrl, pageUrl, nextSeriesContext, sourcePageUrl);
+            forwardMediaToUi(mediaUrl, pageUrl, nextSeriesContext, sourcePageUrl, sender?.tab?.id);
           })
           .catch(() => {
-            forwardMediaToUi(mediaUrl, pageUrl, null, sourcePageUrl);
+            forwardMediaToUi(mediaUrl, pageUrl, null, sourcePageUrl, sender?.tab?.id);
           });
       } else {
-        forwardMediaToUi(mediaUrl, pageUrl, null, sourcePageUrl);
+        forwardMediaToUi(mediaUrl, pageUrl, null, sourcePageUrl, sender?.tab?.id);
       }
     }
     return;
