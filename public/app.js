@@ -574,6 +574,18 @@ async function initializeShakaPlayer() {
 }
 
 async function loadPlayerSource(url, forceReload = false) {
+  if (isHlsSource(url) && window.Hls) {
+    const hls = new window.Hls({
+      lowLatencyMode: true
+    });
+
+    attachHlsListeners(hls);
+    hls.loadSource(url);
+    hls.attachMedia(elements.player);
+    state.hls = hls;
+    return;
+  }
+
   const player = await initializeShakaPlayer();
 
   if (player) {

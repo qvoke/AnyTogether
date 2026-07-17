@@ -4829,9 +4829,6 @@ async function start() {
       if (!event.data?.type || !event.data?.type.startsWith("WT_")) return;
     }
 
-    if (event.data?.type) {
-      console.log("[Interface UI] Message received:", event.data.type);
-    }
     if (event.data?.type === "anytogether:participant-playback") {
       const roomId = normalizeRoomCode(event.data.roomId);
       if (!roomId || roomId !== state.activeRoomId) return;
