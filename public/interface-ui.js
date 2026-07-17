@@ -1160,8 +1160,7 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
   return {
     roomState: existing,
     previousMediaUrl,
-    previousPlayback,
-    previousSeriesContext
+    previousPlayback
   };
 }
 
@@ -2529,12 +2528,7 @@ function renderSeriesPanel() {
 }
 
 function applyRoomSnapshot(roomId, snapshot) {
-  const {
-    roomState: existing,
-    previousMediaUrl,
-    previousPlayback,
-    previousSeriesContext
-  } = upsertRoomStateFromSnapshot(roomId, snapshot);
+  const { roomState: existing, previousMediaUrl, previousPlayback } = upsertRoomStateFromSnapshot(roomId, snapshot);
 
   const activeRoomChanged = state.activeRoomId === roomId;
   if (activeRoomChanged) {
@@ -2542,18 +2536,6 @@ function applyRoomSnapshot(roomId, snapshot) {
   }
 
   const mediaChanged = previousMediaUrl !== existing.currentMedia?.mediaUrl;
-  const seriesContextChanged = JSON.stringify(previousSeriesContext) !== JSON.stringify(existing.currentMedia?.seriesContext || null);
-  if (mediaChanged || seriesContextChanged) {
-    const seriesContext = existing.currentMedia?.seriesContext || null;
-    console.log("[Interface UI] Room media snapshot applied:", {
-      roomId,
-      seasons: Array.isArray(seriesContext?.seasons) ? seriesContext.seasons.length : 0,
-      episodes: Array.isArray(seriesContext?.episodes) ? seriesContext.episodes.length : 0,
-      qualities: Array.isArray(seriesContext?.availableQualities) ? seriesContext.availableQualities.length : 0,
-      seasonId: seriesContext?.currentSeasonId ?? null,
-      episodeId: seriesContext?.currentEpisodeId ?? null
-    });
-  }
   const playbackChanged =
     previousPlayback.state !== existing.currentPlayback?.state ||
     previousPlayback.time !== existing.currentPlayback?.time;
