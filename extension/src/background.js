@@ -1505,12 +1505,13 @@ function extractRealDdgUrl(url) {
 const FORWARDED_MEDIA_DEDUP_MS = 5000;
 const FORWARDED_MEDIA_CACHE = new Map();
 
-function buildMediaForwardSignature(mediaUrl, pageUrl, seriesContext, sourcePageUrl) {
+function buildMediaForwardSignature(mediaUrl, pageUrl, seriesContext, sourcePageUrl, targetUiTabId = null) {
   const context = seriesContext || {};
   return JSON.stringify({
     mediaUrl: String(mediaUrl || ""),
     pageUrl: String(pageUrl || ""),
     sourcePageUrl: String(sourcePageUrl || ""),
+    targetUiTabId: Number.isFinite(targetUiTabId) ? targetUiTabId : null,
     seasonId: context.currentSeasonId ?? null,
     episodeId: context.currentEpisodeId ?? null,
     translatorId: context.selectedTranslatorId ?? null,
@@ -1554,6 +1555,7 @@ chrome.webRequest.onBeforeRequest.addListener(
 // Sniffer global state (persisted via storage)
 let _snifferActive = false;
 let _searchPopupTabId = null;
+const SEARCH_POPUP_OWNER_TABS = new Map();
 
 // Track search popup tab (opened by window.open from UI page)
 chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
@@ -1562,6 +1564,7 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
       chrome.tabs.get(details.sourceTabId, (tab) => {
         if (tab && tab.url && tab.url.includes('localhost:3000')) {
           _searchPopupTabId = details.tabId;
+          SEARCH_POPUP_OWNER_TABS.set(details.tabId, details.sourceTabId);
           console.log("[Background] Search popup tab tracked:", _searchPopupTabId);
         }
       });
@@ -1574,10 +1577,26 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   if (tabId === _searchPopupTabId) {
     _searchPopupTabId = null;
   }
+  SEARCH_POPUP_OWNER_TABS.delete(tabId);
+  for (const [popupTabId, ownerTabId] of SEARCH_POPUP_OWNER_TABS) {
+    if (ownerTabId === tabId) SEARCH_POPUP_OWNER_TABS.delete(popupTabId);
+  }
 });
 
-async function getReusableSearchPopupTabId(pageUrl) {
+function getSearchPopupOwnerTabId(sourceTabId = null) {
+  const popupTabId = Number.isFinite(sourceTabId) ? sourceTabId : _searchPopupTabId;
+  const ownerTabId = SEARCH_POPUP_OWNER_TABS.get(popupTabId);
+  return Number.isFinite(ownerTabId) ? ownerTabId : null;
+}
+
+async function getReusableSearchPopupTabId(pageUrl, ownerUiTabId = null) {
   if (!Number.isFinite(_searchPopupTabId)) return null;
+  if (
+    Number.isFinite(ownerUiTabId) &&
+    SEARCH_POPUP_OWNER_TABS.get(_searchPopupTabId) !== ownerUiTabId
+  ) {
+    return null;
+  }
   try {
     const tab = await chrome.tabs.get(_searchPopupTabId);
     if (!tab?.url || !pageUrl) return null;
@@ -1695,7 +1714,14 @@ chrome.webRequest.onBeforeRequest.addListener(
           }
         }
 
-        void forwardMediaToUi(url, resolvedSourcePageUrl || url, seriesContext, resolvedSourcePageUrl || url, sourceTabId);
+        void forwardMediaToUi(
+          url,
+          resolvedSourcePageUrl || url,
+          seriesContext,
+          resolvedSourcePageUrl || url,
+          sourceTabId,
+          getSearchPopupOwnerTabId(sourceTabId)
+        );
       };
 
       if (typeof tabId === "number" && tabId > 0) {
@@ -1715,8 +1741,8 @@ chrome.webRequest.onBeforeRequest.addListener(
 );
 
 // Forward media URL found by content-script (from XHR interception, video elements, etc.)
-async function forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl = null, sourceTabId = null) {
-  const signature = buildMediaForwardSignature(mediaUrl, pageUrl, seriesContext, sourcePageUrl);
+async function forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl = null, sourceTabId = null, targetUiTabId = null) {
+  const signature = buildMediaForwardSignature(mediaUrl, pageUrl, seriesContext, sourcePageUrl, targetUiTabId);
   const now = Date.now();
   const lastSeen = FORWARDED_MEDIA_CACHE.get(signature) || 0;
   if (now - lastSeen < FORWARDED_MEDIA_DEDUP_MS) {
@@ -1807,7 +1833,12 @@ async function forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl 
   });
   chrome.tabs.query({}, (allTabs) => {
     if (!allTabs) return;
-    allTabs.filter(t => t.status === 'complete' && t.url && t.url.includes('localhost:3000'))
+    allTabs.filter(t =>
+      t.status === 'complete' &&
+      t.url &&
+      t.url.includes('localhost:3000') &&
+      (!Number.isFinite(targetUiTabId) || t.id === targetUiTabId)
+    )
       .forEach(tab => {
         sendTabMessage(tab.id, {
           type: "WT_MEDIA_FOUND",
@@ -1843,7 +1874,8 @@ function keepAlive() {
             pending.payload.pageUrl,
             pending.payload.seriesContext,
             pending.payload.sourcePageUrl || null,
-            null
+            _searchPopupTabId,
+            getSearchPopupOwnerTabId(_searchPopupTabId)
           );
         }
       }
@@ -1876,8 +1908,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return;
   }
 
-  // Forward media URLs found by content-script (from XHR, video elements on Rezka etc.)
   if (message?.type === "WT_MEDIA_FOUND") {
+    chrome.storage.local.remove("pendingMediaUrl", () => void chrome.runtime.lastError);
     if (sender?.tab?.id && RESOLVER_TAB_IDS.has(sender.tab.id)) {
       return;
     }
@@ -1895,10 +1927,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
     const cachedSeriesContext = getCachedSeriesContext(sourcePageUrl || pageUrl);
     const seriesContext = message?.payload?.seriesContext || cachedSeriesContext;
+    const targetUiTabId = getSearchPopupOwnerTabId(sender?.tab?.id);
     console.log("[Background] Received WT_MEDIA_FOUND from content-script:", mediaUrl?.substring(0, 100));
     if (mediaUrl) {
       if (seriesContext) {
-        forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl, sender?.tab?.id);
+        forwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl, sender?.tab?.id, targetUiTabId);
       } else if (sender?.tab?.id) {
         extractSeriesContextFromPage(sender.tab.id, pageUrl || sourcePageUrl || mediaUrl)
           .then((resolvedSeriesContext) => {
@@ -1906,13 +1939,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             if (pageUrl && nextSeriesContext) {
               cacheSeriesContext(pageUrl, nextSeriesContext);
             }
-            forwardMediaToUi(mediaUrl, pageUrl, nextSeriesContext, sourcePageUrl, sender?.tab?.id);
+            forwardMediaToUi(mediaUrl, pageUrl, nextSeriesContext, sourcePageUrl, sender?.tab?.id, targetUiTabId);
           })
           .catch(() => {
-            forwardMediaToUi(mediaUrl, pageUrl, null, sourcePageUrl, sender?.tab?.id);
+            forwardMediaToUi(mediaUrl, pageUrl, null, sourcePageUrl, sender?.tab?.id, targetUiTabId);
           });
       } else {
-        forwardMediaToUi(mediaUrl, pageUrl, null, sourcePageUrl, sender?.tab?.id);
+        forwardMediaToUi(mediaUrl, pageUrl, null, sourcePageUrl, sender?.tab?.id, targetUiTabId);
       }
     }
     return;
@@ -1925,10 +1958,21 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       cacheSeriesContext(pageUrl, seriesContext);
     }
 
+    if (sender?.tab?.id && RESOLVER_TAB_IDS.has(sender.tab.id)) {
+      return;
+    }
+
+    const targetUiTabId = getSearchPopupOwnerTabId(sender?.tab?.id);
+
     chrome.tabs.query({}, (allTabs) => {
       if (!allTabs) return;
       allTabs
-        .filter((tab) => tab.status === "complete" && tab.url && tab.url.includes("localhost:3000"))
+        .filter((tab) =>
+          tab.status === "complete" &&
+          tab.url &&
+          tab.url.includes("localhost:3000") &&
+          (!Number.isFinite(targetUiTabId) || tab.id === targetUiTabId)
+        )
         .forEach((tab) => {
           sendTabMessage(tab.id, {
             type: SERIES_CONTEXT_FOUND_EVENT,
@@ -1958,7 +2002,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           return;
         }
 
-        const reuseTabId = await getReusableSearchPopupTabId(pageUrl);
+        const reuseTabId = await getReusableSearchPopupTabId(pageUrl, hostTabId);
         const resolved = await resolvePageToMediaOnce(pageUrl, hostTabId, "Opening page", {
           ...(message.payload.targetEpisode || {}),
           seriesContext: message.payload.seriesContext || null,

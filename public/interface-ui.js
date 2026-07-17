@@ -844,11 +844,9 @@ function getSelfParticipant(roomState = getActiveRoomState()) {
 }
 
 function isCurrentUserCreator(roomState = getActiveRoomState()) {
-  if (currentRole === "host") return true;
-
   const selfParticipant = getSelfParticipant(roomState);
   if (!selfParticipant) {
-    return false;
+    return currentRole === "host";
   }
 
   return String(selfParticipant.role || "guest") === "host";
@@ -1088,6 +1086,24 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
   const previousMediaUrl = existing.currentMedia?.mediaUrl || null;
   const previousPlayback = existing.currentPlayback || { state: "paused", time: 0 };
   const previousSeriesContext = existing.currentMedia?.seriesContext || null;
+  const incomingMedia = snapshot.currentMedia || null;
+  const preserveSnapshotNavigationContext =
+    incomingMedia &&
+    previousSeriesContext &&
+    hasNavigableSeriesContext(previousSeriesContext) &&
+    incomingMedia.seriesContext &&
+    !hasNavigableSeriesContext(incomingMedia.seriesContext) &&
+    isSameSourcePage(incomingMedia, existing.currentMedia);
+  const nextCurrentMedia = incomingMedia
+    ? {
+        ...incomingMedia,
+        masterPlaylistUrl: incomingMedia.masterPlaylistUrl || existing.currentMedia?.masterPlaylistUrl || null,
+        sourcePageUrl: incomingMedia.sourcePageUrl || existing.currentMedia?.sourcePageUrl || null,
+        seriesContext: preserveSnapshotNavigationContext
+          ? mergePartialSeriesContext(incomingMedia.seriesContext, previousSeriesContext)
+          : (incomingMedia.seriesContext ?? previousSeriesContext ?? null)
+      }
+    : null;
 
   existing.code = snapshot.code || roomId;
   existing.title = snapshot.title || existing.title || "Room";
@@ -1127,11 +1143,13 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
   existing.playlist = Array.isArray(snapshot.playlist) ? snapshot.playlist : existing.playlist;
 
   // Rebuild picker state when media changes, but keep the current selection when it still belongs to the same series.
-  const mediaChanged = snapshot.currentMedia?.mediaUrl !== existing.currentMedia?.mediaUrl ||
-    JSON.stringify(snapshot.currentMedia?.seriesContext) !== JSON.stringify(existing.currentMedia?.seriesContext);
-  existing.currentMedia = snapshot.currentMedia || null;
+  const mediaChanged = nextCurrentMedia?.mediaUrl !== existing.currentMedia?.mediaUrl ||
+    JSON.stringify(nextCurrentMedia?.seriesContext) !== JSON.stringify(existing.currentMedia?.seriesContext);
+  existing.currentMedia = nextCurrentMedia;
   if (mediaChanged) {
-    existing.ui = mergeUiFromSeriesContext(existing, existing.currentMedia?.seriesContext || null, previousSeriesContext);
+    existing.ui = mergeUiFromSeriesContext(existing, existing.currentMedia?.seriesContext || null, previousSeriesContext, {
+      preferContextSelection: true
+    });
   }
 
   existing.currentPlayback = snapshot.currentPlayback || existing.currentPlayback || { state: "paused", time: 0 };
@@ -1142,7 +1160,8 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
   return {
     roomState: existing,
     previousMediaUrl,
-    previousPlayback
+    previousPlayback,
+    previousSeriesContext
   };
 }
 
@@ -1169,6 +1188,59 @@ function createDefaultUi(seriesContext) {
       highestQuality?.label ??
       null
   };
+}
+
+function hasNavigableSeriesContext(seriesContext) {
+  const seasons = Array.isArray(seriesContext?.seasons) ? seriesContext.seasons : [];
+  const episodes = Array.isArray(seriesContext?.episodes) ? seriesContext.episodes : [];
+  return seasons.length > 0 || episodes.length > 0;
+}
+
+function isSameSourcePage(payload, previousMedia) {
+  const incomingUrls = [payload?.sourcePageUrl, payload?.pageUrl].filter(Boolean);
+  const previousUrls = [previousMedia?.sourcePageUrl, previousMedia?.pageUrl].filter(Boolean);
+  return incomingUrls.some((incomingUrl) => previousUrls.includes(incomingUrl));
+}
+
+function mergePartialSeriesContext(incomingContext, previousContext) {
+  if (!incomingContext) return previousContext || null;
+  if (!previousContext || hasNavigableSeriesContext(incomingContext)) return incomingContext;
+
+  return {
+    ...previousContext,
+    ...incomingContext,
+    seasons: previousContext.seasons,
+    episodes: previousContext.episodes,
+    translators: Array.isArray(incomingContext.translators) && incomingContext.translators.length > 0
+      ? incomingContext.translators
+      : previousContext.translators,
+    resolver: incomingContext.resolver || previousContext.resolver
+  };
+}
+
+function hasSeriesContextUpgrade(incomingContext, currentContext) {
+  if (!incomingContext) return false;
+  if (!currentContext) return true;
+
+  for (const key of ["seasons", "episodes", "translators", "availableQualities"]) {
+    const incomingCount = Array.isArray(incomingContext[key]) ? incomingContext[key].length : 0;
+    const currentCount = Array.isArray(currentContext[key]) ? currentContext[key].length : 0;
+    if (incomingCount > currentCount) return true;
+  }
+
+  for (const key of ["currentSeasonId", "currentEpisodeId", "selectedTranslatorId"]) {
+    if (incomingContext[key] != null && Number(incomingContext[key]) !== Number(currentContext[key])) return true;
+  }
+
+  if (incomingContext.selectedQualityLabel && incomingContext.selectedQualityLabel !== currentContext.selectedQualityLabel) return true;
+
+  const incomingResolverItemId = Number(incomingContext.resolver?.itemId);
+  const currentResolverItemId = Number(currentContext.resolver?.itemId);
+  if (Number.isFinite(incomingResolverItemId) && incomingResolverItemId !== currentResolverItemId) return true;
+
+  if (incomingContext.title && incomingContext.title !== currentContext.title) return true;
+
+  return Boolean(incomingContext.resolver && !currentContext.resolver);
 }
 
 function getHighestQuality(qualities) {
@@ -1271,32 +1343,32 @@ function isSameSeriesContext(left, right) {
   return leftIdentity === rightIdentity;
 }
 
-function mergeUiFromSeriesContext(roomState, seriesContext, previousSeriesContext = null) {
+function mergeUiFromSeriesContext(roomState, seriesContext, previousSeriesContext = null, options = {}) {
   const currentUi = roomState?.ui || {};
   const defaultUi = createDefaultUi(seriesContext);
   const seasons = Array.isArray(seriesContext?.seasons) ? seriesContext.seasons : [];
   const translators = Array.isArray(seriesContext?.translators) ? seriesContext.translators : [];
   const qualities = Array.isArray(seriesContext?.availableQualities) ? seriesContext.availableQualities : [];
   const pendingEpisode = getPendingEpisodeSelection(roomState);
-  const preserveCurrentUi = isSameSeriesContext(previousSeriesContext, seriesContext);
+  const preserveCurrentUi = !options.preferContextSelection && isSameSeriesContext(previousSeriesContext, seriesContext);
 
   if (pendingEpisode) {
     return {
       seasonId: pendingEpisode.seasonId,
       episodeId: pendingEpisode.episodeId,
       translatorId:
-        Number.isFinite(Number(seriesContext?.selectedTranslatorId)) &&
-        translators.some((translator) => translator.translatorId === Number(seriesContext.selectedTranslatorId))
-          ? Number(seriesContext.selectedTranslatorId)
-          : (Number.isFinite(Number(currentUi.translatorId)) &&
-            translators.some((translator) => translator.translatorId === Number(currentUi.translatorId))
-              ? Number(currentUi.translatorId)
+        Number.isFinite(Number(currentUi.translatorId)) &&
+        translators.some((translator) => translator.translatorId === Number(currentUi.translatorId))
+          ? Number(currentUi.translatorId)
+          : (Number.isFinite(Number(seriesContext?.selectedTranslatorId)) &&
+            translators.some((translator) => translator.translatorId === Number(seriesContext.selectedTranslatorId))
+              ? Number(seriesContext.selectedTranslatorId)
               : defaultUi.translatorId),
       qualityLabel:
-        seriesContext?.selectedQualityLabel && qualities.some((quality) => quality.label === seriesContext.selectedQualityLabel)
-          ? seriesContext.selectedQualityLabel
-          : (currentUi.qualityLabel && qualities.some((quality) => quality.label === currentUi.qualityLabel)
-            ? currentUi.qualityLabel
+        currentUi.qualityLabel && qualities.some((quality) => quality.label === currentUi.qualityLabel)
+          ? currentUi.qualityLabel
+          : (seriesContext?.selectedQualityLabel && qualities.some((quality) => quality.label === seriesContext.selectedQualityLabel)
+            ? seriesContext.selectedQualityLabel
             : defaultUi.qualityLabel),
       codeHidden: Boolean(currentUi.codeHidden)
     };
@@ -2284,8 +2356,8 @@ function renderSeriesPanel() {
       roomState.ui.episodeId = nextEpisode?.episodeId ?? null;
       renderSeriesPanel();
       if (!nextEpisode) return;
-      // Guest sends request via sync engine; host resolves via extension
       if (!canCurrentUserManageContent(roomState) && window.__sendMediaRequest) {
+        setPendingEpisodeSelection(roomState, nextEpisode);
         window.__sendMediaRequest({
           requestedSeasonId: nextEpisode.seasonId,
           requestedEpisodeId: nextEpisode.episodeId,
@@ -2313,8 +2385,8 @@ function renderSeriesPanel() {
       renderSeriesPanel();
       const selectedEpisode = getSelectedEpisodeForActions();
       if (!selectedEpisode) return;
-      // Guest sends request via sync engine; host resolves via extension
       if (!canCurrentUserManageContent(roomState) && window.__sendMediaRequest) {
+        setPendingEpisodeSelection(roomState, selectedEpisode);
         window.__sendMediaRequest({
           requestedSeasonId: selectedEpisode.seasonId,
           requestedEpisodeId: selectedEpisode.episodeId,
@@ -2349,8 +2421,8 @@ function renderSeriesPanel() {
       }
       const selectedEpisode = getSelectedEpisodeForActions();
       if (!selectedEpisode) return;
-      // Guest sends request via sync engine; host resolves via extension
       if (!canCurrentUserManageContent(roomState) && window.__sendMediaRequest) {
+        setPendingEpisodeSelection(roomState, selectedEpisode);
         window.__sendMediaRequest({
           requestedSeasonId: selectedEpisode.seasonId,
           requestedEpisodeId: selectedEpisode.episodeId,
@@ -2430,8 +2502,8 @@ function renderSeriesPanel() {
     button.addEventListener("click", () => {
       roomState.ui.seasonId = episode.seasonId || roomState.ui.seasonId;
       roomState.ui.episodeId = episode.episodeId;
-      // Guest sends request via sync engine
       if (!canCurrentUserManageContent(roomState) && window.__sendMediaRequest) {
+        setPendingEpisodeSelection(roomState, episode);
         window.__sendMediaRequest({
           requestedSeasonId: episode.seasonId,
           requestedEpisodeId: episode.episodeId,
@@ -2457,7 +2529,12 @@ function renderSeriesPanel() {
 }
 
 function applyRoomSnapshot(roomId, snapshot) {
-  const { roomState: existing, previousMediaUrl, previousPlayback } = upsertRoomStateFromSnapshot(roomId, snapshot);
+  const {
+    roomState: existing,
+    previousMediaUrl,
+    previousPlayback,
+    previousSeriesContext
+  } = upsertRoomStateFromSnapshot(roomId, snapshot);
 
   const activeRoomChanged = state.activeRoomId === roomId;
   if (activeRoomChanged) {
@@ -2465,6 +2542,18 @@ function applyRoomSnapshot(roomId, snapshot) {
   }
 
   const mediaChanged = previousMediaUrl !== existing.currentMedia?.mediaUrl;
+  const seriesContextChanged = JSON.stringify(previousSeriesContext) !== JSON.stringify(existing.currentMedia?.seriesContext || null);
+  if (mediaChanged || seriesContextChanged) {
+    const seriesContext = existing.currentMedia?.seriesContext || null;
+    console.log("[Interface UI] Room media snapshot applied:", {
+      roomId,
+      seasons: Array.isArray(seriesContext?.seasons) ? seriesContext.seasons.length : 0,
+      episodes: Array.isArray(seriesContext?.episodes) ? seriesContext.episodes.length : 0,
+      qualities: Array.isArray(seriesContext?.availableQualities) ? seriesContext.availableQualities.length : 0,
+      seasonId: seriesContext?.currentSeasonId ?? null,
+      episodeId: seriesContext?.currentEpisodeId ?? null
+    });
+  }
   const playbackChanged =
     previousPlayback.state !== existing.currentPlayback?.state ||
     previousPlayback.time !== existing.currentPlayback?.time;
@@ -3890,7 +3979,15 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
   const roomState = ensureRoomState(normalized);
   const previousMedia = roomState.currentMedia || null;
   const previousSeriesContext = previousMedia?.seriesContext || null;
-  const nextSeriesContext = payload.seriesContext ?? previousMedia?.seriesContext ?? null;
+  const shouldPreserveNavigationContext =
+    previousSeriesContext &&
+    hasNavigableSeriesContext(previousSeriesContext) &&
+    payload.seriesContext &&
+    !hasNavigableSeriesContext(payload.seriesContext) &&
+    isSameSourcePage(payload, previousMedia);
+  const nextSeriesContext = shouldPreserveNavigationContext
+    ? mergePartialSeriesContext(payload.seriesContext, previousSeriesContext)
+    : (payload.seriesContext ?? previousSeriesContext ?? null);
   const nextPageUrl = pickResolverPageUrl(
     payload.pageUrl,
     nextSeriesContext?.resolver?.pageUrl,
@@ -3914,7 +4011,9 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
     addedToPlaylistId: payload.addedToPlaylistId || null
   };
   if (payload.seriesContext) {
-    roomState.ui = mergeUiFromSeriesContext(roomState, nextSeriesContext, previousSeriesContext);
+    roomState.ui = mergeUiFromSeriesContext(roomState, nextSeriesContext, previousSeriesContext, {
+      preferContextSelection: true
+    });
   } else if (!roomState.ui) {
     roomState.ui = createDefaultUi(nextSeriesContext);
   }
@@ -3953,21 +4052,23 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
   const nextLoadSignature = buildMediaLoadSignature(payload.mediaUrl, payload.masterPlaylistUrl, nextSeriesContext);
   const shouldReloadPlayer = !previousMedia || previousLoadSignature !== nextLoadSignature;
 
-  if (state.activeRoomId === normalized && shouldReloadPlayer) {
-    refreshActiveRoom();
-    syncActiveRoomMedia(true);
-  }
-
   if (shouldBroadcast) {
     sendWs({
       type: "media:set",
       roomId: normalized,
       mediaUrl: payload.mediaUrl,
+      masterPlaylistUrl: payload.masterPlaylistUrl || previousMedia?.masterPlaylistUrl || null,
       pageUrl: payload.pageUrl || previousMedia?.pageUrl || null,
+      sourcePageUrl: payload.sourcePageUrl || previousMedia?.sourcePageUrl || null,
       title: payload.title || nextSeriesContext?.title || null,
       seriesContext: nextSeriesContext,
       originId: clientId
     });
+  }
+
+  if (state.activeRoomId === normalized && shouldReloadPlayer) {
+    refreshActiveRoom();
+    syncActiveRoomMedia(true);
   }
 }
 
@@ -4021,6 +4122,14 @@ function requestEpisodeResolution(targetEpisode, overrides = {}) {
   if (overrides.qualityLabel) {
     payload.selectedQualityLabel = overrides.qualityLabel;
   }
+
+  console.log("[Interface UI] Media picker resolution requested:", {
+    roomId,
+    seasonId: payload.targetEpisode?.seasonId ?? null,
+    episodeId: payload.targetEpisode?.episodeId ?? null,
+    translatorId: payload.selectedTranslatorId ?? null,
+    qualityLabel: payload.selectedQualityLabel || null
+  });
 
   window.postMessage(
     {
@@ -4333,6 +4442,8 @@ function connectWs() {
     }
 
     if (msg.type === "room:role") {
+      const roleRoomId = normalizeRoomCode(msg.roomId);
+      if (roleRoomId && roleRoomId !== state.activeRoomId) return;
       applyRoleChange(msg.role);
       if (msg.role === "host") {
         setRoomStatus("You are now the host.");
@@ -4351,6 +4462,15 @@ function connectWs() {
       const roomId = normalizeRoomCode(msg.roomId);
       if (!roomId || msg.originId === clientId) return;
 
+      console.log("[Interface UI] Remote media update received:", {
+        roomId,
+        seasons: Array.isArray(msg.seriesContext?.seasons) ? msg.seriesContext.seasons.length : 0,
+        episodes: Array.isArray(msg.seriesContext?.episodes) ? msg.seriesContext.episodes.length : 0,
+        qualities: Array.isArray(msg.seriesContext?.availableQualities) ? msg.seriesContext.availableQualities.length : 0,
+        seasonId: msg.seriesContext?.currentSeasonId ?? null,
+        episodeId: msg.seriesContext?.currentEpisodeId ?? null
+      });
+
       const prevRoomState = getRoomState(roomId);
       const prevSeriesContext = prevRoomState?.currentMedia?.seriesContext
         ? JSON.parse(JSON.stringify(prevRoomState.currentMedia.seriesContext))
@@ -4363,8 +4483,12 @@ function connectWs() {
       const newSeriesContext = newRoomState?.currentMedia?.seriesContext || null;
       const seriesChanged = JSON.stringify(newSeriesContext) !== JSON.stringify(prevSeriesContext);
 
-      if (prevUi && newRoomState && seriesChanged) {
+      if (newRoomState && seriesChanged) {
+        clearPendingEpisodeSelection(newRoomState);
         newRoomState.ui = createDefaultUi(newRoomState.currentMedia?.seriesContext || null);
+        if (typeof prevUi?.codeHidden === "boolean") {
+          newRoomState.ui.codeHidden = prevUi.codeHidden;
+        }
         sanitizeRoomUi(newRoomState);
       }
       return;
@@ -4875,12 +4999,7 @@ async function start() {
       const roomState = ensureRoomState(roomId);
       const previousMedia = roomState.currentMedia || null;
       const previousSeriesContext = previousMedia?.seriesContext || null;
-      const nextSeriesContext = seriesContext;
-      const nextSeasonId = Number(seriesContext?.currentSeasonId);
-      const nextEpisodeId = Number(seriesContext?.currentEpisodeId);
-      if (Number.isFinite(nextSeasonId) && Number.isFinite(nextEpisodeId)) {
-        setPendingEpisodeSelection(roomState, { seasonId: nextSeasonId, episodeId: nextEpisodeId }, 12000);
-      }
+      const nextSeriesContext = mergePartialSeriesContext(seriesContext, previousSeriesContext);
       roomState.currentMedia = {
         mediaUrl: previousMedia?.mediaUrl || null,
         masterPlaylistUrl: previousMedia?.masterPlaylistUrl || null,
@@ -4891,21 +5010,8 @@ async function start() {
         updatedAt: Date.now(),
         addedToPlaylistId: previousMedia?.addedToPlaylistId || null
       };
-      roomState.ui = mergeUiFromSeriesContext(roomState, seriesContext, previousSeriesContext);
+      roomState.ui = mergeUiFromSeriesContext(roomState, nextSeriesContext, previousSeriesContext);
       sanitizeRoomUi(roomState);
-
-      const pendingEpisode = getPendingEpisodeSelection(roomState);
-      const contextSeasonId = Number(seriesContext?.currentSeasonId);
-      const contextEpisodeId = Number(seriesContext?.currentEpisodeId);
-      if (
-        pendingEpisode &&
-        Number.isFinite(contextSeasonId) &&
-        Number.isFinite(contextEpisodeId) &&
-        pendingEpisode.seasonId === contextSeasonId &&
-        pendingEpisode.episodeId === contextEpisodeId
-      ) {
-        clearPendingEpisodeSelection(roomState);
-      }
 
       state.roomStates.set(roomId, roomState);
 
@@ -4918,9 +5024,18 @@ async function start() {
     if (event.data?.type === PAGE_EVENT_MEDIA_FOUND) {
       console.log("[Interface UI] PAGE_EVENT_MEDIA_FOUND payload:", {
         mediaUrl: event.data?.payload?.mediaUrl?.substring(0, 80),
+        roomId: event.data?.payload?.roomId || null,
+        seasons: Array.isArray(event.data?.payload?.seriesContext?.seasons)
+          ? event.data.payload.seriesContext.seasons.length
+          : 0,
+        episodes: Array.isArray(event.data?.payload?.seriesContext?.episodes)
+          ? event.data.payload.seriesContext.episodes.length
+          : 0,
         qualities: Array.isArray(event.data?.payload?.seriesContext?.availableQualities)
           ? event.data.payload.seriesContext.availableQualities.length
           : 0,
+        seasonId: event.data?.payload?.seriesContext?.currentSeasonId ?? null,
+        episodeId: event.data?.payload?.seriesContext?.currentEpisodeId ?? null,
         resolver: event.data?.payload?.seriesContext?.resolver?.provider || null
       });
       clearPendingSearchStatusTimer();
@@ -4962,17 +5077,27 @@ async function start() {
       const roomState = ensureRoomState(effectiveRoomId);
 
       const mediaUrl = payload.mediaUrl || "";
-      // Only skip if same URL is already playing
+      const hasSeriesContext = hasNavigableSeriesContext(payload.seriesContext);
+      const currentSeriesContext = roomState.currentMedia?.seriesContext || null;
+      const contextWasExpanded = hasSeriesContextUpgrade(payload.seriesContext, currentSeriesContext);
       const video = document.getElementById('player');
-      if (video && Number.isFinite(video.currentTime) && video.currentTime > 1 && !video.paused && mediaUrl === _lastLoadedMediaKey) {
+      if (
+        video &&
+        Number.isFinite(video.currentTime) &&
+        video.currentTime > 1 &&
+        !video.paused &&
+        mediaUrl === _lastLoadedMediaKey &&
+        !contextWasExpanded
+      ) {
         appendPlaybackDebugEntry("Ignoring same URL already playing", { url: mediaUrl.substring(0, 80) });
         return;
       }
 
       const now = Date.now();
 
-      const hasSeriesContext = payload.seriesContext &&
-        (Array.isArray(payload.seriesContext.seasons) || Array.isArray(payload.seriesContext.episodes));
+      if (!incomingRoomId && hasSeriesContext) {
+        clearPendingEpisodeSelection(roomState);
+      }
       const pendingEpisode = getPendingEpisodeSelection(roomState);
       const payloadSeasonId = Number(payload.seriesContext?.currentSeasonId);
       const payloadEpisodeId = Number(payload.seriesContext?.currentEpisodeId);
@@ -5000,14 +5125,18 @@ async function start() {
       }
 
       if (mediaUrl === _lastLoadedMediaKey) {
-        if (_lastLoadHadContext) {
+        if (_lastLoadHadContext && !contextWasExpanded) {
           appendPlaybackDebugEntry("Ignoring duplicate media URL (already loaded with context)", { url: mediaUrl.substring(0, 80) });
           return;
         }
-        if (hasSeriesContext) {
+        if (hasSeriesContext || contextWasExpanded) {
           appendPlaybackDebugEntry("Replacing URL with series context", { url: mediaUrl.substring(0, 80) });
           _lastLoadBlockedUntil = 0;
         }
+      }
+
+      if (contextWasExpanded) {
+        _lastLoadBlockedUntil = 0;
       }
 
       if (now < _lastLoadBlockedUntil) {
@@ -5017,7 +5146,7 @@ async function start() {
 
       _lastLoadedMediaKey = mediaUrl;
       _lastLoadBlockedUntil = now + LOAD_BLOCK_DURATION_MS;
-      _lastLoadHadContext = hasSeriesContext;
+      _lastLoadHadContext = hasSeriesContext || hasNavigableSeriesContext(roomState.currentMedia?.seriesContext);
 
 
       // Show selected quality from extension in indicator
@@ -5120,7 +5249,7 @@ async function start() {
   window.addEventListener("anytogether:media-request", (event) => {
     const detail = event.detail || {};
     const roomState = getActiveRoomState();
-    if (!roomState) return;
+    if (!roomState || !isCurrentUserCreator(roomState) || !hasLocalExtension()) return;
 
     appendPlaybackDebugEntry("Host received media request", {
       seasonId: detail.requestedSeasonId,
