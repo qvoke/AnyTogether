@@ -3,6 +3,7 @@ const EXTENSION_RESOLVE_REQUEST = "WT_RESOLVE_PAGE_URL";
 const PAGE_EVENT_EXTENSION_PING = "WT_EXTENSION_PING";
 const PAGE_EVENT_MEDIA_FOUND = "WT_MEDIA_FOUND";
 const PAGE_EVENT_SERIES_CONTEXT_FOUND = "WT_SERIES_CONTEXT_FOUND";
+const PAGE_EVENT_EXTRACTION_DIAGNOSTIC = "WT_EXTRACTION_DIAGNOSTIC";
 const PAGE_EVENT_EXTENSION_STATUS = "WT_EXTENSION_STATUS";
 const PAGE_EVENT_EXTENSION_ERROR = "WT_EXTENSION_ERROR";
 const PAGE_EVENT_SEARCH_RESULT_CLICKED = "WT_SEARCH_RESULT_CLICKED";
@@ -218,7 +219,8 @@ let loadedMediaKey = null;
 let pendingSearchStatusTimer = null;
 const pendingRoomJoins = new Set();
 const participantPlaybackStates = new Map();
-let _pendingRezkaHash = null;
+const lastBroadcastSeriesContextSignatures = new Map();
+let pendingMediaSelection = null;
 let _lastLoadedMediaKey = "";
 let _lastLoadBlockedUntil = 0;
 let _lastLoadHadContext = false;
@@ -1087,21 +1089,21 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
   const previousPlayback = existing.currentPlayback || { state: "paused", time: 0 };
   const previousSeriesContext = existing.currentMedia?.seriesContext || null;
   const incomingMedia = snapshot.currentMedia || null;
-  const preserveSnapshotNavigationContext =
-    incomingMedia &&
-    previousSeriesContext &&
-    hasNavigableSeriesContext(previousSeriesContext) &&
-    incomingMedia.seriesContext &&
-    !hasNavigableSeriesContext(incomingMedia.seriesContext) &&
-    isSameSourcePage(incomingMedia, existing.currentMedia);
-  const nextCurrentMedia = incomingMedia
+  const incomingMediaUpdatedAt = Number(incomingMedia?.updatedAt ?? snapshot.lastUpdatedAt);
+  const existingMediaUpdatedAt = Number(existing.currentMedia?.updatedAt);
+  const snapshotMediaIsStale = Boolean(
+    existing.currentMedia &&
+    Number.isFinite(existingMediaUpdatedAt) &&
+    Number.isFinite(incomingMediaUpdatedAt) &&
+    incomingMediaUpdatedAt < existingMediaUpdatedAt
+  );
+  const mediaForMerge = snapshotMediaIsStale ? existing.currentMedia : incomingMedia;
+  const nextCurrentMedia = mediaForMerge
     ? {
-        ...incomingMedia,
-        masterPlaylistUrl: incomingMedia.masterPlaylistUrl || existing.currentMedia?.masterPlaylistUrl || null,
-        sourcePageUrl: incomingMedia.sourcePageUrl || existing.currentMedia?.sourcePageUrl || null,
-        seriesContext: preserveSnapshotNavigationContext
-          ? mergePartialSeriesContext(incomingMedia.seriesContext, previousSeriesContext)
-          : (incomingMedia.seriesContext ?? previousSeriesContext ?? null)
+        ...mediaForMerge,
+        masterPlaylistUrl: mediaForMerge.masterPlaylistUrl || existing.currentMedia?.masterPlaylistUrl || null,
+        sourcePageUrl: mediaForMerge.sourcePageUrl || existing.currentMedia?.sourcePageUrl || null,
+        seriesContext: mergePartialSeriesContext(mediaForMerge.seriesContext, previousSeriesContext)
       }
     : null;
 
@@ -1195,15 +1197,29 @@ function hasNavigableSeriesContext(seriesContext) {
   return seasons.length > 0 || episodes.length > 0;
 }
 
-function isSameSourcePage(payload, previousMedia) {
-  const incomingUrls = [payload?.sourcePageUrl, payload?.pageUrl].filter(Boolean);
-  const previousUrls = [previousMedia?.sourcePageUrl, previousMedia?.pageUrl].filter(Boolean);
-  return incomingUrls.some((incomingUrl) => previousUrls.includes(incomingUrl));
-}
-
 function mergePartialSeriesContext(incomingContext, previousContext) {
   if (!incomingContext) return previousContext || null;
-  if (!previousContext || hasNavigableSeriesContext(incomingContext)) return incomingContext;
+  if (!previousContext) return incomingContext;
+
+  if (hasNavigableSeriesContext(incomingContext) && isSameSeriesContext(previousContext, incomingContext)) {
+    const preferRicherList = (key) => {
+      const incomingItems = Array.isArray(incomingContext[key]) ? incomingContext[key] : [];
+      const previousItems = Array.isArray(previousContext[key]) ? previousContext[key] : [];
+      return incomingItems.length >= previousItems.length ? incomingItems : previousItems;
+    };
+
+    return {
+      ...previousContext,
+      ...incomingContext,
+      seasons: preferRicherList("seasons"),
+      episodes: preferRicherList("episodes"),
+      translators: preferRicherList("translators"),
+      availableQualities: preferRicherList("availableQualities"),
+      resolver: incomingContext.resolver || previousContext.resolver
+    };
+  }
+
+  if (hasNavigableSeriesContext(incomingContext)) return incomingContext;
 
   return {
     ...previousContext,
@@ -1231,8 +1247,6 @@ function hasSeriesContextUpgrade(incomingContext, currentContext) {
     if (incomingContext[key] != null && Number(incomingContext[key]) !== Number(currentContext[key])) return true;
   }
 
-  if (incomingContext.selectedQualityLabel && incomingContext.selectedQualityLabel !== currentContext.selectedQualityLabel) return true;
-
   const incomingResolverItemId = Number(incomingContext.resolver?.itemId);
   const currentResolverItemId = Number(currentContext.resolver?.itemId);
   if (Number.isFinite(incomingResolverItemId) && incomingResolverItemId !== currentResolverItemId) return true;
@@ -1240,6 +1254,29 @@ function hasSeriesContextUpgrade(incomingContext, currentContext) {
   if (incomingContext.title && incomingContext.title !== currentContext.title) return true;
 
   return Boolean(incomingContext.resolver && !currentContext.resolver);
+}
+
+function isSameMediaSelection(incomingContext, currentContext) {
+  if (!hasNavigableSeriesContext(incomingContext) || !hasNavigableSeriesContext(currentContext)) return false;
+
+  const incomingItemId = Number(incomingContext.resolver?.itemId);
+  const currentItemId = Number(currentContext.resolver?.itemId);
+  const sameResolverItem = Number.isFinite(incomingItemId) && Number.isFinite(currentItemId)
+    ? incomingItemId === currentItemId
+    : String(incomingContext.title || "").trim() === String(currentContext.title || "").trim();
+  if (!sameResolverItem) return false;
+
+  for (const key of ["currentSeasonId", "currentEpisodeId", "selectedTranslatorId"]) {
+    if (
+      incomingContext[key] != null &&
+      currentContext[key] != null &&
+      Number(incomingContext[key]) !== Number(currentContext[key])
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function getHighestQuality(qualities) {
@@ -2665,11 +2702,12 @@ function renderParticipants() {
     playbackIcon.textContent = playbackIconKind === "empty" ? "-" : "";
     if (playbackIconKind !== "empty") playbackIcon.innerHTML = createInlineIcon(playbackIconKind);
     status.appendChild(playbackIcon);
+    const isLoading = isParticipantPlaybackLoading(participant);
     const statusText = presenceStatus === "offline"
       ? "Offline"
       : presenceStatus === "not-in-room"
         ? "Not in room"
-        : !hasMedia ? "No media loaded" : `Sync ${syncMs}ms`;
+        : !hasMedia ? "No media loaded" : isLoading ? "Loading" : `Sync ${syncMs}ms`;
     status.appendChild(document.createTextNode(statusText));
     nameRow.appendChild(status);
 
@@ -2737,6 +2775,20 @@ function getParticipantSyncMs(participant) {
   return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
 }
 
+function isParticipantPlaybackLoading(participant) {
+  const playbackState = participant?.clientId
+    ? participantPlaybackStates.get(participant.clientId)
+    : null;
+  if (playbackState === "loading") return true;
+
+  if (typeof window.__getPlaybackSyncInfo === "function" && participant?.clientId) {
+    const syncInfo = window.__getPlaybackSyncInfo(participant.clientId);
+    return Boolean(syncInfo?.buffering);
+  }
+
+  return false;
+}
+
 function refreshParticipantSyncIndicators() {
   const roomState = getActiveRoomState();
   if (!roomState || !participantsList) return;
@@ -2748,6 +2800,7 @@ function refreshParticipantSyncIndicators() {
     if (!participant) return;
 
     const syncMs = getParticipantSyncMs(participant);
+    const isLoading = isParticipantPlaybackLoading(participant);
     const presenceStatus = getParticipantPresenceStatus(participant);
     const syncClass = presenceStatus !== "online"
       ? "pw-dot-muted"
@@ -2763,7 +2816,7 @@ function refreshParticipantSyncIndicators() {
         ? "Offline"
         : presenceStatus === "not-in-room"
           ? "Not in room"
-          : !roomState.currentMedia?.mediaUrl ? "No media loaded" : `Sync ${syncMs}ms`;
+          : !roomState.currentMedia?.mediaUrl ? "No media loaded" : isLoading ? "Loading" : `Sync ${syncMs}ms`;
     }
   });
 }
@@ -3311,17 +3364,13 @@ function loadMedia(url) {
   return true;
 }
 
-function parseRezkaHash(hash) {
-  // Format: #t:56-s:2-e:1
+function parseMediaSelectionHash(hash) {
   if (!hash || !hash.startsWith('#')) return null;
   const result = {};
-  // t:56
   const tMatch = hash.match(/t:(\d+)/);
   if (tMatch) result.translatorId = parseInt(tMatch[1], 10);
-  // s:2
   const sMatch = hash.match(/s:(\d+)/);
   if (sMatch) result.seasonId = parseInt(sMatch[1], 10);
-  // e:1
   const eMatch = hash.match(/e:(\d+)/);
   if (eMatch) result.episodeId = parseInt(eMatch[1], 10);
   return Object.keys(result).length > 0 ? result : null;
@@ -3963,15 +4012,7 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
   const roomState = ensureRoomState(normalized);
   const previousMedia = roomState.currentMedia || null;
   const previousSeriesContext = previousMedia?.seriesContext || null;
-  const shouldPreserveNavigationContext =
-    previousSeriesContext &&
-    hasNavigableSeriesContext(previousSeriesContext) &&
-    payload.seriesContext &&
-    !hasNavigableSeriesContext(payload.seriesContext) &&
-    isSameSourcePage(payload, previousMedia);
-  const nextSeriesContext = shouldPreserveNavigationContext
-    ? mergePartialSeriesContext(payload.seriesContext, previousSeriesContext)
-    : (payload.seriesContext ?? previousSeriesContext ?? null);
+  const nextSeriesContext = mergePartialSeriesContext(payload.seriesContext, previousSeriesContext);
   const nextPageUrl = pickResolverPageUrl(
     payload.pageUrl,
     nextSeriesContext?.resolver?.pageUrl,
@@ -4054,6 +4095,39 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
     refreshActiveRoom();
     syncActiveRoomMedia(true);
   }
+}
+
+function updateRoomSeriesContext(roomId, payload, preferContextSelection = true) {
+  const normalized = normalizeRoomCode(roomId);
+  const incomingContext = payload?.seriesContext || null;
+  if (!normalized || !incomingContext) return null;
+
+  const roomState = ensureRoomState(normalized);
+  const previousMedia = roomState.currentMedia || null;
+  const previousSeriesContext = previousMedia?.seriesContext || null;
+  const nextSeriesContext = mergePartialSeriesContext(incomingContext, previousSeriesContext);
+
+  roomState.currentMedia = {
+    mediaUrl: previousMedia?.mediaUrl || null,
+    masterPlaylistUrl: previousMedia?.masterPlaylistUrl || null,
+    pageUrl: payload.pageUrl || nextSeriesContext?.resolver?.pageUrl || previousMedia?.pageUrl || null,
+    sourcePageUrl: payload.sourcePageUrl || nextSeriesContext?.resolver?.pageUrl || previousMedia?.sourcePageUrl || null,
+    title: payload.title || nextSeriesContext?.title || previousMedia?.title || null,
+    seriesContext: nextSeriesContext,
+    updatedAt: Date.now(),
+    addedToPlaylistId: previousMedia?.addedToPlaylistId || null
+  };
+  roomState.ui = mergeUiFromSeriesContext(roomState, nextSeriesContext, previousSeriesContext, {
+    preferContextSelection
+  });
+  sanitizeRoomUi(roomState);
+  state.roomStates.set(normalized, roomState);
+
+  if (state.activeRoomId === normalized) {
+    refreshActiveRoom();
+  }
+
+  return roomState;
 }
 
 function applyMediaPayload(payload, shouldBroadcast) {
@@ -4442,6 +4516,27 @@ function connectWs() {
       return;
     }
 
+    if (msg.type === "series-context:set") {
+      const roomId = normalizeRoomCode(msg.roomId);
+      if (!roomId || msg.originId === clientId) return;
+      console.log(
+        `[Interface UI] Series context received ${msg.contextEventId || "unknown"} room=${roomId} ` +
+        `episodes=${Array.isArray(msg.seriesContext?.episodes) ? msg.seriesContext.episodes.length : 0} ` +
+        `at=${Date.now()}`
+      );
+      updateRoomSeriesContext(roomId, msg, true);
+      return;
+    }
+
+    if (msg.type === "series-context:ack") {
+      console.log(
+        `[Interface UI] Series context acknowledged ${msg.contextEventId || "unknown"} ` +
+        `room=${normalizeRoomCode(msg.roomId) || "unknown"} ` +
+        `serverReceivedAt=${msg.receivedAt || "unknown"} browserReceivedAt=${Date.now()}`
+      );
+      return;
+    }
+
     if (msg.type === "media:set") {
       const roomId = normalizeRoomCode(msg.roomId);
       if (!roomId || msg.originId === clientId) return;
@@ -4767,17 +4862,15 @@ function bindUi() {
       return;
     }
 
-      // Detect a Rezka hash such as #t:56-s:2-e:1.
     let hashParams = null;
     try {
       const url = new URL(query);
-      hashParams = parseRezkaHash(url.hash);
+      hashParams = parseMediaSelectionHash(url.hash);
     } catch {}
 
-    // Keep the hash so it can be applied after the series media finishes loading.
-    _pendingRezkaHash = hashParams;
+    pendingMediaSelection = hashParams;
     if (hashParams) {
-      appendPlaybackDebugEntry("Rezka hash saved for later", hashParams);
+      appendPlaybackDebugEntry("Media selection saved for loading", hashParams);
     }
 
     _lastLoadedMediaKey = "";
@@ -4963,6 +5056,18 @@ async function start() {
       }
       return;
     }
+    if (event.data?.type === "anytogether:series-context") {
+      const roomId = normalizeRoomCode(event.data.roomId);
+      console.log(
+        `[Interface UI] Playback series context received room=${roomId || "unknown"} ` +
+        `episodes=${Array.isArray(event.data.seriesContext?.episodes) ? event.data.seriesContext.episodes.length : 0} ` +
+        `origin=${event.data.originId || "none"} local=${clientId} receivedAt=${Date.now()}`
+      );
+      if (!roomId || !event.data.seriesContext || event.data.originId === clientId) return;
+      updateRoomSeriesContext(roomId, event.data, true);
+      console.log(`[Interface UI] Playback series context applied room=${roomId} at=${Date.now()}`);
+      return;
+    }
     if (event.data?.type === PAGE_EVENT_SERIES_CONTEXT_FOUND) {
       const payload = event.data?.payload || {};
       const roomId = normalizeRoomCode(payload.roomId) || state.activeRoomId;
@@ -4980,48 +5085,54 @@ async function start() {
         return;
       }
 
-      const roomState = ensureRoomState(roomId);
-      const previousMedia = roomState.currentMedia || null;
-      const previousSeriesContext = previousMedia?.seriesContext || null;
-      const nextSeriesContext = mergePartialSeriesContext(seriesContext, previousSeriesContext);
-      roomState.currentMedia = {
-        mediaUrl: previousMedia?.mediaUrl || null,
-        masterPlaylistUrl: previousMedia?.masterPlaylistUrl || null,
-        pageUrl: payload.pageUrl || previousMedia?.pageUrl || null,
-        sourcePageUrl: payload.sourcePageUrl || previousMedia?.sourcePageUrl || null,
-        title: nextSeriesContext?.title || previousMedia?.title || null,
-        seriesContext: nextSeriesContext,
-        updatedAt: Date.now(),
-        addedToPlaylistId: previousMedia?.addedToPlaylistId || null
-      };
-      roomState.ui = mergeUiFromSeriesContext(roomState, nextSeriesContext, previousSeriesContext);
-      sanitizeRoomUi(roomState);
-
-      state.roomStates.set(roomId, roomState);
-
-      if (state.activeRoomId === roomId) {
-        refreshActiveRoom();
+      updateRoomSeriesContext(roomId, payload, true);
+      console.log(
+        `[Interface UI] Local series context applied room=${roomId} ` +
+        `episodes=${Array.isArray(seriesContext.episodes) ? seriesContext.episodes.length : 0} ` +
+        `strategy=${seriesContext.discoveryStrategy || "unknown"} at=${Date.now()}`
+      );
+      const contextSignature = buildSeriesContextSignature(seriesContext);
+      if (lastBroadcastSeriesContextSignatures.get(roomId) !== contextSignature) {
+        const contextEventId = crypto.randomUUID();
+        console.log(
+          `[Interface UI] Series context sent ${contextEventId} room=${roomId} ` +
+          `episodes=${Array.isArray(seriesContext.episodes) ? seriesContext.episodes.length : 0} ` +
+          `strategy=${seriesContext.discoveryStrategy || "unknown"} ` +
+          `at=${Date.now()}`
+        );
+        const contextWasSent = sendWs({
+          type: "series-context:set",
+          contextEventId,
+          roomId,
+          pageUrl: payload.pageUrl || null,
+          sourcePageUrl: payload.sourcePageUrl || payload.pageUrl || null,
+          title: seriesContext.title || null,
+          seriesContext,
+          originId: clientId
+        });
+        if (contextWasSent) {
+          lastBroadcastSeriesContextSignatures.set(roomId, contextSignature);
+        }
       }
       return;
     }
 
+    if (event.data?.type === PAGE_EVENT_EXTRACTION_DIAGNOSTIC) {
+      const payload = event.data.payload || {};
+      const fields = [
+        payload.durationMs != null ? `durationMs=${payload.durationMs}` : null,
+        payload.episodes != null ? `episodes=${payload.episodes}` : null,
+        payload.bytes != null ? `bytes=${payload.bytes}` : null,
+        payload.status != null ? `status=${payload.status}` : null,
+        payload.configuredWaitMs != null ? `configuredWaitMs=${payload.configuredWaitMs}` : null,
+        payload.error ? `error=${payload.error}` : null,
+        payload.pageUrl ? `pageUrl=${String(payload.pageUrl).substring(0, 100)}` : null
+      ].filter(Boolean);
+      console.log(`[Extraction] ${payload.stage || "unknown"}${fields.length ? ` ${fields.join(" ")}` : ""}`);
+      return;
+    }
+
     if (event.data?.type === PAGE_EVENT_MEDIA_FOUND) {
-      console.log("[Interface UI] PAGE_EVENT_MEDIA_FOUND payload:", {
-        mediaUrl: event.data?.payload?.mediaUrl?.substring(0, 80),
-        roomId: event.data?.payload?.roomId || null,
-        seasons: Array.isArray(event.data?.payload?.seriesContext?.seasons)
-          ? event.data.payload.seriesContext.seasons.length
-          : 0,
-        episodes: Array.isArray(event.data?.payload?.seriesContext?.episodes)
-          ? event.data.payload.seriesContext.episodes.length
-          : 0,
-        qualities: Array.isArray(event.data?.payload?.seriesContext?.availableQualities)
-          ? event.data.payload.seriesContext.availableQualities.length
-          : 0,
-        seasonId: event.data?.payload?.seriesContext?.currentSeasonId ?? null,
-        episodeId: event.data?.payload?.seriesContext?.currentEpisodeId ?? null,
-        resolver: event.data?.payload?.seriesContext?.resolver?.provider || null
-      });
       clearPendingSearchStatusTimer();
       const payload = event.data?.payload || {};
       const incomingRoomId = normalizeRoomCode(payload.roomId);
@@ -5108,6 +5219,19 @@ async function start() {
         _lastLoadBlockedUntil = 0;
       }
 
+      if (
+        !incomingRoomId &&
+        mediaUrl !== _lastLoadedMediaKey &&
+        _lastLoadHadContext &&
+        isSameMediaSelection(payload.seriesContext, currentSeriesContext) &&
+        !contextWasExpanded
+      ) {
+        appendPlaybackDebugEntry("Ignoring alternate URL for current media selection", {
+          url: mediaUrl.substring(0, 80)
+        });
+        return;
+      }
+
       if (mediaUrl === _lastLoadedMediaKey) {
         if (_lastLoadHadContext && !contextWasExpanded) {
           appendPlaybackDebugEntry("Ignoring duplicate media URL (already loaded with context)", { url: mediaUrl.substring(0, 80) });
@@ -5132,8 +5256,15 @@ async function start() {
       _lastLoadBlockedUntil = now + LOAD_BLOCK_DURATION_MS;
       _lastLoadHadContext = hasSeriesContext || hasNavigableSeriesContext(roomState.currentMedia?.seriesContext);
 
+      console.log("[Interface UI] Media payload accepted:", {
+        roomId: incomingRoomId || effectiveRoomId,
+        seasons: Array.isArray(payload.seriesContext?.seasons) ? payload.seriesContext.seasons.length : 0,
+        episodes: Array.isArray(payload.seriesContext?.episodes) ? payload.seriesContext.episodes.length : 0,
+        qualities: Array.isArray(payload.seriesContext?.availableQualities) ? payload.seriesContext.availableQualities.length : 0,
+        seasonId: payload.seriesContext?.currentSeasonId ?? null,
+        episodeId: payload.seriesContext?.currentEpisodeId ?? null
+      });
 
-      // Show selected quality from extension in indicator
       const selectedLabel = payload.seriesContext?.selectedQualityLabel || null;
 
       appendPlaybackDebugEntry("Extension payload received", {
@@ -5147,15 +5278,14 @@ async function start() {
 
       updateRoomFromMediaPayload(effectiveRoomId, payload, true);
 
-      // Apply any deferred translator, season, or episode hash.
-      if (_pendingRezkaHash) {
-        const hash = _pendingRezkaHash;
+      if (pendingMediaSelection) {
+        const selection = pendingMediaSelection;
         const rs = getRoomState(effectiveRoomId);
         if (rs) {
-          if (hash.translatorId) rs.ui.translatorId = hash.translatorId;
-          if (hash.seasonId) rs.ui.seasonId = hash.seasonId;
-          if (hash.episodeId) rs.ui.episodeId = hash.episodeId;
-          appendPlaybackDebugEntry("Rezka hash applied after media load", hash);
+          if (selection.translatorId) rs.ui.translatorId = selection.translatorId;
+          if (selection.seasonId) rs.ui.seasonId = selection.seasonId;
+          if (selection.episodeId) rs.ui.episodeId = selection.episodeId;
+          appendPlaybackDebugEntry("Media selection applied after loading", selection);
           renderSeriesPanel();
           const episode = getSelectedEpisodeForActions();
           if (episode) {
@@ -5165,11 +5295,9 @@ async function start() {
             });
           }
         }
-        _pendingRezkaHash = null;
+        pendingMediaSelection = null;
       }
 
-      // After updateRoomFromMediaPayload, roomState.ui.qualityLabel is now set via sanitizeRoomUi
-      // Force sync it to app.js BEFORE syncActiveRoomMedia triggers hls.js
       const roomStateAfterLoad = getRoomState(effectiveRoomId);
       const qualityToUse = selectedLabel || roomStateAfterLoad?.ui?.qualityLabel || null;
       if (qualityToUse && window._setSelectedQualityLabel) {

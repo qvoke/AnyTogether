@@ -1,5 +1,13 @@
-export function extractSeriesContextInPage(pageUrlArg, profileArg) {
-  if (document.readyState === "loading" || !document.body || document.body.innerText.length < 120) {
+export function extractSeriesContextInPage(pageUrlArg, profileArg, htmlArg = null) {
+  const sourceDocument = (() => {
+    if (typeof htmlArg !== "string" || !htmlArg.trim()) return document;
+    const parsedDocument = document.implementation.createHTMLDocument("");
+    parsedDocument.open();
+    parsedDocument.write(htmlArg);
+    parsedDocument.close();
+    return parsedDocument;
+  })();
+  if (!sourceDocument.body || sourceDocument.body.textContent.length < 120) {
     return null;
   }
 
@@ -20,7 +28,7 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     return current == null ? null : current;
   };
 
-  const collectShadowRoots = (rootDocument = document, maxRoots = 80) => {
+  const collectShadowRoots = (rootDocument = sourceDocument, maxRoots = 80) => {
     const roots = [rootDocument];
     const queue = [rootDocument.documentElement, rootDocument.body].filter(Boolean);
     const visited = new Set(queue);
@@ -47,7 +55,7 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     return roots;
   };
 
-  const queryAllConfigured = (selectors, rootDocument = document) => {
+  const queryAllConfigured = (selectors, rootDocument = sourceDocument) => {
     const selectorList = Array.isArray(selectors) ? selectors : [selectors].filter(Boolean);
     const roots = collectShadowRoots(rootDocument);
     const nodes = [];
@@ -71,7 +79,7 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     return normalizeText(node.textContent || node.getAttribute?.("content") || "");
   };
 
-  const readJsonLdCandidates = (rootDocument = document) => {
+  const readJsonLdCandidates = (rootDocument = sourceDocument) => {
     const candidates = [];
     for (const script of queryAllConfigured('script[type="application/ld+json"]', rootDocument)) {
       const rawJson = String(script.textContent || "").trim();
@@ -86,7 +94,7 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     return candidates;
   };
 
-  const resolveConfiguredField = (fieldName, rootDocument = document) => {
+  const resolveConfiguredField = (fieldName, rootDocument = sourceDocument) => {
     const fieldSources = profileArg?.fields?.[fieldName];
     if (!Array.isArray(fieldSources)) return null;
 
@@ -106,7 +114,7 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
           if (value) return value;
         }
       } else if (type === "documentTitle") {
-        const rawTitle = normalizeText(rootDocument.title || document.title);
+        const rawTitle = normalizeText(rootDocument.title || sourceDocument.title);
         const patterns = Array.isArray(source.patterns) ? source.patterns : [];
         for (const pattern of patterns) {
           try {
@@ -126,7 +134,7 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
 
   const normalizeUrl = (value) => {
     try {
-      const url = new URL(value, document.baseURI);
+      const url = new URL(value, pageUrlArg || sourceDocument.baseURI);
       url.hash = "";
       return url.href;
     } catch {
@@ -134,11 +142,11 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     }
   };
 
-  const currentPageUrl = normalizeUrl(pageUrlArg) || document.location.href;
+  const currentPageUrl = normalizeUrl(pageUrlArg) || sourceDocument.location?.href || pageUrlArg;
   const title = resolveConfiguredField("title") ||
-    document.querySelector('meta[property="og:title"]')?.content?.trim() ||
-    document.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim() ||
-    document.title.replace(/\s+/g, " ").trim();
+    sourceDocument.querySelector('meta[property="og:title"]')?.content?.trim() ||
+    sourceDocument.querySelector("h1")?.textContent?.replace(/\s+/g, " ").trim() ||
+    sourceDocument.title.replace(/\s+/g, " ").trim();
   const isOwnUiTitle = /anytogether|press play together|wherever you are/i.test(title || "");
   if (isOwnUiTitle) {
     return null;
@@ -146,8 +154,8 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
 
   const samePage = (left, right) => {
     try {
-      const leftUrl = new URL(left, document.baseURI);
-      const rightUrl = new URL(right, document.baseURI);
+      const leftUrl = new URL(left, currentPageUrl);
+      const rightUrl = new URL(right, currentPageUrl);
       return (
         leftUrl.origin === rightUrl.origin &&
         leftUrl.pathname.replace(/\/+$/, "") === rightUrl.pathname.replace(/\/+$/, "")
@@ -178,7 +186,7 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     ].some((term) => normalized.includes(term));
   };
 
-  const collectDocuments = (rootDocument = document, maxDepth = 2) => {
+  const collectDocuments = (rootDocument = sourceDocument, maxDepth = 2) => {
     const documents = [];
     const visited = new Set();
 
@@ -216,7 +224,7 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     return documents;
   };
 
-  const collectQualityItems = (rootDocument = document) => {
+  const collectQualityItems = (rootDocument = sourceDocument) => {
     const qualityNodes = queryAllConfigured(
       "select option, button, [role='button'], [data-quality], [data-quality-label], [data-res], [data-src], [src], [aria-label], [title], li, span, div",
       rootDocument
@@ -259,10 +267,27 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     return qualityItems;
   };
 
-  const buildContext = ({ seasonTitles, episodeItems, translatorItems, qualityItems, discoveryStrategy, resolver = null }) => {
+  const buildContext = ({
+    seasonTitles,
+    seasonItems,
+    episodeItems,
+    translatorItems,
+    qualityItems,
+    discoveryStrategy,
+    resolver = null,
+    currentSeasonId = null,
+    currentEpisodeId = null
+  }) => {
     if (!Array.isArray(episodeItems) || episodeItems.length < 2) return null;
     const seasons = [];
-    if (Array.isArray(seasonTitles) && seasonTitles.length > 0) {
+    if (Array.isArray(seasonItems) && seasonItems.length > 0) {
+      for (const season of seasonItems) {
+        seasons.push({
+          ...season,
+          episodes: episodeItems.filter((episode) => Number(episode.seasonId) === Number(season.seasonId))
+        });
+      }
+    } else if (Array.isArray(seasonTitles) && seasonTitles.length > 0) {
       for (const [seasonIndex, seasonTitle] of seasonTitles.entries()) {
         const seasonId = seasonIndex + 1;
         seasons.push({
@@ -279,8 +304,16 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
       });
     }
 
+    const selectedEpisodeIndex = episodeItems.findIndex((episode) =>
+      Number(episode.seasonId) === Number(currentSeasonId) &&
+      Number(episode.episodeId) === Number(currentEpisodeId)
+    );
     const currentEpisodeIndex = episodeItems.findIndex((episode) => episode.url && samePage(episode.url, currentPageUrl));
-    const activeEpisodeIndex = currentEpisodeIndex >= 0 ? currentEpisodeIndex : 0;
+    const activeEpisodeIndex = selectedEpisodeIndex >= 0
+      ? selectedEpisodeIndex
+      : currentEpisodeIndex >= 0
+        ? currentEpisodeIndex
+        : 0;
     const activeEpisode = episodeItems[activeEpisodeIndex] || episodeItems[0];
     return {
       title: title || null,
@@ -300,14 +333,10 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     };
   };
 
-  const collectCustomPicker = (rootDocument = document, sourceConfig = {}) => {
+  const collectCustomPicker = (rootDocument = sourceDocument, sourceConfig = {}) => {
     const pickerSelectors = Array.isArray(sourceConfig.selectors) && sourceConfig.selectors.length > 0
       ? sourceConfig.selectors
       : [
-      "hdvbplayer",
-      "hdbvplayer",
-      "[me]",
-      "[fid]",
       "[data-src]",
       "[data-url]",
       "[data-href]",
@@ -409,15 +438,20 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     });
   };
 
-  const collectHdvbMePicker = (rootDocument = document, sourceConfig = {}) => {
-    const seasonSelector = sourceConfig.seasonSelector || 'hdvbplayer[me^="x-"]';
-    const episodeSelector = sourceConfig.episodeSelector || 'hdvbplayer[me^="xx-"]';
-    const translatorSelector = sourceConfig.translatorSelector || 'hdvbplayer[me^="xxx-"]';
-    const activeStylePattern = new RegExp(sourceConfig.activeStylePattern || "rgb\\(0,\\s*173,\\s*239\\)", "i");
+  const collectAttributePatternPicker = (rootDocument = sourceDocument, sourceConfig = {}) => {
+    const seasonSelector = sourceConfig.seasonSelector;
+    const episodeSelector = sourceConfig.episodeSelector;
+    const translatorSelector = sourceConfig.translatorSelector;
+    const valueAttribute = sourceConfig.valueAttribute;
+    if (!seasonSelector || !episodeSelector || !translatorSelector || !valueAttribute ||
+        !sourceConfig.seasonValuePattern || !sourceConfig.episodeValuePattern || !sourceConfig.translatorValuePattern) {
+      return null;
+    }
+    const activeStylePattern = new RegExp(sourceConfig.activeStylePattern || "(?!)", "i");
     const activeSelector = sourceConfig.activeSelector || "[aria-selected='true'], [aria-pressed='true'], .active, .is-active";
-    const seasonMePattern = new RegExp(sourceConfig.seasonMePattern || "^x-\\d+-(\\d+)$");
-    const episodeMePattern = new RegExp(sourceConfig.episodeMePattern || "^xx-\\d+-(\\d+)-\\d+-\\d+-(\\d+)$");
-    const translatorMePattern = new RegExp(sourceConfig.translatorMePattern || "^xxx-\\d+-(\\d+)-\\d+-\\d+-(\\d+)-(\\d+)-");
+    const seasonValuePattern = new RegExp(sourceConfig.seasonValuePattern);
+    const episodeValuePattern = new RegExp(sourceConfig.episodeValuePattern);
+    const translatorValuePattern = new RegExp(sourceConfig.translatorValuePattern);
     const isActiveNode = (node) => {
       if (!node) return false;
       if (activeStylePattern.test(node.getAttribute?.("style") || "")) return true;
@@ -440,8 +474,8 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
 
     const seasonSeen = new Map();
     for (const node of queryAllConfigured(seasonSelector, rootDocument)) {
-      const me = String(node.getAttribute("me") || "");
-      const match = me.match(seasonMePattern);
+      const value = String(node.getAttribute(valueAttribute) || "");
+      const match = value.match(seasonValuePattern);
       const seasonId = parseNumber(match?.[1]);
       if (!seasonId) continue;
       rememberPreferred(seasonSeen, seasonId, {
@@ -454,8 +488,8 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
 
     const episodeSeen = new Map();
     for (const node of queryAllConfigured(episodeSelector, rootDocument)) {
-      const me = String(node.getAttribute("me") || "");
-      const match = me.match(episodeMePattern);
+      const value = String(node.getAttribute(valueAttribute) || "");
+      const match = value.match(episodeValuePattern);
       const seasonId = parseNumber(match?.[1]);
       const episodeId = parseNumber(match?.[2]);
       if (!seasonId || !episodeId) continue;
@@ -491,8 +525,8 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     const translatorSeen = new Set();
     const translatorItems = queryAllConfigured(translatorSelector, rootDocument)
       .map((node) => {
-        const me = String(node.getAttribute("me") || "");
-        const match = me.match(translatorMePattern);
+        const value = String(node.getAttribute(valueAttribute) || "");
+        const match = value.match(translatorValuePattern);
         const translatorId = parseNumber(match?.[3]);
         const title = normalizeText(node.textContent);
         const key = `${translatorId || title}:${title}`;
@@ -530,12 +564,12 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
       selectedTranslatorTitle: translatorItems.find((item) => item.active)?.title || null,
       availableQualities: [],
       selectedQualityLabel: null,
-      discoveryStrategy: "hdvbMePicker",
+      discoveryStrategy: "attributePatternPicker",
       resolver: null
     };
   };
 
-  const collectEmbeddedData = (rootDocument = document) => {
+  const collectEmbeddedData = (rootDocument = sourceDocument) => {
     for (const inspectableDocument of collectDocuments(rootDocument, 2)) {
       const scripts = queryAllConfigured('script[type="application/ld+json"]', inspectableDocument);
       for (const script of scripts) {
@@ -579,7 +613,7 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     return null;
   };
 
-  const collectGenericLinks = (rootDocument = document, sourceConfig = {}) => {
+  const collectGenericLinks = (rootDocument = sourceDocument, sourceConfig = {}) => {
     const selectors = Array.isArray(sourceConfig.selectors) && sourceConfig.selectors.length > 0
       ? sourceConfig.selectors
       : [
@@ -640,7 +674,7 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
     });
   };
 
-  const collectGenericAttributes = (rootDocument = document, sourceConfig = {}) => {
+  const collectGenericAttributes = (rootDocument = sourceDocument, sourceConfig = {}) => {
     const selectors = Array.isArray(sourceConfig.selectors) && sourceConfig.selectors.length > 0
       ? sourceConfig.selectors
       : [
@@ -702,71 +736,82 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
   for (const source of sources) {
     const sourceType = typeof source === "string" ? source : source?.type;
     let context = null;
-    if ((sourceType === "structuredDom" || sourceType === "structured-dom") && profileArg?.id === "rezka") {
-      const resolverPattern = source?.resolverPattern || "initCDNSeriesEvents\\((\\d+),\\s*(\\d+),\\s*(\\d+),\\s*(\\d+),";
-      const resolverMatch = document.documentElement.innerHTML.match(new RegExp(resolverPattern, "i"));
+    if (sourceType === "structuredDom" || sourceType === "structured-dom") {
+      const resolverPattern = source?.resolverPattern;
+      const seasonSelector = source?.seasons?.selector;
+      const episodeSelectorTemplate = source?.episodes?.selectorTemplate;
+      if (!resolverPattern || !seasonSelector || !episodeSelectorTemplate) continue;
+
+      const resolverMatch = sourceDocument.documentElement.innerHTML.match(new RegExp(resolverPattern, "i"));
       if (resolverMatch) {
+        const captures = source?.resolverCaptures || {};
+        const itemId = Number(resolverMatch[Number(captures.itemId) || 1]);
+        const translatorId = Number(resolverMatch[Number(captures.translatorId) || 2]);
+        const resolverSeasonId = Number(resolverMatch[Number(captures.seasonId) || 3]);
+        const resolverEpisodeId = Number(resolverMatch[Number(captures.episodeId) || 4]);
         const resolver = {
-          provider: source?.provider || "rezka",
-          itemId: Number(resolverMatch[1]),
-          translatorId: Number(resolverMatch[2]),
+          provider: source?.provider || profileArg?.id || "generic",
+          itemId,
+          translatorId,
           pageUrl: currentPageUrl,
           origin: new URL(currentPageUrl).origin,
-          favs: document.querySelector(source?.favoritesSelector || "#ctrl_favs")?.value || "",
-          contentType: "series"
+          favs: source?.favoritesSelector
+            ? sourceDocument.querySelector(source.favoritesSelector)?.value || ""
+            : "",
+          contentType: source?.contentType || "series"
         };
-        const seasonSelector = source?.seasons?.selector || "#simple-seasons-tabs .b-simple_season__item";
-        const seasonIdAttribute = source?.seasons?.idAttribute || "data-tab_id";
-        const episodeSelectorTemplate = source?.episodes?.selectorTemplate || "#simple-episodes-list-{seasonId} .b-simple_episode__item";
-        const episodeIdAttribute = source?.episodes?.idAttribute || "data-episode_id";
-        const translatorSelector = source?.translators?.selector || "#translators-list .b-translator__item";
-        const translatorIdAttribute = source?.translators?.idAttribute || "data-translator_id";
-        const translatorTitleAttribute = source?.translators?.titleAttribute || "title";
-        const seasons = queryAllConfigured(seasonSelector, document).map((node) => ({
-          seasonId: Number(node.getAttribute(seasonIdAttribute)) || 1,
+        const seasonIdAttribute = source?.seasons?.idAttribute;
+        const episodeIdAttribute = source?.episodes?.idAttribute;
+        const translatorSelector = source?.translators?.selector;
+        const translatorIdAttribute = source?.translators?.idAttribute;
+        const translatorTitleAttribute = source?.translators?.titleAttribute;
+        const seasons = queryAllConfigured(seasonSelector, sourceDocument).map((node) => ({
+          seasonId: Number(seasonIdAttribute ? node.getAttribute(seasonIdAttribute) : null) || 1,
           title: normalizeText(node.textContent),
           episodes: []
         }));
         const flatEpisodes = [];
         for (const season of seasons) {
           const episodeSelector = episodeSelectorTemplate.replaceAll("{seasonId}", String(season.seasonId));
-          const seasonEpisodes = queryAllConfigured(episodeSelector, document)
+          const seasonEpisodes = queryAllConfigured(episodeSelector, sourceDocument)
             .map((node) => ({
               title: normalizeText(node.textContent),
               seasonId: season.seasonId,
-              episodeId: Number(node.getAttribute(episodeIdAttribute)) || flatEpisodes.length + 1
+              episodeId: Number(episodeIdAttribute ? node.getAttribute(episodeIdAttribute) : null) || flatEpisodes.length + 1
             }));
           season.episodes = seasonEpisodes;
           flatEpisodes.push(...seasonEpisodes);
         }
         if (flatEpisodes.length >= 2) {
           context = buildContext({
-            seasonTitles: seasons.map((season) => season.title),
+            seasonItems: seasons,
             episodeItems: flatEpisodes,
-            translatorItems: queryAllConfigured(translatorSelector, document).map((node, index) => ({
-              translatorId: Number(node.getAttribute(translatorIdAttribute)) || index + 1,
-              title: normalizeText(node.getAttribute(translatorTitleAttribute) || node.textContent),
+            translatorItems: translatorSelector ? queryAllConfigured(translatorSelector, sourceDocument).map((node, index) => ({
+              translatorId: Number(translatorIdAttribute ? node.getAttribute(translatorIdAttribute) : null) || index + 1,
+              title: normalizeText((translatorTitleAttribute ? node.getAttribute(translatorTitleAttribute) : null) || node.textContent),
               active: Boolean(node.matches?.(".active, .is-active"))
-            })),
-            qualityItems: collectQualityItems(document),
+            })) : [],
+            qualityItems: collectQualityItems(sourceDocument),
             discoveryStrategy: "structuredDom",
-            resolver
+            resolver,
+            currentSeasonId: resolverSeasonId,
+            currentEpisodeId: resolverEpisodeId
           });
         }
       }
-    } else if (sourceType === "hdvbMePicker") {
-      context = collectHdvbMePicker(document, source);
+    } else if (sourceType === "attributePatternPicker") {
+      context = collectAttributePatternPicker(sourceDocument, source);
     } else if (sourceType === "customPicker" || sourceType === "custom-picker") {
-      context = collectCustomPicker(document, source);
+      context = collectCustomPicker(sourceDocument, source);
     } else if (sourceType === "jsonLd" || sourceType === "embedded-jsonld") {
-      context = collectEmbeddedData(document);
+      context = collectEmbeddedData(sourceDocument);
     } else if (sourceType === "linkCollection" || sourceType === "generic-links") {
-      context = collectGenericLinks(document, source);
+      context = collectGenericLinks(sourceDocument, source);
     } else if (sourceType === "attributeCollection" || sourceType === "generic-attributes") {
-      context = collectGenericAttributes(document, source);
+      context = collectGenericAttributes(sourceDocument, source);
     }
 
-  if (context) {
+    if (context) {
       console.log("[AnyTogether Parser] Series context strategy:", sourceType, {
         title: context.title || null,
         seasonCount: Array.isArray(context.seasons) ? context.seasons.length : 0,
@@ -779,5 +824,4 @@ export function extractSeriesContextInPage(pageUrlArg, profileArg) {
   }
 
   return null;
-
 }

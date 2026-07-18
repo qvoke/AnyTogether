@@ -3,16 +3,17 @@ const PAGE_TO_RESOLVE_EVENT = "WT_RESOLVE_PAGE_URL";
 const PAGE_TO_EXTENSION_PING_EVENT = "WT_EXTENSION_PING";
 const EXTENSION_TO_PAGE_EVENT = "WT_MEDIA_FOUND";
 const EXTENSION_TO_PAGE_SERIES_CONTEXT_EVENT = "WT_SERIES_CONTEXT_FOUND";
+const EXTRACTION_DIAGNOSTIC_EVENT = "WT_EXTRACTION_DIAGNOSTIC";
 const EXTENSION_STATUS_EVENT = "WT_EXTENSION_STATUS";
 const EXTENSION_ERROR_EVENT = "WT_EXTENSION_ERROR";
 const PAGE_EVENT_SEARCH_RESULT_CLICKED = "WT_SEARCH_RESULT_CLICKED";
 const SEARCH_POPUP_WINDOW_NAME = "AnyTogetherSearch";
 
-  function sendRuntimeMessage(message) {
-    try {
-      chrome.runtime.sendMessage(message, () => void chrome.runtime.lastError);
-    } catch {
-      // The extension can disconnect while the page is still dispatching updates.
+function sendRuntimeMessage(message) {
+  try {
+    chrome.runtime.sendMessage(message, () => void chrome.runtime.lastError);
+  } catch {
+    // The extension can disconnect while the page is still dispatching updates.
   }
 }
 
@@ -84,7 +85,9 @@ const SEARCH_POPUP_WINDOW_NAME = "AnyTogetherSearch";
 
   if (isSearchPopupWindow) {
     if (document.readyState === "loading") {
-      document.addEventListener("DOMContentLoaded", injectSearchPopupToolbar, { once: true });
+      document.addEventListener("DOMContentLoaded", () => {
+        injectSearchPopupToolbar();
+      }, { once: true });
     } else {
       injectSearchPopupToolbar();
     }
@@ -159,8 +162,6 @@ const SEARCH_POPUP_WINDOW_NAME = "AnyTogetherSearch";
     if (url.startsWith('blob:')) return false;
     if (/\.m3u8(?:\?|$)/i.test(url)) return true;
     if (/\.mp4(?:\?|$)/i.test(url)) return true;
-    if (/voidboost.*manifest\.m3u8/i.test(url)) return true;
-    if (/voidboost.*index\.m3u8/i.test(url)) return true;
     return false;
   }
 
@@ -225,6 +226,9 @@ const SEARCH_POPUP_WINDOW_NAME = "AnyTogetherSearch";
     if (message?.type === EXTENSION_ERROR_EVENT) postToPage(EXTENSION_ERROR_EVENT, message.payload);
     if (message?.type === EXTENSION_TO_PAGE_SERIES_CONTEXT_EVENT && message?.payload) {
       postToPage(EXTENSION_TO_PAGE_SERIES_CONTEXT_EVENT, message.payload);
+    }
+    if (message?.type === EXTRACTION_DIAGNOSTIC_EVENT && message?.payload) {
+      postToPage(EXTRACTION_DIAGNOSTIC_EVENT, message.payload);
     }
     if (message?.type === "WT_MEDIA_FOUND" && message?.payload) {
       _lastMediaUrl = message.payload.mediaUrl || _lastMediaUrl;

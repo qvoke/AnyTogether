@@ -30,7 +30,6 @@ const gestureCommitRetryMs = 60;
 const gestureCommitMaxDelayMs = 650;
 const gestureCommitQuietWindowMs = 90;
 const remoteSeekSettlementGraceMs = 250;
-const seekCorrectionThresholdMs = 100;
 const playbackCorrectionThresholdMs = 300;
 const playbackCorrectionCooldownMs = 1200;
 const playbackStatusIntervalMs = 200;
@@ -56,6 +55,7 @@ const state = {
   pendingInterfaceMediaUrl: null,
   lastPlaybackStatusDebugSignature: "",
   lastPresenceDebugSignature: "",
+  lastMemberRenderSignature: "",
   currentRevision: 0,
   playbackSyncOffsets: new Map(),
   lastPlaybackCorrectionAt: 0,
@@ -99,6 +99,7 @@ const state = {
   hlsRecoveryAttempts: 0,
   hlsMediaErrorAttempts: 0,
   hlsLastRecoveryAt: 0,
+  hlsBufferingPaused: false,
   room: elements.roomInput.value.trim() || "lobby",
   role: elements.roleSelect.value
 };
@@ -623,31 +624,37 @@ function destroyHls() {
     state.hls.destroy();
     state.hls = null;
   }
+  state.hlsBufferingPaused = false;
 }
 
 function pauseStreamBuffering() {
   if (state.hls && typeof state.hls.pauseBuffering === "function") {
     try {
       state.hls.pauseBuffering();
+      state.hlsBufferingPaused = true;
     } catch (error) {
       logEvent("HLS buffering pause failed", error);
     }
   }
 }
 
-function resumeStreamBuffering(startPosition = elements.player.currentTime) {
+function resumeStreamBuffering(startPosition = elements.player.currentTime, forceStartLoad = false) {
   if (!state.hls) {
     return;
   }
 
   try {
-    if (typeof state.hls.resumeBuffering === "function") {
+    const wasPaused = state.hlsBufferingPaused;
+    let resumedWithBufferingApi = false;
+    if (wasPaused && typeof state.hls.resumeBuffering === "function") {
       state.hls.resumeBuffering();
+      resumedWithBufferingApi = true;
     }
 
-    if (typeof state.hls.startLoad === "function") {
+    if ((forceStartLoad || wasPaused && !resumedWithBufferingApi) && typeof state.hls.startLoad === "function") {
       state.hls.startLoad(Number.isFinite(startPosition) ? startPosition : 0);
     }
+    state.hlsBufferingPaused = false;
   } catch (error) {
     logEvent("HLS buffering resume failed", error);
   }
@@ -710,7 +717,7 @@ function attemptStallRecovery(trigger) {
     currentTime: currentTime.toFixed(2)
   });
 
-  resumeStreamBuffering(currentTime);
+  resumeStreamBuffering(currentTime, true);
 
   if (state.hlsRecoveryAttempts >= 3) {
     return rebuildPlaybackPipeline(trigger, currentTime);
@@ -754,7 +761,7 @@ function handleHlsError(event, data) {
       state.hlsMediaErrorAttempts += 1;
       try {
         state.hls.recoverMediaError();
-        resumeStreamBuffering(currentTime);
+        resumeStreamBuffering(currentTime, true);
         state.hlsLastRecoveryAt = Date.now();
         logEvent("HLS media recovery", {
           currentTime: currentTime.toFixed(2),
@@ -1161,16 +1168,15 @@ function reportPlaybackStatus() {
 }
 
 function correctPlaybackDrift(syncEntry, recoveredFromBuffering = false) {
-  const correctionThresholdMs = syncEntry?.reason === "seek"
-    ? seekCorrectionThresholdMs
-    : playbackCorrectionThresholdMs;
   if (
     !syncEntry ||
     (!syncEntry.active && !recoveredFromBuffering) ||
     !Number.isFinite(syncEntry.offsetMs) ||
-    syncEntry.offsetMs <= correctionThresholdMs ||
+    syncEntry.offsetMs <= playbackCorrectionThresholdMs ||
     syncEntry.buffering ||
-    (elements.player.paused && syncEntry.reason !== "seek") ||
+    state.isBuffering ||
+    syncEntry.reason === "seek" ||
+    elements.player.paused ||
     elements.player.seeking ||
     state.seekGestureActive ||
     state.pendingSeekTimer !== null ||
@@ -1449,6 +1455,25 @@ function connectRoom() {
       return;
     }
 
+    if (message.type === "series-context") {
+      console.log(
+        `[Playback] Series context received room=${message.roomId || "unknown"} ` +
+        `episodes=${Array.isArray(message.seriesContext?.episodes) ? message.seriesContext.episodes.length : 0} ` +
+        `serverSentAt=${message.serverSentAt || 0} browserReceivedAt=${Date.now()}`
+      );
+      window.postMessage({
+        type: "anytogether:series-context",
+        roomId: message.roomId,
+        pageUrl: message.pageUrl || null,
+        sourcePageUrl: message.sourcePageUrl || null,
+        title: message.title || null,
+        seriesContext: message.seriesContext || null,
+        originId: message.originId || null,
+        serverSentAt: message.serverSentAt || null
+      }, "*");
+      return;
+    }
+
     if (message.type === "player-ack") {
       if (typeof message.revision === "number") {
         state.currentRevision = Math.max(state.currentRevision, message.revision);
@@ -1659,7 +1684,6 @@ window.__getPlaybackSyncInfo = (participantClientId = state.clientId) => {
 setInterval(reportPlaybackStatus, playbackStatusIntervalMs);
 
 function renderMembers(members) {
-  elements.memberList.innerHTML = "";
   const playbackStates = members
     .map((member) => `${member.clientId}:${member.playbackState || "paused"}`)
     .sort();
@@ -1668,16 +1692,25 @@ function renderMembers(members) {
   if (debugSignature !== state.lastPresenceDebugSignature) {
     state.lastPresenceDebugSignature = debugSignature;
     logEvent("Participant playback received", debugSignature || "none");
+    window.postMessage({
+      type: "anytogether:participant-playback",
+      roomId: state.room,
+      members: members.map((member) => ({
+        clientId: member.clientId,
+        playbackState: member.playbackState || "paused"
+      }))
+    }, "*");
   }
 
-  window.postMessage({
-    type: "anytogether:participant-playback",
-    roomId: state.room,
-    members: members.map((member) => ({
-      clientId: member.clientId,
-      playbackState: member.playbackState || "paused"
-    }))
-  }, "*");
+  const renderSignature = JSON.stringify(members.map((member) => ({
+    clientId: member.clientId,
+    name: member.name,
+    role: member.role,
+    playbackState: member.playbackState || "paused"
+  })));
+  if (renderSignature === state.lastMemberRenderSignature) return;
+  state.lastMemberRenderSignature = renderSignature;
+  elements.memberList.innerHTML = "";
 
   if (!members.length) {
     const empty = document.createElement("div");

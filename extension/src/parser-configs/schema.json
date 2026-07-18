@@ -17,6 +17,14 @@
         "type": "array",
         "items": { "type": "string" }
       },
+      "documentExtraction": {
+        "type": "object",
+        "properties": {
+          "backgroundHtml": { "type": "boolean" },
+          "domReady": { "type": "boolean" },
+          "configuredHtmlWaitMs": { "type": "integer", "minimum": 0 }
+        }
+      },
       "fields": {
         "type": "object",
         "additionalProperties": {
@@ -51,6 +59,43 @@
           "properties": {
             "type": { "type": "string" },
             "provider": { "type": "string" },
+            "resolverPattern": { "type": "string" },
+            "resolverCaptures": {
+              "type": "object",
+              "properties": {
+                "itemId": { "type": "integer", "minimum": 1 },
+                "translatorId": { "type": "integer", "minimum": 1 },
+                "seasonId": { "type": "integer", "minimum": 1 },
+                "episodeId": { "type": "integer", "minimum": 1 }
+              }
+            },
+            "contentType": { "type": "string" },
+            "favoritesSelector": { "type": "string" },
+            "seasons": {
+              "type": "object",
+              "required": ["selector", "idAttribute"],
+              "properties": {
+                "selector": { "type": "string" },
+                "idAttribute": { "type": "string" }
+              }
+            },
+            "episodes": {
+              "type": "object",
+              "required": ["selectorTemplate", "idAttribute"],
+              "properties": {
+                "selectorTemplate": { "type": "string" },
+                "idAttribute": { "type": "string" }
+              }
+            },
+            "translators": {
+              "type": "object",
+              "required": ["selector", "idAttribute"],
+              "properties": {
+                "selector": { "type": "string" },
+                "idAttribute": { "type": "string" },
+                "titleAttribute": { "type": "string" }
+              }
+            },
             "selectors": {
               "type": "array",
               "items": { "type": "string" }
@@ -58,11 +103,12 @@
             "seasonSelector": { "type": "string" },
             "episodeSelector": { "type": "string" },
             "translatorSelector": { "type": "string" },
+            "valueAttribute": { "type": "string" },
             "activeStylePattern": { "type": "string" },
             "activeSelector": { "type": "string" },
-            "seasonMePattern": { "type": "string" },
-            "episodeMePattern": { "type": "string" },
-            "translatorMePattern": { "type": "string" }
+            "seasonValuePattern": { "type": "string" },
+            "episodeValuePattern": { "type": "string" },
+            "translatorValuePattern": { "type": "string" }
           }
         }
       },
@@ -75,6 +121,8 @@
             "type": { "type": "string" },
             "provider": { "type": "string" },
             "method": { "type": "string" },
+            "credentials": { "enum": ["omit", "same-origin", "include"] },
+            "executionContext": { "enum": ["background", "page"] },
             "url": { "type": "string" },
             "timestampQuery": { "type": "string" },
             "headers": {
@@ -103,7 +151,8 @@
           "type": "object",
           "required": ["type"],
           "properties": {
-            "type": { "type": "string" }
+            "type": { "type": "string" },
+            "resolverType": { "type": "string" }
           }
         }
       },

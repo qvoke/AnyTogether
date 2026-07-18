@@ -4,6 +4,11 @@
     "priority": 100,
     "domains": ["rezka", "voidboost"],
     "pathPatterns": [".*"],
+    "documentExtraction": {
+      "backgroundHtml": true,
+      "domReady": true,
+      "configuredHtmlWaitMs": 500
+    },
     "fields": {
       "title": [
         { "type": "jsonLd", "paths": ["name", "headline", "mainEntity.name"] },
@@ -17,6 +22,13 @@
         "type": "structuredDom",
         "provider": "rezka",
         "resolverPattern": "initCDNSeriesEvents\\((\\d+),\\s*(\\d+),\\s*(\\d+),\\s*(\\d+),",
+        "resolverCaptures": {
+          "itemId": 1,
+          "translatorId": 2,
+          "seasonId": 3,
+          "episodeId": 4
+        },
+        "contentType": "series",
         "seasons": {
           "selector": "#simple-seasons-tabs .b-simple_season__item",
           "idAttribute": "data-tab_id"
@@ -42,6 +54,8 @@
         "type": "ajaxStreamList",
         "provider": "rezka",
         "method": "POST",
+        "credentials": "include",
+        "executionContext": "page",
         "url": "/ajax/get_cdn_series/",
         "timestampQuery": "t",
         "headers": {
@@ -64,7 +78,7 @@
       }
     ],
     "mediaExtraction": [
-      { "type": "rezkaAjax" },
+      { "type": "directResolver", "resolverType": "ajaxStreamList" },
       { "type": "domVideo" },
       { "type": "networkSniff" },
       { "type": "pageExtract" }
@@ -92,14 +106,15 @@
     },
     "seriesContext": [
       {
-        "type": "hdvbMePicker",
+        "type": "attributePatternPicker",
+        "valueAttribute": "me",
         "seasonSelector": "hdvbplayer[me^=\"x-\"], hdvbplayer[me^=\"head_x-\"]",
         "episodeSelector": "hdvbplayer[me^=\"xx-\"], hdvbplayer[me^=\"head_xx-\"]",
         "translatorSelector": "hdvbplayer[me^=\"xxx-\"], hdvbplayer[me^=\"head_xxx-\"]",
         "activeStylePattern": "rgb\\(0,\\s*173,\\s*239\\)",
-        "seasonMePattern": "^(?:head_)?x-\\d+-(\\d+)$",
-        "episodeMePattern": "^(?:head_)?xx-\\d+-(\\d+)-\\d+-\\d+-(\\d+)$",
-        "translatorMePattern": "^(?:head_)?xxx-\\d+-(\\d+)-\\d+-\\d+-(\\d+)-(\\d+)-"
+        "seasonValuePattern": "^(?:head_)?x-\\d+-(\\d+)$",
+        "episodeValuePattern": "^(?:head_)?xx-\\d+-(\\d+)-\\d+-\\d+-(\\d+)$",
+        "translatorValuePattern": "^(?:head_)?xxx-\\d+-(\\d+)-\\d+-\\d+-(\\d+)-(\\d+)-"
       }
     ],
     "directResolvers": [],
