@@ -49,6 +49,7 @@ function getTabClientId() {
 const state = {
   clientId: getTabClientId(),
   connection: null,
+  connectionProfileKey: "",
   hasExtension: false,
   currentControl: null,
   currentMediaUrl: "",
@@ -1343,6 +1344,10 @@ function cancelPendingSeekForPlaybackToggle() {
   state.seekGestureActive = false;
 }
 
+function buildConnectionProfileKey(room, role, name, hasExtension) {
+  return JSON.stringify([room, role, name, hasExtension === true]);
+}
+
 function connectRoom() {
   if (state.connection) {
     state.connection.close();
@@ -1351,6 +1356,7 @@ function connectRoom() {
   state.room = elements.roomInput.value.trim() || "lobby";
   state.role = elements.roleSelect.value;
   const name = elements.displayName.value.trim() || "Guest";
+  state.connectionProfileKey = buildConnectionProfileKey(state.room, state.role, name, state.hasExtension);
 
   elements.activeRole.textContent = state.role.charAt(0).toUpperCase() + state.role.slice(1);
   elements.activeRoom.textContent = state.room;
@@ -1620,26 +1626,31 @@ window.anyTogetherSyncBridge = {
     const nextRole = String(role || "guest");
     const nextName = String(name || "Guest").trim() || "Guest";
     const nextHasExtension = hasExtension === true;
+    const nextProfileKey = buildConnectionProfileKey(nextRoom, nextRole, nextName, nextHasExtension);
     const connectionIsActive = state.connection &&
       (state.connection.readyState === WebSocket.OPEN || state.connection.readyState === WebSocket.CONNECTING);
-    const connectionMatches = state.room === nextRoom;
+    const roomMatches = state.room === nextRoom;
+    const profileMatches = state.connectionProfileKey === nextProfileKey;
 
     elements.roomInput.value = nextRoom;
     elements.roleSelect.value = nextRole;
     elements.displayName.value = nextName;
     state.hasExtension = nextHasExtension;
 
-    if (connectionIsActive && connectionMatches) {
+    if (connectionIsActive && roomMatches && profileMatches) {
+      return true;
+    }
+
+    if (state.connection?.readyState === WebSocket.OPEN && roomMatches) {
       state.role = nextRole;
-      if (state.connection.readyState === WebSocket.OPEN) {
-        sendMessage({
-          type: "join",
-          roomId: nextRoom,
-          name: nextName,
-          role: nextRole,
-          hasExtension: nextHasExtension
-        });
-      }
+      state.connectionProfileKey = nextProfileKey;
+      sendMessage({
+        type: "join",
+        roomId: nextRoom,
+        name: nextName,
+        role: nextRole,
+        hasExtension: nextHasExtension
+      });
       return true;
     }
     connectRoom();
