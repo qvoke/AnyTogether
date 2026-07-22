@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "node server.js",
     "start": "node server.js",
+    "seek-test": "node scripts/run-seek-test.js",
+    "seek-test:watch": "node scripts/watch-seek-test.js",
     "validate:configs": "node scripts/validate-parser-configs.js"
   },
   "dependencies": {

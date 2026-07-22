@@ -1692,11 +1692,23 @@ const FORWARDED_MEDIA_DEDUP_MS = 30000;
 const FORWARDED_MEDIA_CACHE = new Map();
 const MEDIA_FORWARD_IN_FLIGHT = new Map();
 
-function buildMediaForwardSignature(pageUrl, sourcePageUrl, targetUiTabId = null) {
+function buildMediaForwardSignature(pageUrl, sourcePageUrl, targetUiTabId = null, targetRoomId = null) {
   return JSON.stringify({
     sourcePageUrl: normalizePageUrl(sourcePageUrl || pageUrl) || String(sourcePageUrl || pageUrl || ""),
-    targetUiTabId: Number.isFinite(targetUiTabId) ? targetUiTabId : null
+    targetUiTabId: Number.isFinite(targetUiTabId) ? targetUiTabId : null,
+    targetRoomId: targetRoomId || null
   });
+}
+
+async function getTargetUiRoomId(targetUiTabId) {
+  if (!Number.isFinite(targetUiTabId)) return null;
+  try {
+    const tab = await chrome.tabs.get(targetUiTabId);
+    const match = String(tab?.url || "").match(/[?&]room=([A-Za-z0-9]+)/i);
+    return match ? match[1].toUpperCase() : null;
+  } catch {
+    return null;
+  }
 }
 
 // Forward URL to all UI page tabs
@@ -2001,7 +2013,8 @@ function sendMediaPayloadToUi(targetUiTabId, payload) {
 }
 
 async function resolveAndForwardMediaToUi(mediaUrl, pageUrl, seriesContext, sourcePageUrl, sourceTabId, targetUiTabId) {
-  const signature = buildMediaForwardSignature(pageUrl, sourcePageUrl, targetUiTabId);
+  const targetRoomId = await getTargetUiRoomId(targetUiTabId);
+  const signature = buildMediaForwardSignature(pageUrl, sourcePageUrl, targetUiTabId, targetRoomId);
   const now = Date.now();
   const lastSeen = FORWARDED_MEDIA_CACHE.get(signature) || 0;
   if (now - lastSeen < FORWARDED_MEDIA_DEDUP_MS) {

@@ -1,0 +1,13 @@
+{
+  "run": false,
+  "scenario": "existing-media",
+  "url": "http://localhost:3000/?room=ROOMCODE&seekTest=1&seekTestMode=full&playerTransport=hls.js&seekTestStableMs=3000&seekTestAlignToFragment=1",
+  "iterations": 10,
+  "switchAfterFirstMedia": null,
+  "navigate": true,
+  "cdpPort": 9222,
+  "ahkEnabled": true,
+  "prepareDevelopment": true,
+  "activateChrome": true,
+  "ahkPath": "AutoHotkey.exe"
+}

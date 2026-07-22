@@ -1,0 +1,18 @@
+#Requires AutoHotkey v2.0
+
+SendEvent("{Ctrl down}")
+Sleep(100)
+SendEvent("{Space}")
+Sleep(100)
+SendEvent("{Ctrl up}")
+Sleep(700)
+Send("^c")
+Sleep(150)
+Send("^c")
+Sleep(250)
+Send("{Up}")
+Send("{Enter}")
+Sleep(1500)
+Send("#2")
+Sleep(200)
+Send("{Enter}")

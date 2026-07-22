@@ -1,0 +1,23 @@
+#Requires AutoHotkey v2.0
+#SingleInstance Force
+
+SetKeyDelay(80, 80)
+
+Send("{LWin down}")
+Sleep(100)
+Send("2")
+Sleep(100)
+Send("2")
+Sleep(150)
+Send("{LWin up}")
+Sleep(200)
+Send("{Enter}")
+Send("{F5}")
+Sleep(200)
+Send("{LWin down}")
+Sleep(150)
+Send("2")
+Sleep(150)
+Send("{LWin up}")
+Sleep(200)
+Send("{Enter}")

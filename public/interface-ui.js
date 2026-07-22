@@ -2270,6 +2270,7 @@ function renderButtonGroup(container, items, selectedValue, getValue, getLabel, 
     const button = document.createElement("button");
     button.type = "button";
     button.className = "chip-button";
+    button.dataset.value = String(value);
     button.textContent = getLabel(item);
 
     if (String(value) === String(selectedValue)) {
@@ -2497,6 +2498,8 @@ function renderSeriesPanel() {
     button.type = "button";
     button.className = "series-episode-button";
     button.setAttribute("role", "listitem");
+    if (episode?.seasonId != null) button.dataset.seasonId = String(episode.seasonId);
+    if (episode?.episodeId != null) button.dataset.episodeId = String(episode.episodeId);
 
     const thumbnail = document.createElement("span");
     thumbnail.className = "series-episode-thumb";
