@@ -3327,12 +3327,12 @@ function bridgeToSyncEngine() {
   }
 }
 
-function loadMedia(url) {
+function loadMedia(url, forceReload = false) {
   const mediaUrl = String(url || "").trim();
   if (!mediaUrl) return false;
 
   const mediaUrlInput = document.getElementById("mediaUrl");
-  if (mediaUrlInput && String(mediaUrlInput.value || "").trim() === mediaUrl) {
+  if (!forceReload && mediaUrlInput && String(mediaUrlInput.value || "").trim() === mediaUrl) {
     appendPlaybackDebugEntry("Skipping media load", {
       reason: "same source already loaded",
       sourceUrl: mediaUrl
@@ -3344,7 +3344,7 @@ function loadMedia(url) {
 
   if (window.anyTogetherSyncBridge?.loadMedia) {
     try {
-      const loaded = window.anyTogetherSyncBridge.loadMedia(mediaUrl);
+      const loaded = window.anyTogetherSyncBridge.loadMedia(mediaUrl, forceReload);
       appendPlaybackDebugEntry(loaded ? "Player bridge accepted media" : "Player bridge rejected media", mediaUrl, !loaded);
       if (loaded) {
         return true;
@@ -3465,7 +3465,7 @@ function syncActiveRoomMedia(forceReload = false) {
   const shouldAutoplay = state.pendingAutoplayRoomId === roomState.code;
   const now = Date.now();
 
-  if (currentLoadedUrl && currentLoadedUrl === effectiveUrl) {
+  if (!forceReload && currentLoadedUrl && currentLoadedUrl === effectiveUrl) {
     loadedMediaKey = mediaKey;
     if (shouldAutoplay) {
       triggerPendingAutoplay(roomState.code);
@@ -3475,7 +3475,7 @@ function syncActiveRoomMedia(forceReload = false) {
   const shouldReload = forceReload || loadedMediaKey !== mediaKey;
 
   if (shouldReload) {
-    if (lastSyncMediaKey === mediaKey && now < syncMediaBlockUntil) {
+    if (!forceReload && lastSyncMediaKey === mediaKey && now < syncMediaBlockUntil) {
       appendPlaybackDebugEntry("syncActiveRoomMedia throttled", {
         mediaKey,
         remainingMs: syncMediaBlockUntil - now
@@ -3492,7 +3492,7 @@ function syncActiveRoomMedia(forceReload = false) {
         mediaUrlInput.dataset.masterPlaylistUrl = masterUrl;
       }
     }
-    loadMedia(effectiveUrl);
+    loadMedia(effectiveUrl, forceReload);
     loadedMediaKey = mediaKey;
   }
 
@@ -4055,13 +4055,14 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
   const pendingEpisode = getPendingEpisodeSelection(roomState);
   const payloadSeasonId = Number(nextSeriesContext?.currentSeasonId);
   const payloadEpisodeId = Number(nextSeriesContext?.currentEpisodeId);
-  if (
+  const pendingEpisodeMatched = Boolean(
     pendingEpisode &&
     Number.isFinite(payloadSeasonId) &&
     Number.isFinite(payloadEpisodeId) &&
     pendingEpisode.seasonId === payloadSeasonId &&
     pendingEpisode.episodeId === payloadEpisodeId
-  ) {
+  );
+  if (pendingEpisodeMatched) {
     clearPendingEpisodeSelection(roomState);
   }
 
@@ -4078,7 +4079,9 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
     ? buildMediaLoadSignature(previousMedia.mediaUrl, previousMedia.masterPlaylistUrl, previousSeriesContext)
     : null;
   const nextLoadSignature = buildMediaLoadSignature(payload.mediaUrl, payload.masterPlaylistUrl, nextSeriesContext);
-  const shouldReloadPlayer = !previousMedia || previousLoadSignature !== nextLoadSignature;
+  const shouldReloadPlayer = pendingEpisodeMatched
+    || !previousMedia
+    || previousLoadSignature !== nextLoadSignature;
 
   if (shouldBroadcast) {
     sendWs({

@@ -63,7 +63,11 @@ async function loadCommand() {
     url: command.url.trim(),
     scenario: typeof command.scenario === "string" ? command.scenario : "existing-media",
     switchAfterFirstMedia: command.switchAfterFirstMedia || null,
+    switchMediaTimeoutMs: Math.min(120000, Math.max(5000, Number(command.switchMediaTimeoutMs) || 10000)),
+    firstMediaTimeoutMs: Math.min(120000, Math.max(5000, Number(command.firstMediaTimeoutMs) || 10000)),
+    firstMediaRecoveryAttempts: Math.min(2, Math.max(0, Number(command.firstMediaRecoveryAttempts) || 2)),
     iterations: Math.min(100, Math.max(1, Number(command.iterations) || 10)),
+    startupPlaybackMs: Math.min(10000, Math.max(0, Number(command.startupPlaybackMs) || 2500)),
     cdpPort: Number(command.cdpPort) || defaultCdpPort,
     navigate: command.navigate !== false,
     ahkEnabled: command.ahkEnabled !== false,
@@ -210,10 +214,11 @@ async function getMediaSource(client) {
   return evaluate(client, "document.querySelector('video')?.currentSrc || document.querySelector('video')?.src || ''");
 }
 
-async function waitForStableMedia(clients, expectedSources = null, stableMs = 2500, timeoutMs = 120000) {
+async function waitForStableMedia(clients, expectedSources = null, stableMs = 2500, timeoutMs = 120000, warmupMs = 2500, requirePlayback = true) {
   const deadline = Date.now() + timeoutMs;
   let stableSince = null;
   let lastSources = null;
+  let lastStates = [];
   while (Date.now() < deadline) {
     const states = await Promise.all(clients.map((client) => evaluate(client, `(() => {
       const video = document.querySelector('video');
@@ -221,9 +226,17 @@ async function waitForStableMedia(clients, expectedSources = null, stableMs = 25
         source: video?.currentSrc || video?.src || '',
         duration: Number(video?.duration) || 0,
         readyState: video?.readyState || 0,
-        paused: video?.paused !== false
+        networkState: video?.networkState || 0,
+        mediaError: video?.error ? {
+          code: video.error.code || 0,
+          message: video.error.message || ""
+        } : null,
+        paused: video?.paused !== false,
+        currentTime: Number(video?.currentTime) || 0,
+        url: location.href
       };
     })()`)));
+    lastStates = states;
     const sources = states.map((state) => state.source);
     const valid = states.every((state, index) =>
       state.source &&
@@ -235,7 +248,29 @@ async function waitForStableMedia(clients, expectedSources = null, stableMs = 25
     if (valid && unchanged) {
       stableSince ??= Date.now();
       if (Date.now() - stableSince >= stableMs) {
-        await Promise.all(clients.map((client) => evaluate(client, "document.querySelector('video')?.play().catch(() => false); true")));
+        if (!requirePlayback) return sources;
+        const playbackReady = await Promise.all(clients.map((client) => evaluate(client, `(
+          async () => {
+            const video = document.querySelector('video');
+            if (!video) return false;
+            try {
+              const startTime = video.currentTime;
+              await video.play();
+              await new Promise((resolve) => setTimeout(resolve, 400));
+              return !video.paused
+                && video.readyState >= 3
+                && video.currentTime > startTime + 0.02;
+            } catch {
+              return false;
+            }
+          }
+        )()`, true)));
+        if (!playbackReady.every(Boolean)) {
+          stableSince = null;
+          await new Promise((resolve) => setTimeout(resolve, 250));
+          continue;
+        }
+        if (warmupMs > 0) await new Promise((resolve) => setTimeout(resolve, warmupMs));
         return sources;
       }
     } else {
@@ -244,10 +279,10 @@ async function waitForStableMedia(clients, expectedSources = null, stableMs = 25
     lastSources = sources;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
-  throw new Error("Timed out waiting for media source stability in both tabs.");
+  throw new Error(`Timed out waiting for media source stability in both tabs: ${JSON.stringify(lastStates)}`);
 }
 
-async function waitForMediaChange(clients, previousSources, timeoutMs = 120000) {
+async function waitForMediaChange(clients, previousSources, timeoutMs = 120000, warmupMs = 2500) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const sources = await Promise.all(clients.map(getMediaSource));
@@ -257,11 +292,12 @@ async function waitForMediaChange(clients, previousSources, timeoutMs = 120000) 
     }));
     if (states.every((state) => state.changed)) {
       await Promise.all(clients.map((client) => waitForPageReady(client)));
-      return waitForStableMedia(clients, states.map((state) => state.source));
+      return waitForStableMedia(clients, null, 2500, timeoutMs, warmupMs, false);
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  throw new Error("Timed out waiting for the selected episode to load in both tabs.");
+  const currentSources = await Promise.all(clients.map(getMediaSource));
+  throw new Error(`Series media did not load in both participants within ${timeoutMs}ms: ${JSON.stringify({ previousSources, currentSources })}`);
 }
 
 async function clickEpisode(client, selection) {
@@ -289,6 +325,21 @@ async function clickEpisode(client, selection) {
   }
 }
 
+async function waitForEpisodeSelection(clients, selection, timeoutMs = 120000) {
+  const seasonId = String(selection?.seasonId ?? "");
+  const episodeId = String(selection?.episodeId ?? "");
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const selected = await Promise.all(clients.map((client) => evaluate(client, `Boolean(
+      document.querySelector('[data-season-id="${seasonId}"][data-episode-id="${episodeId}"]')
+        ?.classList.contains('is-selected')
+    )`)));
+    if (selected.every(Boolean)) return;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`Timed out waiting for season ${seasonId}, episode ${episodeId} selection in both tabs.`);
+}
+
 async function navigate(client, url) {
   await client.command("Page.navigate", { url });
 }
@@ -297,32 +348,13 @@ async function bringToFront(client) {
   await client.command("Page.bringToFront");
 }
 
-async function arrangeParticipantWindows(clients) {
-  const bounds = [
-    { left: 0, top: 0, width: 960, height: 900 },
-    { left: 960, top: 0, width: 960, height: 900 }
-  ];
-  await Promise.all(clients.map(async (client, index) => {
-    try {
-      const windowInfo = await client.command("Browser.getWindowForTarget", {
-        targetId: client.target.id
-      });
-      await client.command("Browser.setWindowBounds", {
-        windowId: windowInfo.windowId,
-        bounds: { ...bounds[index], windowState: "normal" }
-      });
-    } catch (error) {
-      console.warn(`[Seek Test Runner] Could not arrange participant window ${index + 1}: ${error.message}`);
-    }
-  }));
-}
-
 async function pauseMedia(client) {
   await evaluate(client, "document.querySelector('video')?.pause(); true");
 }
 
 async function clickSeekTestStart(client, iterations) {
   await evaluate(client, `(() => {
+    window.__seekStressReport = null;
     const input = document.querySelector('[data-seek-test-iterations]');
     if (input) input.value = ${JSON.stringify(iterations)};
     return Boolean(input);
@@ -350,12 +382,12 @@ async function clickSeekTestStart(client, iterations) {
   });
 }
 
-async function waitForSeekTestReport(clients, iterations, timeoutMs = 180000) {
+async function waitForSeekTestReport(clients, iterations, timeoutMs = 600000) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     for (const client of clients) {
       const report = await evaluate(client, "window.__seekStressReport || null");
-      if (report && report.requestedIterations === iterations) return report;
+      if (report && Array.isArray(report.results) && report.results.length > 0) return report;
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
@@ -370,6 +402,33 @@ function runNotifier(command, runId, resultPath) {
     windowsHide: true
   });
   child.unref();
+}
+
+async function writeFailureReport(error) {
+  let command;
+  try {
+    command = JSON.parse(await readFile(commandPath, "utf8"));
+  } catch {
+    return;
+  }
+  const runId = command.runId || new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
+  const runDirectory = path.join(resultsDirectory, runId);
+  await mkdir(runDirectory, { recursive: true });
+  const resultPath = path.join(runDirectory, "result.json");
+  await writeFile(resultPath, JSON.stringify({
+    schemaVersion: 1,
+    runId,
+    status: "failed",
+    failureReason: error.message.includes("First media did not load")
+      ? "first-media-not-loaded"
+      : error.message.includes("Series media did not load")
+        ? "series-media-not-loaded"
+        : "runner-failure",
+    error: error.message,
+    completedAt: new Date().toISOString()
+  }, null, 2), "utf8");
+  if (command.ahkEnabled !== false) runNotifier(command, runId, resultPath);
+  console.error(`Failure results: ${resultPath}`);
 }
 
 function runChromeActivator(command) {
@@ -417,6 +476,34 @@ function runFirstMediaPreparation(command) {
   });
 }
 
+async function prepareFirstMediaWithRecovery(clients, command) {
+  let lastError = null;
+  const totalAttempts = command.firstMediaRecoveryAttempts + 1;
+  for (let attempt = 1; attempt <= totalAttempts; attempt += 1) {
+    if (attempt > 1) {
+      console.log(`[Seek Test Runner] Retrying first media preparation (${attempt - 1}/${command.firstMediaRecoveryAttempts}).`);
+      await Promise.all(clients.map((client) => waitForAppReady(client, command.firstMediaTimeoutMs)));
+      await Promise.all(clients.map((client) => evaluate(client, `(() => {
+        const video = document.querySelector('video');
+        const source = video?.currentSrc || video?.src || '';
+        const unready = video && source && (video.readyState === 0 || !(Number(video.duration) > 0));
+        if (!unready || typeof window.anyTogetherSyncBridge?.loadMedia !== "function") return false;
+        return Boolean(window.anyTogetherSyncBridge.loadMedia(source, true));
+      })()`)));
+      await runFirstMediaPreparation(command);
+    }
+    try {
+      await Promise.all(clients.map((client) => waitForAppReady(client, command.firstMediaTimeoutMs)));
+      await waitForStableMedia(clients, null, 2500, command.firstMediaTimeoutMs, command.startupPlaybackMs, false);
+      return;
+    } catch (error) {
+      lastError = error;
+      console.warn(`[Seek Test Runner] First media attempt ${attempt}/${totalAttempts} failed: ${error.message}`);
+    }
+  }
+  throw new Error(`First media did not load in both participants after ${totalAttempts} attempts within ${command.firstMediaTimeoutMs}ms each: ${lastError?.message || "unknown error"}`);
+}
+
 async function main() {
   const command = await loadCommand();
   const runId = command.runId || new Date().toISOString().replace(/[-:.TZ]/g, "").slice(0, 14);
@@ -450,7 +537,6 @@ async function main() {
     console.log("[Seek Test Runner] Connecting to Chrome tabs.");
     await Promise.all(clients.map((client) => client.connect()));
     console.log("[Seek Test Runner] Connected to Chrome tabs.");
-    if (command.separateWindows) await arrangeParticipantWindows(clients);
     if (command.navigate) {
       await Promise.all(clients.map((client, index) => navigate(
         client,
@@ -469,15 +555,19 @@ async function main() {
     if (command.scenario === "new-room-first-media") {
       console.log("[Seek Test Runner] Preparing the first media popup flow.");
       await runFirstMediaPreparation(command);
-      await Promise.all(clients.map((client) => waitForPageReady(client)));
-      await waitForStableMedia(clients);
+      try {
+        await prepareFirstMediaWithRecovery(clients, command);
+      } catch (error) {
+        throw new Error(error.message);
+      }
       console.log("[Seek Test Runner] First media is ready in both tabs.");
     }
     if (command.switchAfterFirstMedia) {
       const previousSources = await Promise.all(clients.map(getMediaSource));
       await bringToFront(clients[0]);
       await clickEpisode(clients[0], command.switchAfterFirstMedia);
-      await waitForMediaChange(clients, previousSources);
+      await waitForEpisodeSelection(clients, command.switchAfterFirstMedia, command.switchMediaTimeoutMs);
+      await waitForMediaChange(clients, previousSources, command.switchMediaTimeoutMs, command.startupPlaybackMs);
       console.log("[Seek Test Runner] Selected episode is ready in both tabs.");
     }
     await bringToFront(clients[0]);
@@ -507,7 +597,13 @@ async function main() {
     await mkdir(runDirectory, { recursive: true });
     const resultPath = path.join(runDirectory, "result.json");
     await writeFile(resultPath, JSON.stringify(result, null, 2), "utf8");
-    const { runId: configuredRunId, ...commandWithoutRunId } = command;
+    let latestCommand = command;
+    try {
+      latestCommand = JSON.parse(await readFile(commandPath, "utf8"));
+    } catch {
+      latestCommand = command;
+    }
+    const { runId: configuredRunId, ...commandWithoutRunId } = latestCommand;
     void configuredRunId;
     await writeFile(commandPath, JSON.stringify({ ...commandWithoutRunId, run: false }, null, 2), "utf8");
     console.log(`Seek test completed: ${runId}`);
@@ -521,7 +617,8 @@ async function main() {
   }
 }
 
-main().catch((error) => {
+main().catch(async (error) => {
   console.error(`[Seek Test Runner] ${error.message}`);
+  await writeFailureReport(error);
   process.exitCode = 1;
 });

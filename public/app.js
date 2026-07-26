@@ -50,7 +50,14 @@ const requestedSeekTestStableMs = Number(seekTestParams.get("seekTestStableMs"))
 const seekTestStableWindowMs = Number.isFinite(requestedSeekTestStableMs)
   ? Math.min(30000, Math.max(1000, requestedSeekTestStableMs))
   : 4000;
-const seekTestMinimumMediaAdvanceSeconds = seekTestStableWindowMs / 1000 * 0.75;
+const requestedSeekTestPostSeekPlaybackMs = Number(seekTestParams.get("seekTestPostSeekPlaybackMs"));
+const seekTestPostSeekPlaybackMs = Number.isFinite(requestedSeekTestPostSeekPlaybackMs)
+  ? Math.min(10000, Math.max(0, requestedSeekTestPostSeekPlaybackMs))
+  : 2500;
+const requestedSeekTestIterationTimeoutMs = Number(seekTestParams.get("seekTestIterationTimeoutMs"));
+const seekTestIterationTimeoutMs = Number.isFinite(requestedSeekTestIterationTimeoutMs)
+  ? Math.min(120000, Math.max(5000, requestedSeekTestIterationTimeoutMs))
+  : 40000;
 
 function seekTestDisables(feature) {
   if (!seekTestEnabled) return false;
@@ -72,16 +79,33 @@ function seekTestIgnoresParticipantOffset() {
 }
 
 function seekTestContinuesAfterTimeout() {
-  return seekTestMode === "standalone" || seekTestIgnoresParticipantOffset();
+  return new URLSearchParams(window.location.search).get("seekTestContinueAfterTimeout") === "1";
 }
 
-function setPlayerCurrentTime(targetTime) {
+function setPlayerCurrentTime(targetTime, reason = "unknown", force = false) {
+  const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
+  if (!force && !elements.player.seeking && Math.abs(currentTime - targetTime) <= 0.2) {
+    logEvent("Programmatic seek skipped", {
+      reason,
+      currentTime: currentTime.toFixed(3),
+      targetTime: Number(targetTime).toFixed(3)
+    });
+    return false;
+  }
+
+  logEvent("Programmatic seek applied", {
+    reason,
+    currentTime: currentTime.toFixed(3),
+    targetTime: Number(targetTime).toFixed(3),
+    readyState: elements.player.readyState
+  });
   if (seekTestFastSeek && typeof elements.player.fastSeek === "function") {
     elements.player.fastSeek(targetTime);
-    return;
+    return true;
   }
 
   elements.player.currentTime = targetTime;
+  return true;
 }
 
 function getFragmentAlignedSeekTime(targetTime) {
@@ -144,6 +168,8 @@ const state = {
   pendingSeekTimer: null,
   pendingSeekObservedSeeked: false,
   pendingSeekRemoteStartedAt: 0,
+  localSeekProtection: null,
+  remoteSeekTarget: null,
   seekDiagnosticSequence: 0,
   activeSeekDiagnostic: null,
   seekFragmentRequests: new Map(),
@@ -168,6 +194,7 @@ const state = {
   hlsMediaErrorAttempts: 0,
   hlsLastRecoveryAt: 0,
   hlsBufferingPaused: false,
+  forceHlsJsFallback: false,
   activePlayerSourceUrl: "",
   directMp4FallbackSources: new Set(),
   nativeMediaErrorActive: false,
@@ -364,6 +391,7 @@ function clearRemoteSeekSettlement() {
   state.pendingSeekObservedSeeked = false;
   state.pendingSeekRemoteStartedAt = 0;
   state.remoteSeekPending = false;
+  state.remoteSeekTarget = null;
 }
 
 function scheduleRemoteSeekSettlementAttempt(delayMs = remoteSeekSettlementGraceMs) {
@@ -400,8 +428,13 @@ function attemptRemoteSeekSettlement(trigger = "seeked") {
       state.pendingSeek = null;
       state.pendingSeekObservedSeeked = false;
       state.pendingSeekRemoteStartedAt = now;
+      const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
+      if (Math.abs(currentTime - targetTime) <= 0.2) {
+        scheduleRemoteSeekSettlementAttempt();
+        return false;
+      }
       markProgrammaticSeek(targetTime);
-      setPlayerCurrentTime(targetTime);
+      setPlayerCurrentTime(targetTime, "remote-seek-settlement");
       scheduleRemoteSeekSettlementAttempt();
       return false;
     }
@@ -750,7 +783,7 @@ async function loadPlayerSource(url, forceReload = false) {
   state.activePlayerSourceUrl = url;
   if (isHlsSource(url)) {
     const nativeHlsSupport = elements.player.canPlayType("application/vnd.apple.mpegurl");
-    if (nativeHlsSupport && playerTransportMode !== "hls.js") {
+    if (nativeHlsSupport && playerTransportMode !== "hls.js" && !state.forceHlsJsFallback) {
       elements.player.setAttribute("type", "application/vnd.apple.mpegurl");
       elements.player.src = url;
       if (forceReload) elements.player.load();
@@ -864,6 +897,14 @@ function rebuildPlaybackPipeline(
     ? pausedOverride
     : elements.player.paused;
   const resumePosition = Number.isFinite(startPosition) ? Math.max(0, startPosition) : 0;
+  const syncTarget = state.playbackSyncOffsets.get(state.clientId)?.referenceTime;
+  const syncRawOffsetMs = state.playbackSyncOffsets.get(state.clientId)?.rawOffsetMs;
+  const syncTargetIsAuthoritative = Number.isFinite(syncTarget) &&
+    (state.playbackSyncOffsets.get(state.clientId)?.active === true ||
+      Number.isFinite(syncRawOffsetMs) && Math.abs(syncRawOffsetMs) > 250);
+  const authoritativeRemoteTarget = state.pendingSeekIsRemote && Number.isFinite(state.remoteSeekTarget)
+    ? Math.max(0, state.remoteSeekTarget)
+    : syncTargetIsAuthoritative ? Math.max(0, syncTarget) : null;
 
   clearPendingSeekCommitTimer();
   clearNativeMediaErrorRecoveryTimer();
@@ -880,7 +921,7 @@ function rebuildPlaybackPipeline(
   state.remoteSeekActivityAt = 0;
   clearPendingSeekCommitTimer();
 
-  state.pendingSeek = resumePosition;
+  state.pendingSeek = authoritativeRemoteTarget ?? resumePosition;
   state.pendingPlaybackState = pausedBeforeReload;
   state.currentMediaReady = false;
   void loadPlayerSource(sourceUrl, true);
@@ -896,7 +937,12 @@ function rebuildPlaybackPipeline(
 }
 
 function attemptStallRecovery(trigger) {
-  if (!state.currentMediaUrl || elements.player.paused) {
+  if (
+    !state.currentMediaUrl ||
+    elements.player.paused ||
+    state.pendingSeekIsRemote ||
+    state.remoteSeekPending
+  ) {
     return false;
   }
 
@@ -996,6 +1042,16 @@ function scheduleNativeMediaErrorRecovery() {
 
 function handleNativeMediaError() {
   if (state.hls || !state.currentMediaUrl) return;
+  if (elements.player.error?.code === 4 && window.Hls && !state.forceHlsJsFallback) {
+    state.forceHlsJsFallback = true;
+    logEvent("Native HLS demuxer fallback to HLS.js", getMediaErrorDetails());
+    rebuildPlaybackPipeline(
+      "native-hls-demuxer-error",
+      elements.player.currentTime,
+      state.desiredPlaybackPaused
+    );
+    return;
+  }
   const directMp4Url = getDirectMp4Source(state.currentMediaUrl);
   if (directMp4Url && state.activePlayerSourceUrl === directMp4Url) {
     state.directMp4FallbackSources.add(state.currentMediaUrl);
@@ -1168,6 +1224,7 @@ function loadSource(url, options = {}) {
   state.isBuffering = false;
   state.nativeMediaErrorActive = false;
   state.nativeMediaErrorRecoveryAttempts = 0;
+  if (!sameUrl) state.forceHlsJsFallback = false;
   state.lastNativeStallRecoveryAt = 0;
   state.lastNativeStallRecoveryPosition = null;
   clearRemoteSeekSettlement();
@@ -1285,6 +1342,18 @@ function applyRemoteState(snapshot) {
     return;
   }
 
+  if (
+    typeof snapshot.revision === "number" &&
+    snapshot.revision < state.currentRevision
+  ) {
+    logEvent("Stale room snapshot ignored", {
+      snapshotRevision: snapshot.revision,
+      currentRevision: state.currentRevision,
+      action: snapshot.lastAction || "unknown"
+    });
+    return;
+  }
+
   const isSelfEchoSnapshot =
     snapshot.control?.clientId === state.clientId &&
     typeof snapshot.lastAction === "string";
@@ -1292,6 +1361,15 @@ function applyRemoteState(snapshot) {
     state.seekGestureActive ||
     state.pendingSeekTimer !== null ||
     state.pendingSeekTarget !== null;
+
+  const localSeekProtection = state.localSeekProtection;
+  const localSeekProtectionActive = localSeekProtection && performance.now() < localSeekProtection.expiresAt;
+  const incomingSnapshotTime = typeof snapshot.currentTime === "number" && Number.isFinite(snapshot.currentTime)
+    ? snapshot.currentTime
+    : null;
+  const staleAfterLocalSeek = localSeekProtectionActive &&
+    incomingSnapshotTime !== null &&
+    Math.abs(incomingSnapshotTime - localSeekProtection.targetTime) > 0.5;
 
   if (typeof snapshot.revision === "number") {
     state.currentRevision = snapshot.revision;
@@ -1311,6 +1389,15 @@ function applyRemoteState(snapshot) {
     return;
   }
 
+  if (staleAfterLocalSeek) {
+    logEvent("Stale snapshot ignored after local seek", {
+      snapshotAction: snapshot.lastAction || "unknown",
+      snapshotTime: incomingSnapshotTime.toFixed(2),
+      protectedTarget: localSeekProtection.targetTime.toFixed(2)
+    });
+    return;
+  }
+
   clearPendingSeekCommitTimer();
   state.seekGestureActive = false;
 
@@ -1323,7 +1410,11 @@ function applyRemoteState(snapshot) {
     const snapshotTime = typeof snapshot.currentTime === "number" && Number.isFinite(snapshot.currentTime)
       ? Math.max(0, snapshot.currentTime)
       : null;
-    const snapshotAgeSeconds = snapshotTime !== null && snapshot.paused === false && Number.isFinite(snapshot.updatedAt)
+    const snapshotAgeSeconds = snapshotTime !== null &&
+      snapshot.paused === false &&
+      snapshot.lastAction !== "seek" &&
+      snapshot.lastAction !== "load" &&
+      Number.isFinite(snapshot.updatedAt)
       ? Math.min(1, Math.max(0, Date.now() - snapshot.updatedAt) / 1000)
       : 0;
     const currentTime = snapshotTime === null ? null : snapshotTime + snapshotAgeSeconds;
@@ -1358,16 +1449,20 @@ function applyRemoteState(snapshot) {
       const playerTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
       const timeDiff = Math.abs(playerTime - currentTime);
 
-      if (timeDiff > 0.2 || state.pendingSeekIsRemote) {
+        const remoteTargetDiff = state.pendingSeekIsRemote && Number.isFinite(state.remoteSeekTarget)
+          ? Math.abs(state.remoteSeekTarget - currentTime)
+          : 0;
+        if (timeDiff > 0.2 || remoteTargetDiff > 0.2) {
         beginRemoteSeekSettlement();
         state.remoteSeekPending = true;
+        state.remoteSeekTarget = currentTime;
         if (typeof snapshot.paused === "boolean") {
           state.pendingPlaybackState = snapshot.paused;
         }
 
         if (elements.player.readyState >= 1) {
           markProgrammaticSeek(currentTime);
-          setPlayerCurrentTime(currentTime);
+          setPlayerCurrentTime(currentTime, "remote-snapshot");
           state.pendingSeek = null;
         } else {
           state.pendingSeek = currentTime;
@@ -1419,18 +1514,42 @@ function applyGuaranteedRemoteSeek(message) {
   if (!message || message.originClientId === state.clientId) return;
   const targetTime = Number(message.currentTime);
   if (!Number.isFinite(targetTime)) return;
+
+  const localSeekProtection = state.localSeekProtection;
+  if (
+    localSeekProtection &&
+    performance.now() < localSeekProtection.expiresAt &&
+    Math.abs(targetTime - localSeekProtection.targetTime) > 0.5
+  ) {
+    logEvent("Stale guaranteed seek ignored after local seek", {
+      actionId: message.actionId || "none",
+      targetTime: targetTime.toFixed(2),
+      protectedTarget: localSeekProtection.targetTime.toFixed(2)
+    });
+    return;
+  }
+  if (
+    localSeekProtection &&
+    performance.now() < localSeekProtection.expiresAt &&
+    localSeekProtection.actionId &&
+    message.actionId &&
+    message.actionId !== localSeekProtection.actionId
+  ) {
+    logEvent("Stale guaranteed seek action ignored", {
+      actionId: message.actionId,
+      activeActionId: localSeekProtection.actionId,
+      targetTime: targetTime.toFixed(2)
+    });
+    return;
+  }
   const requestedPaused = typeof message.paused === "boolean" ? message.paused : null;
 
   if (state.lastGuaranteedSeekActionId === message.actionId) {
-    if (state.pendingSeek !== null) state.pendingSeek = Math.max(0, targetTime);
-    if (requestedPaused !== null) {
-      if (state.pendingSeekIsRemote) {
-        state.pendingPlaybackState = requestedPaused;
-      } else {
-        applyPlaybackState(requestedPaused);
-      }
+    const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
+    if (Math.abs(currentTime - targetTime) <= 0.25) {
+      if (requestedPaused !== null) applyPlaybackState(requestedPaused);
+      return;
     }
-    return;
   }
 
   const playerTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
@@ -1448,12 +1567,13 @@ function applyGuaranteedRemoteSeek(message) {
   suppressOutgoingEvents(500);
   beginRemoteSeekSettlement();
   state.remoteSeekPending = true;
+  state.remoteSeekTarget = Math.max(0, targetTime);
   state.pendingPlaybackState = requestedPaused;
 
   if (elements.player.readyState >= 1) {
     const seekTarget = Math.max(0, targetTime);
     markProgrammaticSeek(seekTarget);
-    elements.player.currentTime = seekTarget;
+    setPlayerCurrentTime(seekTarget, "guaranteed-remote-seek");
     state.pendingSeek = null;
   } else {
     state.pendingSeek = Math.max(0, targetTime);
@@ -1584,6 +1704,21 @@ function correctPlaybackDrift(syncEntry, syncContext = {}) {
   ) {
     return;
   }
+  const protectedTarget = state.localSeekProtection;
+  const referenceDriftSeconds = Number.isFinite(syncEntry.referenceTime) && protectedTarget
+    ? Math.abs(syncEntry.referenceTime - protectedTarget.targetTime)
+    : 0;
+  if (
+    protectedTarget &&
+    performance.now() < protectedTarget.expiresAt &&
+    referenceDriftSeconds > 60
+  ) {
+    logEvent("Stale drift correction ignored after local seek", {
+      referenceTime: syncEntry.referenceTime.toFixed(2),
+      protectedTarget: protectedTarget.targetTime.toFixed(2)
+    });
+    return;
+  }
 
   const adjustmentMs = Number.isFinite(syncEntry.adjustmentMs)
     ? syncEntry.adjustmentMs
@@ -1599,7 +1734,7 @@ function correctPlaybackDrift(syncEntry, syncContext = {}) {
 
   state.lastPlaybackCorrectionAt = timestamp;
   markProgrammaticSeek(correctionTarget);
-  elements.player.currentTime = correctionTarget;
+  setPlayerCurrentTime(correctionTarget, "drift-correction");
   logEvent("Playback drift corrected", { offsetMs: syncEntry.offsetMs, adjustmentMs });
 }
 
@@ -1639,6 +1774,9 @@ function sendPlayerIntent(action, payload = {}, options = {}) {
   }
 
   const actionId = crypto.randomUUID();
+  if (action === "seek" && state.localSeekProtection) {
+    state.localSeekProtection.actionId = actionId;
+  }
   if (action === "load") state.lastAppliedLoadActionId = actionId;
   const message = {
     type: "player-intent",
@@ -1676,6 +1814,10 @@ function sendPlayerIntent(action, payload = {}, options = {}) {
 
 function commitSeek(targetTime, paused = undefined, source = "seek") {
   const numericTarget = Math.max(0, Number.isFinite(targetTime) ? targetTime : 0);
+  state.localSeekProtection = {
+    targetTime: numericTarget,
+    expiresAt: performance.now() + 30000
+  };
   const now = performance.now();
   const hasSameTarget = state.pendingSeekTarget !== null && Math.abs(state.pendingSeekTarget - numericTarget) < 0.05;
   const hasSamePaused = typeof paused !== "boolean" || state.pendingSeekPaused === paused;
@@ -2070,10 +2212,10 @@ window.anyTogetherSyncBridge = {
     connectRoom();
     return true;
   },
-  loadMedia(url) {
+  loadMedia(url, forceReload = false) {
     const mediaUrl = String(url || "").trim();
     if (!mediaUrl) return false;
-    if (state.currentMediaUrl === mediaUrl) return true;
+    if (!forceReload && state.currentMediaUrl === mediaUrl) return true;
     elements.mediaUrl.value = mediaUrl;
     state.pendingInterfaceMediaUrl = mediaUrl;
     logEvent("Interface media load requested", {
@@ -2301,7 +2443,14 @@ function handleWaitingLikeEvent() {
     const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
     if (currentTime - state.bufferingProbeTime > 0.05) return;
     state.isBuffering = true;
-    if (!state.hls && !seekTestDisables("recovery")) scheduleStallRecovery("waiting");
+    if (
+      !state.hls &&
+      !state.pendingSeekIsRemote &&
+      !state.remoteSeekPending &&
+      !seekTestDisables("recovery")
+    ) {
+      scheduleStallRecovery("waiting");
+    }
   }, bufferingConfirmationMs);
 }
 
@@ -2311,10 +2460,14 @@ const seekTestFractions = [
   0.12, 0.69, 0.38, 0.92, 0.58,
   0.21, 0.77, 0.43, 0.84, 0.29
 ];
+let seekTestStopRequested = false;
 
 function getSeekTestSyncSnapshot() {
   return Array.from(state.playbackSyncOffsets.entries()).map(([clientId, sync]) => ({
     clientId,
+    currentTime: Number.isFinite(sync.currentTime) ? sync.currentTime : null,
+    referenceTime: Number.isFinite(sync.referenceTime) ? sync.referenceTime : null,
+    rawOffsetMs: Number.isFinite(sync.rawOffsetMs) ? sync.rawOffsetMs : null,
     offsetMs: sync.offsetMs,
     buffering: Boolean(sync.buffering),
     active: Boolean(sync.active),
@@ -2338,7 +2491,11 @@ function waitForSeekTestPlayback(targetTime, timeoutMs, expectedParticipantCount
     let failureReason = "timeout";
     let stabilityState = null;
     let maxObservedOffsetMs = 0;
+    let maxObservedRawParticipantOffsetMs = 0;
     let maxSettledOffsetMs = 0;
+    let seekEventObserved = false;
+    let seekedEventObserved = false;
+    let targetReachedAt = null;
     const recordStabilityState = (reason, syncOffsets) => {
       if (reason === stabilityState) return;
       stabilityState = reason;
@@ -2361,6 +2518,8 @@ function waitForSeekTestPlayback(targetTime, timeoutMs, expectedParticipantCount
         networkState: elements.player.networkState,
         buffered: getBufferedRangeSummary()
       };
+      if (event.type === "seeking") seekEventObserved = true;
+      if (event.type === "seeked") seekedEventObserved = true;
       if (event.type === "error") eventRecord.mediaError = getMediaErrorDetails();
       events.push(eventRecord);
     };
@@ -2383,7 +2542,12 @@ function waitForSeekTestPlayback(targetTime, timeoutMs, expectedParticipantCount
         buffered: getBufferedRangeSummary(),
         mediaError: getMediaErrorDetails(),
         maxObservedOffsetMs,
+        maxObservedRawParticipantOffsetMs,
         maxSettledOffsetMs,
+        seekEventObserved,
+        seekedEventObserved,
+        targetReachedAt: targetReachedAt === null ? null : Math.round(targetReachedAt - startedAt),
+        finalTargetDeltaMs: Math.round((elements.player.currentTime - targetTime) * 1000),
         syncOffsets: getSeekTestSyncSnapshot(),
         stabilityTransitions,
         events
@@ -2392,6 +2556,11 @@ function waitForSeekTestPlayback(targetTime, timeoutMs, expectedParticipantCount
 
     eventNames.forEach((eventName) => elements.player.addEventListener(eventName, recordEvent));
     const probeTimer = setInterval(() => {
+      if (seekTestStopRequested) {
+        failureReason = "stopped-by-user";
+        finish(true);
+        return;
+      }
       const timestamp = performance.now();
       const currentMediaTime = elements.player.currentTime;
       if (currentMediaTime > previousMediaTime + 0.02) lastPlaybackAdvanceAt = timestamp;
@@ -2399,6 +2568,12 @@ function waitForSeekTestPlayback(targetTime, timeoutMs, expectedParticipantCount
 
       const syncOffsets = getSeekTestSyncSnapshot();
       for (const sync of syncOffsets) {
+        if (Number.isFinite(sync.rawOffsetMs)) {
+          maxObservedRawParticipantOffsetMs = Math.max(
+            maxObservedRawParticipantOffsetMs,
+            Math.abs(sync.rawOffsetMs)
+          );
+        }
         if (sync.active && Number.isFinite(sync.offsetMs)) {
           maxObservedOffsetMs = Math.max(maxObservedOffsetMs, Math.abs(sync.offsetMs));
         }
@@ -2410,7 +2585,16 @@ function waitForSeekTestPlayback(targetTime, timeoutMs, expectedParticipantCount
         || (participantsBuffered
           && (seekTestIgnoresParticipantOffset()
             || syncOffsets.every((sync) => Math.abs(sync.offsetMs) <= 250)));
+      const participantDriftDetected = syncOffsets.some((sync) => {
+        if (Number.isFinite(sync.rawOffsetMs)) return Math.abs(sync.rawOffsetMs) > 250;
+        if (Number.isFinite(sync.currentTime) && Number.isFinite(sync.referenceTime)) {
+          return Math.abs(sync.currentTime - sync.referenceTime) > 0.25;
+        }
+        return false;
+      });
+      const participantBufferingDetected = syncOffsets.some((sync) => sync.buffering);
       const reachedTarget = Math.abs(currentMediaTime - targetTime) <= 3;
+      if (reachedTarget && targetReachedAt === null) targetReachedAt = timestamp;
       const localPlaybackReady =
         (reachedTarget || (readyAt !== null && currentMediaTime >= targetTime - 0.5)) &&
         !elements.player.seeking &&
@@ -2429,7 +2613,11 @@ function waitForSeekTestPlayback(targetTime, timeoutMs, expectedParticipantCount
       if (!localPlaybackReady) {
         stableStartedAt = null;
         stableStartedMediaTime = null;
-        failureReason = elements.player.paused ? "paused" : "local-playback-not-ready";
+        failureReason = participantBufferingDetected
+          ? "participant-buffering"
+          : participantDriftDetected
+          ? "participants-not-synchronized"
+          : elements.player.paused ? "paused" : "local-playback-not-ready";
         recordStabilityState(failureReason, syncOffsets);
         return;
       }
@@ -2456,14 +2644,35 @@ function waitForSeekTestPlayback(targetTime, timeoutMs, expectedParticipantCount
       }
       const stableElapsedMs = timestamp - stableStartedAt;
       const mediaAdvance = currentMediaTime - stableStartedMediaTime;
-      if (
-        stableElapsedMs >= seekTestStableWindowMs
-        && mediaAdvance >= seekTestMinimumMediaAdvanceSeconds
-      ) {
+      const requiredPlaybackMs = Math.max(seekTestStableWindowMs, seekTestPostSeekPlaybackMs);
+      const requiredMediaAdvanceSeconds = requiredPlaybackMs / 1000 * 0.75;
+      if (stableElapsedMs >= requiredPlaybackMs && mediaAdvance >= requiredMediaAdvanceSeconds) {
         finish(false);
       }
     }, 50);
-    const timeoutTimer = setTimeout(() => finish(true), timeoutMs);
+    logEvent("Seek test target requested", {
+      targetTime: Number(targetTime.toFixed(3)),
+      readyState: elements.player.readyState,
+      currentTime: Number(elements.player.currentTime.toFixed(3))
+    });
+    const timeoutTimer = setTimeout(() => {
+      const finalSyncOffsets = getSeekTestSyncSnapshot();
+      const finalParticipantsSynchronized = finalSyncOffsets.length >= expectedParticipantCount &&
+        finalSyncOffsets.every((sync) => Number.isFinite(sync.rawOffsetMs) && Math.abs(sync.rawOffsetMs) <= 250);
+      const localStateObservable = elements.player.readyState >= HTMLMediaElement.HAVE_METADATA &&
+        !elements.player.seeking &&
+        Math.abs(elements.player.currentTime - targetTime) <= 3;
+      if (
+        ["local-playback-not-ready", "paused"].includes(failureReason) &&
+        finalParticipantsSynchronized &&
+        localStateObservable
+      ) {
+        failureReason = "observer-stall";
+      } else if (finalParticipantsSynchronized && Math.abs(elements.player.currentTime - targetTime) > 3) {
+        failureReason = seekEventObserved ? "seek-target-not-reached" : "seek-not-applied";
+      }
+      finish(true);
+    }, timeoutMs);
     setPlayerCurrentTime(targetTime);
   });
 }
@@ -2488,6 +2697,8 @@ function createSeekTestReport(results, requestedIterations, expectedParticipantC
     fastSeekSupported: typeof elements.player.fastSeek === "function",
     fragmentAlignmentRequested: seekTestAlignToFragment,
     stableWindowMs: seekTestStableWindowMs,
+    postSeekPlaybackMs: seekTestPostSeekPlaybackMs,
+    iterationTimeoutMs: seekTestIterationTimeoutMs,
     duration: Number(elements.player.duration.toFixed(3)),
     startedAt,
     completedAt,
@@ -2546,6 +2757,7 @@ function createSeekTestPanel() {
     </label>
     <div style="display:flex;gap:8px">
       <button data-seek-test-start type="button" style="flex:1;padding:7px;border:0;border-radius:6px;background:#8b5cf6;color:white;font-weight:700">Start</button>
+      <button data-seek-test-stop type="button" disabled style="flex:1;padding:7px;border:0;border-radius:6px;background:#b45309;color:white;font-weight:700">Stop</button>
       <button data-seek-test-copy type="button" disabled style="flex:1;padding:7px;border:1px solid #4c5272;border-radius:6px;background:#22253b;color:white">Copy report</button>
     </div>
     <div data-seek-test-status style="margin-top:10px;color:#b9bed8">Load media before starting.</div>
@@ -2573,8 +2785,11 @@ async function runSeekStressTest(iterations = 20) {
   const panel = document.getElementById("seekTestPanel");
   const status = panel?.querySelector("[data-seek-test-status]");
   const startButton = panel?.querySelector("[data-seek-test-start]");
+  const stopButton = panel?.querySelector("[data-seek-test-stop]");
   const copyButton = panel?.querySelector("[data-seek-test-copy]");
+  seekTestStopRequested = false;
   if (startButton) startButton.disabled = true;
+  if (stopButton) stopButton.disabled = false;
   if (copyButton) copyButton.disabled = true;
 
   let playbackStarted = false;
@@ -2606,11 +2821,12 @@ async function runSeekStressTest(iterations = 20) {
     const requestedTargetTime = minimumTime + usableDuration * Math.max(0.03, fraction);
     const targetTime = getFragmentAlignedSeekTime(requestedTargetTime);
     if (status) status.textContent = `Running ${index + 1}/${iterations} at ${targetTime.toFixed(1)}s`;
-    const result = await waitForSeekTestPlayback(targetTime, 30000, expectedParticipantCount);
+    const result = await waitForSeekTestPlayback(targetTime, seekTestIterationTimeoutMs, expectedParticipantCount);
     result.iteration = index + 1;
     result.requestedTargetTime = Number(requestedTargetTime.toFixed(3));
     result.fragmentAlignmentMs = Math.round((targetTime - requestedTargetTime) * 1000);
     results.push(result);
+    if (seekTestStopRequested || result.failureReason === "paused") break;
     if (result.timedOut && !seekTestContinuesAfterTimeout()) break;
     if (result.timedOut) {
       try {
@@ -2631,11 +2847,14 @@ async function runSeekStressTest(iterations = 20) {
   window.__seekStressReport = report;
   console.log("[Seek Test] Completed", report);
   if (status) {
-    status.textContent = report.summary.timedOut
+    status.textContent = report.results.at(-1)?.failureReason === "stopped-by-user"
+      ? `Stopped by user at iteration ${results.length}`
+      : report.summary.timedOut
       ? `Stopped at iteration ${results.length}: ${results.at(-1).failureReason}`
       : `Done: ${results.length} stable seeks, max ready ${report.summary.maximumReadyLatencyMs ?? "n/a"}ms`;
   }
   if (startButton) startButton.disabled = false;
+  if (stopButton) stopButton.disabled = true;
   if (copyButton) copyButton.disabled = false;
   return report;
 }
@@ -2645,6 +2864,7 @@ window.__startSeekStressTest = runSeekStressTest;
 const seekTestPanel = createSeekTestPanel();
 if (seekTestPanel) {
   const startButton = seekTestPanel.querySelector("[data-seek-test-start]");
+  const stopButton = seekTestPanel.querySelector("[data-seek-test-stop]");
   const copyButton = seekTestPanel.querySelector("[data-seek-test-copy]");
   const iterationsInput = seekTestPanel.querySelector("[data-seek-test-iterations]");
   const status = seekTestPanel.querySelector("[data-seek-test-status]");
@@ -2657,6 +2877,12 @@ if (seekTestPanel) {
       status.textContent = error.message;
       startButton.disabled = false;
     }
+  });
+
+  stopButton.addEventListener("click", () => {
+    seekTestStopRequested = true;
+    status.textContent = "Stopping after the current probe...";
+    stopButton.disabled = true;
   });
 
   copyButton.addEventListener("click", async () => {
@@ -2675,7 +2901,7 @@ if (elements.searchButton) {
 }
 elements.loadMediaButton.addEventListener("click", loadManualMedia);
 elements.seekButton.addEventListener("click", () => {
-  elements.player.currentTime = Math.max(0, Number(elements.seekInput.value) || 0);
+    setPlayerCurrentTime(Math.max(0, Number(elements.seekInput.value) || 0), "manual-seek", true);
 });
 elements.syncButton.addEventListener("click", () => sendMessage({ type: "request-sync" }));
 
@@ -2794,10 +3020,10 @@ elements.player.addEventListener("seeked", () => {
 
 elements.player.addEventListener("loadedmetadata", () => {
   showMediaPlayer();
-  if (state.pendingSeek !== null) {
+    if (state.pendingSeek !== null) {
     const seekTarget = Math.max(0, state.pendingSeek);
     markProgrammaticSeek(seekTarget);
-    elements.player.currentTime = seekTarget;
+    setPlayerCurrentTime(seekTarget, "loadedmetadata-pending-seek");
     state.pendingSeek = null;
   }
 
@@ -2825,7 +3051,7 @@ elements.player.addEventListener("loadeddata", () => {
 });
 elements.player.addEventListener("canplay", () => {
   showMediaPlayer();
-  logSeekPlaybackMilestone("canplay");
+    logSeekPlaybackMilestone("canplay");
   updateCurrentMediaReadiness();
   handleHlsPlayingActivity();
 });
