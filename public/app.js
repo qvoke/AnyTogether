@@ -2424,6 +2424,10 @@ function handlePluginMessage(event) {
 }
 
 function handleHlsPlayingActivity() {
+  if (!elements.player.paused && elements.player.readyState < HTMLMediaElement.HAVE_FUTURE_DATA) {
+    return;
+  }
+
   state.bufferingSignalActive = false;
   clearBufferingDetectionTimer();
   state.isBuffering = false;
