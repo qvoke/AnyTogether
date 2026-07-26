@@ -148,6 +148,7 @@ const state = {
   currentRevision: 0,
   playbackSyncOffsets: new Map(),
   lastPlaybackCorrectionAt: 0,
+  lastSeekCorrectionActionId: null,
   lastAppliedLoadActionId: null,
   lastGuaranteedSeekActionId: null,
   isApplyingRemoteState: false,
@@ -1688,6 +1689,7 @@ function correctPlaybackDrift(syncEntry, syncContext = {}) {
   const isSeekCorrection = syncEntry?.reason === "seek";
   if (isSeekCorrection) {
     if (syncContext.referenceClientId === state.clientId || !syncContext.seekActionId) return;
+    if (state.lastSeekCorrectionActionId === syncContext.seekActionId) return;
   }
   if (
     !syncEntry ||
@@ -1733,6 +1735,9 @@ function correctPlaybackDrift(syncEntry, syncContext = {}) {
   if (timestamp - state.lastPlaybackCorrectionAt < correctionCooldownMs) return;
 
   state.lastPlaybackCorrectionAt = timestamp;
+  if (isSeekCorrection) {
+    state.lastSeekCorrectionActionId = syncContext.seekActionId;
+  }
   markProgrammaticSeek(correctionTarget);
   setPlayerCurrentTime(correctionTarget, "drift-correction");
   logEvent("Playback drift corrected", { offsetMs: syncEntry.offsetMs, adjustmentMs });
