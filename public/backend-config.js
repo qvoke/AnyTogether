@@ -41,11 +41,20 @@
       storedValue = "";
     }
 
+    const defaultBaseUrl = getDefaultBaseUrl();
+    const localFrontendOrigin = `${globalObject.location.origin}/`;
+    if (
+      defaultBaseUrl !== localFrontendOrigin &&
+      normalizeBaseUrl(storedValue) === localFrontendOrigin
+    ) {
+      storedValue = "";
+    }
+
     return normalizeBaseUrl(
       queryValue ||
-        storedValue ||
         globalObject.WATCH_TOGETHER_API_BASE_URL ||
-        getDefaultBaseUrl()
+        storedValue ||
+        defaultBaseUrl
     );
   }
 

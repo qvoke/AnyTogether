@@ -18,7 +18,8 @@ const contentTypes = new Map([
 function resolvePublicPath(pathname) {
   const requestedPath = pathname === "/" ? "index.html" : decodeURIComponent(pathname).replace(/^\/+/, "");
   const resolvedPath = path.resolve(publicDirectory, requestedPath);
-  return resolvedPath.startsWith(publicDirectory) ? resolvedPath : null;
+  const relativePath = path.relative(publicDirectory, resolvedPath);
+  return relativePath.startsWith("..") || path.isAbsolute(relativePath) ? null : resolvedPath;
 }
 
 async function sendFile(response, filePath) {
