@@ -141,12 +141,22 @@ const state = {
   currentControl: null,
   currentMediaUrl: "",
   currentMediaReady: false,
+  mediaLoadSequence: 0,
+  mediaLoadReadySequence: 0,
+  mediaLoadAlignmentSequence: 0,
+  mediaLoadStartedAt: 0,
+  mediaLoadReason: "unknown",
   pendingInterfaceMediaUrl: null,
   lastPlaybackStatusDebugSignature: "",
   lastPresenceDebugSignature: "",
   lastMemberRenderSignature: "",
   currentRevision: 0,
   playbackSyncOffsets: new Map(),
+  playbackSyncMediaUrl: "",
+  playbackSyncReferenceClientId: null,
+  playbackSyncReferenceBuffering: true,
+  playbackSyncReferencePaused: true,
+  playbackSyncReceivedAt: 0,
   lastPlaybackCorrectionAt: 0,
   lastSeekCorrectionActionId: null,
   lastAppliedLoadActionId: null,
@@ -175,6 +185,7 @@ const state = {
   activeSeekDiagnostic: null,
   seekFragmentRequests: new Map(),
   autoplayPending: false,
+  playbackStartBlocked: false,
   remoteSeekPending: false,
   remoteSeekSettlementTimer: null,
   remoteApplyTimer: null,
@@ -425,8 +436,9 @@ function attemptRemoteSeekSettlement(trigger = "seeked") {
 
   if (state.pendingSeek !== null) {
     if (elements.player.readyState >= 1) {
-      const targetTime = state.pendingSeek;
+      const targetTime = getLivePlaybackReferenceTime() ?? state.pendingSeek;
       state.pendingSeek = null;
+      state.remoteSeekTarget = targetTime;
       state.pendingSeekObservedSeeked = false;
       state.pendingSeekRemoteStartedAt = now;
       const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
@@ -903,9 +915,10 @@ function rebuildPlaybackPipeline(
   const syncTargetIsAuthoritative = Number.isFinite(syncTarget) &&
     (state.playbackSyncOffsets.get(state.clientId)?.active === true ||
       Number.isFinite(syncRawOffsetMs) && Math.abs(syncRawOffsetMs) > 250);
+  const liveReferenceTime = getLivePlaybackReferenceTime();
   const authoritativeRemoteTarget = state.pendingSeekIsRemote && Number.isFinite(state.remoteSeekTarget)
     ? Math.max(0, state.remoteSeekTarget)
-    : syncTargetIsAuthoritative ? Math.max(0, syncTarget) : null;
+    : liveReferenceTime ?? (syncTargetIsAuthoritative ? Math.max(0, syncTarget) : null);
 
   clearPendingSeekCommitTimer();
   clearNativeMediaErrorRecoveryTimer();
@@ -925,6 +938,9 @@ function rebuildPlaybackPipeline(
   state.pendingSeek = authoritativeRemoteTarget ?? resumePosition;
   state.pendingPlaybackState = pausedBeforeReload;
   state.currentMediaReady = false;
+  state.mediaLoadSequence += 1;
+  state.mediaLoadStartedAt = performance.now();
+  state.mediaLoadReason = `rebuild:${reason}`;
   void loadPlayerSource(sourceUrl, true);
 
   logEvent("Playback pipeline rebuilt", {
@@ -1218,6 +1234,9 @@ function loadSource(url, options = {}) {
 
   state.currentMediaUrl = nextUrl;
   state.currentMediaReady = false;
+  state.mediaLoadSequence += 1;
+  state.mediaLoadStartedAt = performance.now();
+  state.mediaLoadReason = options.reason || "manual";
   state.pendingSeek = null;
   state.pendingPlaybackState = null;
   state.pendingSeekTarget = null;
@@ -1244,6 +1263,7 @@ function loadSource(url, options = {}) {
   void loadPlayerSource(nextUrl, forceReload);
 
   logEvent("Media source loaded", {
+    sequence: state.mediaLoadSequence,
     reason: options.reason || "manual",
     sourceUrl: nextUrl
   });
@@ -1279,10 +1299,11 @@ function applyPlaybackState(paused) {
   }
 
   markProgrammaticPlaybackChange(false);
-  void elements.player.play().catch(() => {
-    if (state.programmaticPlayEvents > 0) {
-      state.programmaticPlayEvents -= 1;
-    }
+  void elements.player.play().then(() => {
+    state.autoplayPending = false;
+    state.playbackStartBlocked = false;
+  }).catch((error) => {
+    handlePlaybackStartFailure(error, "remote-state");
   });
 }
 
@@ -1293,22 +1314,43 @@ function requestProgrammaticAutoplay() {
   }
 }
 
+function handlePlaybackStartFailure(error, source) {
+  if (state.programmaticPlayEvents > 0) {
+    state.programmaticPlayEvents -= 1;
+  }
+  if (state.desiredPlaybackPaused) return;
+
+  state.autoplayPending = true;
+  if (!state.playbackStartBlocked) {
+    logEvent("Playback start blocked", {
+      source,
+      name: error?.name || "unknown",
+      message: error?.message || "unknown"
+    });
+  }
+  state.playbackStartBlocked = true;
+}
+
 async function startProgrammaticPlayback() {
   if (!elements.player) {
     return;
   }
 
-  state.autoplayPending = false;
   state.desiredPlaybackPaused = false;
   markProgrammaticPlaybackChange(false);
 
   try {
     await elements.player.play();
-  } catch {
-    if (state.programmaticPlayEvents > 0) {
-      state.programmaticPlayEvents -= 1;
-    }
+    state.autoplayPending = false;
+    state.playbackStartBlocked = false;
+  } catch (error) {
+    handlePlaybackStartFailure(error, "autoplay");
   }
+}
+
+function retryBlockedPlaybackOnUserActivation() {
+  if (!state.autoplayPending || state.desiredPlaybackPaused) return;
+  void startProgrammaticPlayback();
 }
 
 function handleQualityOrTranslationRequest(message) {
@@ -1546,11 +1588,8 @@ function applyGuaranteedRemoteSeek(message) {
   const requestedPaused = typeof message.paused === "boolean" ? message.paused : null;
 
   if (state.lastGuaranteedSeekActionId === message.actionId) {
-    const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
-    if (Math.abs(currentTime - targetTime) <= 0.25) {
-      if (requestedPaused !== null) applyPlaybackState(requestedPaused);
-      return;
-    }
+    if (requestedPaused !== null) applyPlaybackState(requestedPaused);
+    return;
   }
 
   const playerTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
@@ -1660,6 +1699,18 @@ function setCurrentMediaReadiness(mediaReady) {
     readyState: elements.player.readyState,
     currentTime: elements.player.currentTime.toFixed(2)
   });
+  if (mediaReady && state.mediaLoadReadySequence !== state.mediaLoadSequence) {
+    state.mediaLoadReadySequence = state.mediaLoadSequence;
+    logEvent("Media source ready", {
+      sequence: state.mediaLoadSequence,
+      elapsedMs: Math.round(performance.now() - state.mediaLoadStartedAt),
+      reason: state.mediaLoadReason,
+      sourceUrl: state.activePlayerSourceUrl || state.currentMediaUrl
+    });
+  }
+  if (mediaReady) {
+    attemptMediaLoadAlignment();
+  }
   reportPlaybackStatus();
 }
 
@@ -1681,6 +1732,55 @@ function isPlaybackTimeBuffered(targetTime) {
     if (targetTime >= ranges.start(index) && targetTime <= ranges.end(index)) return true;
   }
   return false;
+}
+
+function getLivePlaybackReferenceTime() {
+  if (
+    !state.currentMediaUrl ||
+    state.playbackSyncMediaUrl !== state.currentMediaUrl ||
+    state.playbackSyncReferenceBuffering ||
+    !state.playbackSyncReferenceClientId ||
+    state.playbackSyncReferenceClientId === state.clientId
+  ) {
+    return null;
+  }
+
+  const ownSync = state.playbackSyncOffsets.get(state.clientId);
+  if (!Number.isFinite(ownSync?.referenceTime)) return null;
+
+  const projectionSeconds = state.playbackSyncReferencePaused
+    ? 0
+    : Math.min(1, Math.max(0, performance.now() - state.playbackSyncReceivedAt) / 1000);
+  return Math.max(0, ownSync.referenceTime + projectionSeconds);
+}
+
+function attemptMediaLoadAlignment() {
+  if (
+    state.mediaLoadAlignmentSequence === state.mediaLoadSequence ||
+    state.seekGestureActive ||
+    state.pendingSeekTarget !== null
+  ) {
+    return false;
+  }
+
+  const targetTime = getLivePlaybackReferenceTime();
+  if (targetTime === null) return false;
+
+  state.mediaLoadAlignmentSequence = state.mediaLoadSequence;
+  const currentTime = Number.isFinite(elements.player.currentTime) ? elements.player.currentTime : 0;
+  if (Math.abs(currentTime - targetTime) <= 0.2) return true;
+
+  suppressOutgoingEvents(1000);
+  state.remoteSeekActivityAt = Date.now();
+  state.lastPlaybackCorrectionAt = performance.now();
+  markProgrammaticSeek(targetTime);
+  setPlayerCurrentTime(targetTime, "media-load-alignment");
+  logEvent("Loaded media aligned to room", {
+    currentTime: currentTime.toFixed(2),
+    targetTime: targetTime.toFixed(2),
+    referenceClientId: state.playbackSyncReferenceClientId
+  });
+  return true;
 }
 
 function correctPlaybackDrift(syncEntry, syncContext = {}) {
@@ -2098,6 +2198,11 @@ function connectRoom() {
     }
 
     if (message.type === "playback-sync") {
+      state.playbackSyncMediaUrl = typeof message.mediaUrl === "string" ? message.mediaUrl : "";
+      state.playbackSyncReferenceClientId = message.referenceClientId || null;
+      state.playbackSyncReferenceBuffering = message.referenceBuffering === true;
+      state.playbackSyncReferencePaused = message.referencePaused !== false;
+      state.playbackSyncReceivedAt = performance.now();
       state.playbackSyncOffsets = new Map(
         (Array.isArray(message.offsets) ? message.offsets : [])
           .filter((entry) => entry?.clientId)
@@ -2109,6 +2214,9 @@ function connectRoom() {
         seekActionId: message.seekActionId || null,
         referenceBuffering: message.referenceBuffering === true
       });
+      if (state.currentMediaReady) {
+        attemptMediaLoadAlignment();
+      }
       return;
     }
 
@@ -3029,8 +3137,8 @@ elements.player.addEventListener("seeked", () => {
 
 elements.player.addEventListener("loadedmetadata", () => {
   showMediaPlayer();
-    if (state.pendingSeek !== null) {
-    const seekTarget = Math.max(0, state.pendingSeek);
+  if (state.pendingSeek !== null) {
+    const seekTarget = getLivePlaybackReferenceTime() ?? Math.max(0, state.pendingSeek);
     markProgrammaticSeek(seekTarget);
     setPlayerCurrentTime(seekTarget, "loadedmetadata-pending-seek");
     state.pendingSeek = null;
@@ -3066,6 +3174,8 @@ elements.player.addEventListener("canplay", () => {
 });
 elements.player.addEventListener("playing", () => {
   state.desiredPlaybackPaused = false;
+  state.autoplayPending = false;
+  state.playbackStartBlocked = false;
   showMediaPlayer();
   logSeekPlaybackMilestone("playing");
   markNativeMediaRecovered();
@@ -3098,6 +3208,8 @@ elements.player.addEventListener("volumechange", () => {
 });
 
 window.addEventListener("message", handlePluginMessage);
+document.addEventListener("pointerdown", retryBlockedPlaybackOnUserActivation, true);
+document.addEventListener("keydown", retryBlockedPlaybackOnUserActivation, true);
 
 window.addEventListener("beforeunload", () => {
   if (state.connection) {
