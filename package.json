@@ -1,17 +1,14 @@
 {
-  "name": "anytogether1",
+  "name": "anytogether-frontend",
   "private": true,
   "version": "0.52.0",
   "type": "module",
   "scripts": {
-    "dev": "node server.js",
-    "start": "node server.js",
+    "dev": "node scripts/serve-frontend.js",
+    "start": "node scripts/serve-frontend.js",
     "seek-test": "node scripts/run-seek-test.js",
     "seek-test:watch": "node scripts/watch-seek-test.js",
     "validate:configs": "node scripts/validate-parser-configs.js"
-  },
-  "dependencies": {
-    "ws": "^8.18.3"
   },
   "devDependencies": {
     "ajv": "^8.20.0"

@@ -678,7 +678,6 @@ function canBroadcastLocalChange() {
 }
 
 function getWsUrl(room, role, name, hasExtension = false) {
-  const protocol = location.protocol === "https:" ? "wss:" : "ws:";
   const params = new URLSearchParams({
     room,
     role,
@@ -687,7 +686,7 @@ function getWsUrl(room, role, name, hasExtension = false) {
     hasExtension: hasExtension ? "true" : "false"
   });
 
-  return `${protocol}//${location.host}/ws?${params.toString()}`;
+  return `${window.AnyTogetherBackend.resolveWebSocketUrl("/ws")}?${params.toString()}`;
 }
 
 function isHlsSource(url) {

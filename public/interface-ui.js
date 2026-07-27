@@ -20,7 +20,7 @@ const STORAGE_KEYS = {
 const GUEST_NICKNAME_KEY = "watchTogether.guestNickname";
 const ROOM_UI_STORAGE_PREFIX = "watchTogether.roomUi.";
 
-const DEFAULT_BACKEND_BASE_URL = window.location.origin;
+const DEFAULT_BACKEND_BASE_URL = window.AnyTogetherBackend.getDefaultBaseUrl();
 
 const requestedRole = new URLSearchParams(window.location.search).get("role");
 const queryRoom = normalizeRoomCode(new URLSearchParams(window.location.search).get("room"));
@@ -547,24 +547,7 @@ function setLanguageMenuOpen(nextOpen) {
 }
 
 function resolveBackendBaseUrl(value) {
-  const raw = String(value || "").trim();
-  if (!raw) return `${window.location.origin}/`;
-
-  try {
-    const url = new URL(raw, window.location.href);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return `${window.location.origin}/`;
-    }
-
-    url.hash = "";
-    url.search = "";
-    if (!url.pathname.endsWith("/")) {
-      url.pathname = `${url.pathname}/`;
-    }
-    return url.href;
-  } catch {
-    return `${window.location.origin}/`;
-  }
+  return window.AnyTogetherBackend.normalizeBaseUrl(value);
 }
 
 function resolveBackendUrl(path) {

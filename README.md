@@ -1,96 +1,41 @@
-# AnyTogether
+# AnyTogether Frontend
 
-AnyTogether is a synchronized media room interface with:
-
-- Intent-based WebSocket playback sync for `load`, `play`, `pause`, and `seek`
-- A short hidden control lease so only one client drives the room at a time
-- Shaka Player UI playback for MP4/HLS streams with a built-in quality menu
-- A plugin bridge that delivers metasearch results into the page
+AnyTogether Frontend provides synchronized media rooms, playback controls, series navigation, extraction diagnostics, and the companion browser extension.
 
 ## Run locally
+
+Start the backend from [qvoke/AnyTogether-back](https://github.com/qvoke/AnyTogether-back):
 
 ```bash
 npm install
 npm run dev
 ```
 
-The server always starts at `http://localhost:3000`.
+Then start this frontend:
 
-## Playback sync
-
-Clients send explicit intents, and the server turns them into room snapshots:
-
-```json
-{
-  "type": "player-intent",
-  "action": "seek",
-  "actionId": "2d42e7c1-4f3c-4f91-b6a7-1d0b9b2d7a26",
-  "roomId": "lobby",
-  "clientId": "host-1",
-  "currentTime": 42.5,
-  "paused": true
-}
+```bash
+npm install
+npm run dev
 ```
 
-```json
-{
-  "type": "player-intent",
-  "action": "load",
-  "actionId": "9df2c8e6-76c8-4f50-8d0b-9f7cb12c48bc",
-  "roomId": "lobby",
-  "clientId": "host-1",
-  "mediaUrl": "https://example.com/stream.m3u8",
-  "currentTime": 0,
-  "paused": false
-}
+The frontend starts at `http://localhost:3000` and uses `http://localhost:3001` as its local backend.
+
+Set a different backend with the `api` query parameter:
+
+```text
+http://localhost:3000/?api=https://api.example.com
 ```
 
-The room snapshot includes the current media state plus controller metadata so clients can log
-lease changes and apply the latest room state safely.
+The selected backend is stored in the browser for subsequent sessions. Deployments can also define `window.WATCH_TOGETHER_API_BASE_URL` before the application scripts load.
 
-A `seek` intent can carry `paused` when a rapid seek and pause should be committed as one
-atomic room update.
+## Browser extension
 
-## Site and extension bridge
+Load the `extension` directory as an unpacked extension in a Chromium-based browser. The extension extracts supported media and series data, then sends it to the room interface.
 
-The page sends a search request with `window.postMessage`:
+## Validation
 
-```js
-window.postMessage(
-  {
-    source: "anytogether-web",
-    type: "anytogether-plugin:search-request",
-    requestId: crypto.randomUUID(),
-    room: "lobby",
-    role: "host",
-    query: "vimeo space station"
-  },
-  "*"
-);
+```bash
+npm run validate:configs
 ```
 
-A companion extension can reply back to the page with:
-
-```js
-window.postMessage(
-  {
-    source: "anytogether-plugin",
-    type: "anytogether-plugin:search-result",
-    requestId,
-    title: "Sample stream",
-    originUrl: "https://example.com/page",
-    mediaUrl: "https://example.com/stream.m3u8"
-  },
-  "*"
-);
-```
-
-## Network request matcher example
-
-Use a simple pattern when inspecting request URLs for direct stream manifests:
-
-```js
-const streamPattern = /\.(?:m3u8|mp4)(?:\?|$)/i;
-```
-
-Shaka Player UI exposes HLS quality switching through its built-in quality menu, and the interface keeps playback diagnostics visible in the room log.
+Seek test automation is available through the `seek-test` and `seek-test:watch` scripts.
