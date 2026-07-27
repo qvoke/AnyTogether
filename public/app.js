@@ -32,6 +32,9 @@ const gestureCommitQuietWindowMs = 90;
 const remoteSeekSettlementGraceMs = 250;
 const seekCorrectionCooldownMs = 800;
 const playbackCorrectionCooldownMs = 1200;
+const playbackRateCorrectionLimitMs = 1200;
+const playbackRateCatchUpMultiplier = 1.5;
+const playbackRateSlowDownMultiplier = 0.5;
 const playbackStatusIntervalMs = 200;
 const bufferingConfirmationMs = 500;
 const nativeStallRecoveryDelayMs = 6000;
@@ -157,6 +160,8 @@ const state = {
   playbackSyncReferenceBuffering: true,
   playbackSyncReferencePaused: true,
   playbackSyncReceivedAt: 0,
+  driftPlaybackRateActive: false,
+  driftPlaybackRateBase: 1,
   lastPlaybackCorrectionAt: 0,
   lastSeekCorrectionActionId: null,
   lastAppliedLoadActionId: null,
@@ -920,6 +925,7 @@ function rebuildPlaybackPipeline(
     ? Math.max(0, state.remoteSeekTarget)
     : liveReferenceTime ?? (syncTargetIsAuthoritative ? Math.max(0, syncTarget) : null);
 
+  restoreDriftPlaybackRate("pipeline-rebuild");
   clearPendingSeekCommitTimer();
   clearNativeMediaErrorRecoveryTimer();
   destroyHls();
@@ -1225,6 +1231,7 @@ function loadSource(url, options = {}) {
     return false;
   }
 
+  restoreDriftPlaybackRate("source-load");
   clearPendingSeekCommitTimer();
   clearNativeMediaErrorRecoveryTimer();
   clearNativeMediaErrorRecoveryResetTimer();
@@ -1478,7 +1485,10 @@ function applyRemoteState(snapshot) {
     }
 
     if (typeof snapshot.playbackRate === "number") {
-      elements.player.playbackRate = snapshot.playbackRate;
+      state.driftPlaybackRateBase = snapshot.playbackRate;
+      if (!state.driftPlaybackRateActive) {
+        elements.player.playbackRate = snapshot.playbackRate;
+      }
     }
 
     if (snapshot.paused === true) {
@@ -1783,18 +1793,60 @@ function attemptMediaLoadAlignment() {
   return true;
 }
 
+function restoreDriftPlaybackRate(reason) {
+  if (!state.driftPlaybackRateActive) return;
+
+  const restoredRate = state.driftPlaybackRateBase;
+  state.driftPlaybackRateActive = false;
+  suppressOutgoingEvents(500);
+  if (Math.abs(elements.player.playbackRate - restoredRate) > 0.001) {
+    elements.player.playbackRate = restoredRate;
+  }
+  logEvent("Playback rate correction settled", {
+    reason,
+    playbackRate: restoredRate.toFixed(2)
+  });
+}
+
+function applyDriftPlaybackRate(adjustmentMs) {
+  if (!state.driftPlaybackRateActive) {
+    state.driftPlaybackRateBase = elements.player.playbackRate;
+    state.driftPlaybackRateActive = true;
+  }
+
+  const multiplier = adjustmentMs > 0
+    ? playbackRateCatchUpMultiplier
+    : playbackRateSlowDownMultiplier;
+  const targetRate = Math.min(2, Math.max(0.25, state.driftPlaybackRateBase * multiplier));
+  suppressOutgoingEvents(500);
+  if (Math.abs(elements.player.playbackRate - targetRate) > 0.001) {
+    elements.player.playbackRate = targetRate;
+    logEvent("Playback drift rate corrected", {
+      adjustmentMs,
+      playbackRate: targetRate.toFixed(2)
+    });
+  }
+}
+
 function correctPlaybackDrift(syncEntry, syncContext = {}) {
-  if (seekTestDisables("corrections")) return;
-  if (syncContext.referenceBuffering) return;
+  if (seekTestDisables("corrections")) {
+    restoreDriftPlaybackRate("corrections-disabled");
+    return;
+  }
+  if (syncContext.referenceBuffering) {
+    restoreDriftPlaybackRate("reference-buffering");
+    return;
+  }
   const isSeekCorrection = syncEntry?.reason === "seek";
   if (isSeekCorrection) {
-    if (syncContext.referenceClientId === state.clientId || !syncContext.seekActionId) return;
-    if (state.lastSeekCorrectionActionId === syncContext.seekActionId) return;
+    if (syncContext.referenceClientId === state.clientId || !syncContext.seekActionId) {
+      restoreDriftPlaybackRate("local-reference");
+      return;
+    }
   }
   if (
     !syncEntry ||
     !Number.isFinite(syncEntry.offsetMs) ||
-    syncEntry.offsetMs === 0 ||
     syncEntry.buffering ||
     state.isBuffering ||
     (elements.player.paused && !isSeekCorrection) ||
@@ -1804,6 +1856,11 @@ function correctPlaybackDrift(syncEntry, syncContext = {}) {
     state.pendingSeekTarget !== null ||
     state.remoteSeekPending
   ) {
+    restoreDriftPlaybackRate("playback-unavailable");
+    return;
+  }
+  if (syncEntry.offsetMs === 0) {
+    restoreDriftPlaybackRate("offset-settled");
     return;
   }
   const protectedTarget = state.localSeekProtection;
@@ -1819,12 +1876,25 @@ function correctPlaybackDrift(syncEntry, syncContext = {}) {
       referenceTime: syncEntry.referenceTime.toFixed(2),
       protectedTarget: protectedTarget.targetTime.toFixed(2)
     });
+    restoreDriftPlaybackRate("local-seek-protected");
     return;
   }
 
   const adjustmentMs = Number.isFinite(syncEntry.adjustmentMs)
     ? syncEntry.adjustmentMs
     : syncEntry.offsetMs;
+  if (
+    !elements.player.paused &&
+    elements.player.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA &&
+    Math.abs(adjustmentMs) <= playbackRateCorrectionLimitMs
+  ) {
+    applyDriftPlaybackRate(adjustmentMs);
+    return;
+  }
+
+  restoreDriftPlaybackRate("hard-seek");
+  if (isSeekCorrection && state.lastSeekCorrectionActionId === syncContext.seekActionId) return;
+
   const correctionTarget = Math.max(0, elements.player.currentTime + adjustmentMs / 1000);
   if (!isPlaybackTimeBuffered(correctionTarget)) return;
 
@@ -2550,6 +2620,7 @@ function handleHlsPlayingActivity() {
 }
 
 function handleWaitingLikeEvent() {
+  restoreDriftPlaybackRate("player-waiting");
   state.bufferingSignalActive = true;
   if (state.bufferingDetectionTimer || state.isBuffering) return;
 
@@ -3067,6 +3138,7 @@ elements.player.addEventListener("play", () => {
 });
 
 elements.player.addEventListener("pause", () => {
+  restoreDriftPlaybackRate("player-paused");
   if ((state.nativeMediaErrorActive || elements.player.error) && !state.desiredPlaybackPaused) {
     if (!state.nativeMediaErrorActive) handleNativeMediaError();
     logEvent("Native media error pause suppressed", getMediaErrorDetails());
