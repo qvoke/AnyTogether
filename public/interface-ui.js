@@ -1188,9 +1188,30 @@ function mergePartialSeriesContext(incomingContext, previousContext) {
   if (!previousContext) return incomingContext;
 
   if (hasNavigableSeriesContext(incomingContext) && isSameSeriesContext(previousContext, incomingContext)) {
+    const mergeEpisodeArt = (incomingItems, previousItems) => {
+      const previousByKey = new Map(previousItems.map((episode) => [
+        `${episode?.seasonId ?? ""}:${episode?.episodeId ?? episode?.number ?? ""}`,
+        episode
+      ]));
+      return incomingItems.map((episode) => {
+        const previous = previousByKey.get(`${episode?.seasonId ?? ""}:${episode?.episodeId ?? episode?.number ?? ""}`);
+        if (!previous) return episode;
+        const incomingTitle = String(episode?.title || "").trim();
+        const isPlaceholder = /^(?:episode|сер(?:и|і)я)\s*\d+$/i.test(incomingTitle);
+        return {
+          ...episode,
+          title: !isPlaceholder && incomingTitle ? episode.title : previous.title || episode.title,
+          thumbnail: episode.thumbnail || episode.thumbnailUrl || previous.thumbnail || previous.thumbnailUrl || null
+        };
+      });
+    };
+
     const preferRicherList = (key) => {
       const incomingItems = Array.isArray(incomingContext[key]) ? incomingContext[key] : [];
       const previousItems = Array.isArray(previousContext[key]) ? previousContext[key] : [];
+      if (key === "episodes" && previousItems.length > 0 && incomingItems.length >= previousItems.length) {
+        return mergeEpisodeArt(incomingItems, previousItems);
+      }
       return incomingItems.length >= previousItems.length ? incomingItems : previousItems;
     };
 
