@@ -4136,12 +4136,14 @@ async function enrichCurrentMediaArt(roomState) {
   media.artLookupKey = lookupKey;
   try {
     await enrichSeriesEpisodes(roomState);
+    if (roomState.currentMedia !== media) return;
     if (!needsArt) {
       if (state.activeRoomId === roomState.code) renderSeriesPanel();
       return;
     }
     const response = await fetch(resolveBackendUrl(`/api/media-art?query=${encodeURIComponent(title)}`));
     console.log("[TMDB] Media search response", { title, status: response.status, url: response.url });
+    if (roomState.currentMedia !== media) return;
     if (!response.ok) return;
     const result = await response.json();
     const match = Array.isArray(result.results) ? result.results[0] : null;
@@ -4204,6 +4206,7 @@ async function enrichSeriesEpisodes(roomState) {
       const response = await fetch(endpoint);
       console.log("[TMDB] Episode search response", { title, season: seasonNumber, status: response.status, url: response.url });
       if (!response.ok) continue;
+      if (roomState.currentMedia !== media) return;
       const result = await response.json();
       const byNumber = new Map((result.episodes || []).map((episode) => [Number(episode.episodeNumber), episode]));
       const episodes = getEpisodesForSeason(season, context);
