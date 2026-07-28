@@ -4099,16 +4099,23 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
 async function enrichCurrentMediaArt(roomState) {
   const media = roomState?.currentMedia;
   const title = String(media?.title || media?.seriesContext?.title || "").trim();
-  if (!media || !title || (media.poster && media.banner)) return;
+  if (!media || !title) return;
   const lookupKey = `${title}:${media.mediaUrl || ""}`;
-  if (media.artLookupKey === lookupKey) return;
+  const needsArt = !media.poster || !media.banner;
+  const needsEpisodes = Array.isArray(media.seriesContext?.seasons) &&
+    media.seriesContext.seasons.some((season) => !season.tmdbLookupDone);
+  if (media.artLookupKey === lookupKey && !needsEpisodes) return;
   media.artLookupKey = lookupKey;
   try {
+    await enrichSeriesEpisodes(roomState);
+    if (!needsArt) {
+      if (state.activeRoomId === roomState.code) renderSeriesPanel();
+      return;
+    }
     const response = await fetch(resolveBackendUrl(`/api/media-art?query=${encodeURIComponent(title)}`));
     if (!response.ok) return;
     const result = await response.json();
     const match = Array.isArray(result.results) ? result.results[0] : null;
-    await enrichSeriesEpisodes(roomState);
     if (!match) {
       if (state.activeRoomId === roomState.code) renderSeriesPanel();
       return;
