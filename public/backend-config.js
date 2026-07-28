@@ -1,5 +1,6 @@
 (function configureBackend(globalObject) {
   const storageKey = "watchTogether.backendBaseUrl";
+  const hostedBackendBaseUrl = "https://anytogether-back.onrender.com/";
 
   function getDefaultBaseUrl() {
     const isLocalFrontend =
@@ -7,7 +8,7 @@
         globalObject.location.hostname === "127.0.0.1") &&
       globalObject.location.port === "3000";
 
-    return isLocalFrontend ? "http://localhost:3001/" : `${globalObject.location.origin}/`;
+    return isLocalFrontend ? "http://localhost:3001/" : hostedBackendBaseUrl;
   }
 
   function normalizeBaseUrl(value) {
