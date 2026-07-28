@@ -4099,6 +4099,13 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
 async function enrichCurrentMediaArt(roomState) {
   const media = roomState?.currentMedia;
   const title = getTmdbSeriesTitle(media);
+  console.log("[TMDB] Enrichment requested", {
+    roomId: roomState?.code || null,
+    title,
+    mediaTitle: media?.title || null,
+    contextTitle: media?.seriesContext?.title || null,
+    sourcePageUrl: media?.sourcePageUrl || media?.pageUrl || null
+  });
   if (!media || !title) return;
   const lookupKey = `${title}:${media.mediaUrl || ""}`;
   const needsArt = !media.poster || !media.banner;
@@ -4113,6 +4120,7 @@ async function enrichCurrentMediaArt(roomState) {
       return;
     }
     const response = await fetch(resolveBackendUrl(`/api/media-art?query=${encodeURIComponent(title)}`));
+    console.log("[TMDB] Media search response", { title, status: response.status, url: response.url });
     if (!response.ok) return;
     const result = await response.json();
     const match = Array.isArray(result.results) ? result.results[0] : null;
@@ -4157,6 +4165,12 @@ async function enrichSeriesEpisodes(roomState) {
   const media = roomState?.currentMedia;
   const context = media?.seriesContext;
   const title = getTmdbSeriesTitle(media);
+  console.log("[TMDB] Episode enrichment requested", {
+    roomId: roomState?.code || null,
+    title,
+    seasonCount: Array.isArray(context?.seasons) ? context.seasons.length : 0,
+    episodeCount: Array.isArray(context?.episodes) ? context.episodes.length : 0
+  });
   if (!context || !title) return;
   const seasons = Array.isArray(context.seasons) ? context.seasons : [];
   for (const season of seasons) {
@@ -4164,18 +4178,24 @@ async function enrichSeriesEpisodes(roomState) {
     if (!Number.isFinite(seasonNumber) || seasonNumber < 0 || season.tmdbLookupDone) continue;
     season.tmdbLookupDone = true;
     try {
-      const response = await fetch(resolveBackendUrl(`/api/tv-episodes?query=${encodeURIComponent(title)}&season=${seasonNumber}`));
+      const endpoint = resolveBackendUrl(`/api/tv-episodes?query=${encodeURIComponent(title)}&season=${seasonNumber}`);
+      console.log("[TMDB] Episode search request", { title, season: seasonNumber, url: endpoint });
+      const response = await fetch(endpoint);
+      console.log("[TMDB] Episode search response", { title, season: seasonNumber, status: response.status, url: response.url });
       if (!response.ok) continue;
       const result = await response.json();
       const byNumber = new Map((result.episodes || []).map((episode) => [Number(episode.episodeNumber), episode]));
       const episodes = getEpisodesForSeason(season, context);
+      let matchedCount = 0;
       for (const [index, episode] of episodes.entries()) {
         const episodeNumber = Number(episode.episodeNumber ?? episode.number ?? index + 1);
         const tmdbEpisode = byNumber.get(episodeNumber);
         if (!tmdbEpisode) continue;
         episode.title = tmdbEpisode.title || episode.title;
         episode.thumbnail ||= tmdbEpisode.thumbnail;
+        matchedCount += 1;
       }
+      console.log("[TMDB] Episodes matched", { title, season: seasonNumber, sourceCount: episodes.length, tmdbCount: byNumber.size, matchedCount });
     } catch {
       season.tmdbLookupDone = false;
     }
