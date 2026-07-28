@@ -4144,7 +4144,7 @@ async function enrichSeriesEpisodes(roomState) {
       if (!response.ok) continue;
       const result = await response.json();
       const byNumber = new Map((result.episodes || []).map((episode) => [Number(episode.episodeNumber), episode]));
-      const episodes = Array.isArray(season.episodes) ? season.episodes : [];
+      const episodes = getEpisodesForSeason(season, context);
       for (const [index, episode] of episodes.entries()) {
         const episodeNumber = Number(episode.episodeNumber ?? episode.number ?? index + 1);
         const tmdbEpisode = byNumber.get(episodeNumber);
@@ -4178,6 +4178,7 @@ function updateRoomSeriesContext(roomId, payload, preferContextSelection = true)
     updatedAt: Date.now(),
     addedToPlaylistId: previousMedia?.addedToPlaylistId || null
   };
+  void enrichCurrentMediaArt(roomState);
   roomState.ui = mergeUiFromSeriesContext(roomState, nextSeriesContext, previousSeriesContext, {
     preferContextSelection
   });
