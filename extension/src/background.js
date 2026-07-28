@@ -10,6 +10,11 @@ const EXTENSION_ERROR_EVENT = "WT_EXTENSION_ERROR";
 const MEDIA_URL_REGEX = /https?:\/\/[^\s"'<>]+?\.(?:m3u8|mp4)(?:\?[^\s"'<>]*)?/i;
 const FORWARDED_SERIES_CONTEXT_SIGNATURES = new Map();
 
+function isUiPageUrl(value) {
+  const url = String(value || "");
+  return url.includes("localhost:3000") || /https?:\/\/qvoke\.github\.io\/AnyTogether(?:\/|[?#]|$)/i.test(url);
+}
+
 function sendStatus(tabId, message) {
   if (typeof tabId !== "number") return;
 
@@ -81,7 +86,7 @@ function sendSeriesContextToUi(tabId, pageUrl, seriesContext) {
   chrome.tabs.query({}, (tabs) => {
     if (!tabs) return;
     for (const tab of tabs) {
-      if (tab.status === "complete" && tab.url?.includes("localhost:3000")) {
+      if (tab.status === "complete" && isUiPageUrl(tab.url)) {
         sendTabMessage(tab.id, message);
       }
     }
@@ -1717,7 +1722,7 @@ function forwardToUi(url) {
   console.log("[Background] Forwarding to UI:", (realUrl || url).substring(0, 100));
   chrome.tabs.query({}, (allTabs) => {
     if (!allTabs) return;
-    allTabs.filter(t => t.status === 'complete' && t.url && t.url.includes('localhost:3000'))
+    allTabs.filter(t => t.status === 'complete' && isUiPageUrl(t.url))
       .forEach(tab => {
         sendTabMessage(tab.id, {
           type: "WT_SEARCH_RESULT_CLICKED",
@@ -1754,7 +1759,7 @@ chrome.webNavigation.onCreatedNavigationTarget.addListener((details) => {
   if (details.sourceTabId > 0) {
     try {
       chrome.tabs.get(details.sourceTabId, (tab) => {
-        if (tab && tab.url && tab.url.includes('localhost:3000')) {
+        if (tab && tab.url && isUiPageUrl(tab.url)) {
           _searchPopupTabId = details.tabId;
           SEARCH_POPUP_OWNER_TABS.set(details.tabId, details.sourceTabId);
           console.log("[Background] Search popup tab tracked:", _searchPopupTabId);
@@ -1884,7 +1889,7 @@ function isMediaLikePageUrl(value) {
 function pickSourcePageUrl(...candidates) {
   for (const candidate of candidates) {
     if (typeof candidate !== "string" || !candidate) continue;
-    if (candidate.includes("localhost:3000")) continue;
+    if (isUiPageUrl(candidate)) continue;
     if (isExtensionPageUrl(candidate) || isMediaLikePageUrl(candidate)) continue;
     return candidate;
   }
@@ -1911,10 +1916,10 @@ chrome.webRequest.onBeforeRequest.addListener(
       return;
     }
 
-    if (details.initiator && details.initiator.includes('localhost:3000')) {
+    if (details.initiator && isUiPageUrl(details.initiator)) {
       return;
     }
-    if (details.documentUrl && details.documentUrl.includes('localhost:3000')) {
+    if (details.documentUrl && isUiPageUrl(details.documentUrl)) {
       return;
     }
 
@@ -1931,7 +1936,7 @@ chrome.webRequest.onBeforeRequest.addListener(
 
     chrome.tabs.query({}, (allTabs) => {
       if (!allTabs || !allTabs.length) return;
-      const uiTabs = allTabs.filter(t => t.status === 'complete' && t.url && t.url.includes('localhost:3000'));
+      const uiTabs = allTabs.filter(t => t.status === 'complete' && isUiPageUrl(t.url));
 
       for (const tab of uiTabs) {
         MEDIA_SNIFFER_UI_CACHE.add(tab.id);
@@ -2000,7 +2005,7 @@ function sendMediaPayloadToUi(targetUiTabId, payload) {
     allTabs
       .filter((tab) =>
         tab.status === "complete" &&
-        tab.url?.includes("localhost:3000") &&
+        isUiPageUrl(tab.url) &&
         (!Number.isFinite(targetUiTabId) || tab.id === targetUiTabId)
       )
       .forEach((tab) => {
@@ -2212,7 +2217,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         .filter((tab) =>
           tab.status === "complete" &&
           tab.url &&
-          tab.url.includes("localhost:3000") &&
+          isUiPageUrl(tab.url) &&
           (!Number.isFinite(targetUiTabId) || tab.id === targetUiTabId)
         )
         .forEach((tab) => {

@@ -2272,6 +2272,8 @@
     .concept-player.player-shell .custom-player-controls { border-radius:0 0 14px 14px; }
     .concept-up-next { order:3; padding:14px; }
     #seriesPanel.concept-up-next { position:relative; display:block; align-self:center; width:100%; flex-direction:initial; gap:0; padding:14px; border:1px solid rgba(255,255,255,.05); border-radius:14px; background:#171827; box-shadow:none; }
+    #seriesPanel.has-series-banner { background-image:linear-gradient(90deg,#171827 0%,rgba(23,24,39,.94) 48%,rgba(23,24,39,.76)),var(--series-banner); background-position:center; background-size:cover; }
+    #seriesPanel.has-series-banner > * { position:relative; z-index:1; }
     #seriesPanel.has-episode-overflow-left::before, #seriesPanel.has-episode-overflow-right::after { position:absolute; top:64px; bottom:14px; z-index:3; width:28px; pointer-events:none; content:""; }
     #seriesPanel.has-episode-overflow-left::before { left:14px; background:linear-gradient(90deg,#171827,rgba(23,24,39,0)); }
     #seriesPanel.has-episode-overflow-right::after { right:14px; background:linear-gradient(270deg,#171827,rgba(23,24,39,0)); }

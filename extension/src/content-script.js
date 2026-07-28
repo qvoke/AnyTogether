@@ -21,7 +21,7 @@ function sendRuntimeMessage(message) {
   const isIframe = window !== window.top;
   const pageUrl = window.location.href;
   const isSearchPopupWindow = window.name === SEARCH_POPUP_WINDOW_NAME;
-  const isLocalUiPage = pageUrl.includes("localhost:3000");
+  const isLocalUiPage = pageUrl.includes("localhost:3000") || /https?:\/\/qvoke\.github\.io\/AnyTogether(?:\/|[?#]|$)/i.test(pageUrl);
 
   console.log("[AnyTogether CS] Loaded at:", pageUrl, "| isIframe:", isIframe);
 
@@ -232,7 +232,7 @@ function sendRuntimeMessage(message) {
     }
     if (message?.type === "WT_MEDIA_FOUND" && message?.payload) {
       _lastMediaUrl = message.payload.mediaUrl || _lastMediaUrl;
-      if (pageUrl.includes("localhost:3000")) {
+      if (isLocalUiPage) {
         persistPendingMediaPayload(message.payload);
       }
       postToPage("WT_MEDIA_FOUND", message.payload);

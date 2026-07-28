@@ -1084,6 +1084,9 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
   const nextCurrentMedia = mediaForMerge
     ? {
         ...mediaForMerge,
+        poster: mediaForMerge.poster || existing.currentMedia?.poster || null,
+        banner: mediaForMerge.banner || mediaForMerge.backdrop || existing.currentMedia?.banner || existing.currentMedia?.backdrop || null,
+        backdrop: mediaForMerge.backdrop || mediaForMerge.banner || existing.currentMedia?.backdrop || existing.currentMedia?.banner || null,
         masterPlaylistUrl: mediaForMerge.masterPlaylistUrl || existing.currentMedia?.masterPlaylistUrl || null,
         sourcePageUrl: mediaForMerge.sourcePageUrl || existing.currentMedia?.sourcePageUrl || null,
         seriesContext: mergePartialSeriesContext(mediaForMerge.seriesContext, previousSeriesContext)
@@ -2332,6 +2335,9 @@ function renderSeriesPanel() {
   const selectedTranslatorTitle = getSelectedTranslatorTitle() || "Auto";
 
   seriesPanel.classList.remove("hidden");
+  const seriesBanner = currentMedia.banner || currentMedia.backdrop || seriesContext?.banner || seriesContext?.backdrop || "";
+  seriesPanel.style.setProperty("--series-banner", seriesBanner ? `url(\"${String(seriesBanner).replaceAll('"', '%22')}\")` : "none");
+  seriesPanel.classList.toggle("has-series-banner", Boolean(seriesBanner));
   seriesTitleEl.textContent = title;
   seriesMetaEl.textContent = displayYear ? `(${displayYear})` : "";
   if (seasonPickerValue) seasonPickerValue.textContent = selectedSeasonTitle;
@@ -2486,7 +2492,7 @@ function renderSeriesPanel() {
 
     const thumbnail = document.createElement("span");
     thumbnail.className = "series-episode-thumb";
-    const thumbnailUrl = episode?.thumbnail || episode?.thumbnailUrl || episode?.image || episode?.poster || "";
+    const thumbnailUrl = episode?.thumbnail || episode?.thumbnailUrl || episode?.image || episode?.poster || episode?.banner || seriesContext?.banner || seriesContext?.backdrop || "";
     if (thumbnailUrl) {
       thumbnail.style.backgroundImage = `url("${String(thumbnailUrl).replaceAll('"', '%22')}")`;
       thumbnail.classList.add("has-image");
@@ -4014,6 +4020,9 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
   roomState.currentMedia = {
     mediaUrl: payload.mediaUrl,
     masterPlaylistUrl: payload.masterPlaylistUrl || previousMedia?.masterPlaylistUrl || null,
+    poster: payload.poster || payload.posterUrl || previousMedia?.poster || null,
+    banner: payload.banner || payload.bannerUrl || payload.backdrop || payload.backdropUrl || previousMedia?.banner || previousMedia?.backdrop || null,
+    backdrop: payload.backdrop || payload.backdropUrl || payload.banner || payload.bannerUrl || previousMedia?.backdrop || previousMedia?.banner || null,
     pageUrl: nextPageUrl,
     sourcePageUrl: nextSourcePageUrl,
     title: payload.title || nextSeriesContext?.title || previousMedia?.title || null,
@@ -4034,6 +4043,7 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
     updatedAt: Date.now()
   };
   sanitizeRoomUi(roomState);
+  void enrichCurrentMediaArt(roomState);
 
   const pendingEpisode = getPendingEpisodeSelection(roomState);
   const payloadSeasonId = Number(nextSeriesContext?.currentSeasonId);
@@ -4083,6 +4093,61 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
   if (state.activeRoomId === normalized && shouldReloadPlayer) {
     refreshActiveRoom();
     syncActiveRoomMedia(true);
+  }
+}
+
+async function enrichCurrentMediaArt(roomState) {
+  const media = roomState?.currentMedia;
+  const title = String(media?.title || media?.seriesContext?.title || "").trim();
+  if (!media || !title || (media.poster && media.banner)) return;
+  const lookupKey = `${title}:${media.mediaUrl || ""}`;
+  if (media.artLookupKey === lookupKey) return;
+  media.artLookupKey = lookupKey;
+  try {
+    const response = await fetch(resolveBackendUrl(`/api/media-art?query=${encodeURIComponent(title)}`));
+    if (!response.ok) return;
+    const result = await response.json();
+    const match = Array.isArray(result.results) ? result.results[0] : null;
+    await enrichSeriesEpisodes(roomState);
+    if (!match) {
+      if (state.activeRoomId === roomState.code) renderSeriesPanel();
+      return;
+    }
+    media.poster ||= match.poster;
+    media.banner ||= match.banner;
+    media.backdrop ||= match.banner;
+    if (state.activeRoomId === roomState.code) renderSeriesPanel();
+  } catch {
+    media.artLookupKey = null;
+  }
+}
+
+async function enrichSeriesEpisodes(roomState) {
+  const media = roomState?.currentMedia;
+  const context = media?.seriesContext;
+  const title = String(context?.title || media?.title || "").trim();
+  if (!context || !title) return;
+  const seasons = Array.isArray(context.seasons) ? context.seasons : [];
+  for (const season of seasons) {
+    const seasonNumber = Number(season.seasonId ?? season.seasonNumber);
+    if (!Number.isFinite(seasonNumber) || seasonNumber < 0 || season.tmdbLookupDone) continue;
+    season.tmdbLookupDone = true;
+    try {
+      const response = await fetch(resolveBackendUrl(`/api/tv-episodes?query=${encodeURIComponent(title)}&season=${seasonNumber}`));
+      if (!response.ok) continue;
+      const result = await response.json();
+      const byNumber = new Map((result.episodes || []).map((episode) => [Number(episode.episodeNumber), episode]));
+      const episodes = Array.isArray(season.episodes) ? season.episodes : [];
+      for (const [index, episode] of episodes.entries()) {
+        const episodeNumber = Number(episode.episodeNumber ?? episode.number ?? index + 1);
+        const tmdbEpisode = byNumber.get(episodeNumber);
+        if (!tmdbEpisode) continue;
+        episode.title = tmdbEpisode.title || episode.title;
+        episode.thumbnail ||= tmdbEpisode.thumbnail;
+      }
+    } catch {
+      season.tmdbLookupDone = false;
+    }
   }
 }
 
