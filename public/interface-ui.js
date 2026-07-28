@@ -4098,7 +4098,7 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
 
 async function enrichCurrentMediaArt(roomState) {
   const media = roomState?.currentMedia;
-  const title = String(media?.title || media?.seriesContext?.title || "").trim();
+  const title = getTmdbSeriesTitle(media);
   if (!media || !title) return;
   const lookupKey = `${title}:${media.mediaUrl || ""}`;
   const needsArt = !media.poster || !media.banner;
@@ -4129,10 +4129,34 @@ async function enrichCurrentMediaArt(roomState) {
   }
 }
 
+function getTmdbSeriesTitle(media) {
+  const contextTitle = String(media?.seriesContext?.title || "").trim();
+  const mediaTitle = String(media?.title || "").trim();
+  const isPlaceholder = /^(?:episode|сер(?:и|і)я)\s*\d+$/i.test(contextTitle) ||
+    /^(?:episode|сер(?:и|і)я)\s*\d+$/i.test(mediaTitle);
+  if (contextTitle && !isPlaceholder) return contextTitle;
+  if (mediaTitle && !isPlaceholder) return mediaTitle;
+
+  const sourceUrl = media?.sourcePageUrl || media?.pageUrl || media?.seriesContext?.resolver?.pageUrl;
+  try {
+    const pathname = new URL(sourceUrl).pathname;
+    const slug = decodeURIComponent(pathname.split("/").filter(Boolean).pop() || "")
+      .replace(/\.html?$/i, "")
+      .replace(/^\d+[-_\s]+/, "")
+      .replace(/[-_](?:19|20)\d{2}(?:$|[-_])/i, "-")
+      .replace(/[-_]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    return slug || "";
+  } catch {
+    return "";
+  }
+}
+
 async function enrichSeriesEpisodes(roomState) {
   const media = roomState?.currentMedia;
   const context = media?.seriesContext;
-  const title = String(context?.title || media?.title || "").trim();
+  const title = getTmdbSeriesTitle(media);
   if (!context || !title) return;
   const seasons = Array.isArray(context.seasons) ? context.seasons : [];
   for (const season of seasons) {
