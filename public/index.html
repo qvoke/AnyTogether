@@ -2274,6 +2274,16 @@
     #seriesPanel.concept-up-next { position:relative; display:block; align-self:center; width:100%; flex-direction:initial; gap:0; padding:14px; border:1px solid rgba(255,255,255,.05); border-radius:14px; background:#171827; box-shadow:none; }
     #seriesPanel.has-series-banner { background-image:linear-gradient(90deg,#171827 0%,rgba(23,24,39,.94) 48%,rgba(23,24,39,.76)),var(--series-banner); background-position:center; background-size:cover; }
     #seriesPanel.has-series-banner > * { position:relative; z-index:1; }
+    #seriesPanel.concept-up-next { display:grid; grid-template-columns:minmax(0,1fr) 42px; grid-template-areas:"title controls" "episodes controls" "add add"; column-gap:12px; background-image:none !important; }
+    #seriesPanel .concept-up-next-header { display:contents; }
+    #seriesPanel .concept-up-next-header h2 { grid-area:title; align-self:center; }
+    #seriesPanel .concept-up-next-controls { grid-area:controls; flex-direction:column; align-items:stretch; justify-content:center; gap:7px; }
+    #seriesPanel .concept-up-next-controls details, #seriesPanel .concept-picker { width:38px; height:38px; box-sizing:border-box; justify-content:center; padding:0; }
+    #seriesPanel .concept-picker span { overflow:hidden; max-width:24px; font-size:.72rem; text-align:center; white-space:nowrap; }
+    #seriesPanel .concept-picker::after { display:none; }
+    #seriesPanel > #episodePicker { grid-area:episodes; min-width:0; }
+    #seriesPanel > .concept-add-playlist { grid-area:add; justify-self:end; width:auto; min-width:38px; height:28px; display:flex; align-items:center; gap:4px; padding:0 7px; font-size:.75rem; }
+    #seriesPanel .concept-add-playlist-plus { font-size:.85rem; }
     #seriesPanel.has-episode-overflow-left::before, #seriesPanel.has-episode-overflow-right::after { position:absolute; top:64px; bottom:14px; z-index:3; width:28px; pointer-events:none; content:""; }
     #seriesPanel.has-episode-overflow-left::before { left:14px; background:linear-gradient(90deg,#171827,rgba(23,24,39,0)); }
     #seriesPanel.has-episode-overflow-right::after { right:14px; background:linear-gradient(270deg,#171827,rgba(23,24,39,0)); }
@@ -4121,9 +4131,10 @@
         </div>
       </section>
       <section id="seriesPanel" class="concept-up-next">
-        <header class="concept-up-next-header"><h2>Up Next in Series</h2><div class="concept-up-next-controls"><details id="seasonPicker"><summary class="concept-picker"><span id="seasonPickerValue">Season 1</span></summary><div id="seasonButtons" class="concept-picker-menu"></div></details><details id="translatorPicker"><summary class="concept-picker"><span id="translatorPickerValue">English</span></summary><div id="translatorButtons" class="concept-picker-menu"></div></details><button id="conceptAddPlaylistButton" type="button" class="concept-add-playlist">+</button></div></header>
+        <header class="concept-up-next-header"><h2>Up Next in Series</h2><div class="concept-up-next-controls"><details id="seasonPicker"><summary class="concept-picker"><span id="seasonPickerValue">S1</span></summary><div id="seasonButtons" class="concept-picker-menu"></div></details><details id="translatorPicker"><summary class="concept-picker" aria-label="Audio track"><span id="translatorPickerValue">♬</span></summary><div id="translatorButtons" class="concept-picker-menu"></div></details></div></header>
         <div id="seriesTitle" class="hidden"></div><div id="seriesMeta" class="hidden"></div>
         <details id="episodePicker" open><summary class="hidden"><span id="episodePickerValue"></span></summary><div id="seriesEpisodes" class="concept-episode-grid"></div></details>
+        <button id="conceptAddPlaylistButton" type="button" class="concept-add-playlist"><span class="concept-playlist-icon" aria-hidden="true">☷</span><span class="concept-add-playlist-plus">+</span></button>
       </section>
     </main>
 

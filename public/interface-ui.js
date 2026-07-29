@@ -2370,9 +2370,9 @@ function renderSeriesPanel() {
   seriesPanel.classList.toggle("has-series-banner", Boolean(seriesBanner));
   seriesTitleEl.textContent = title;
   seriesMetaEl.textContent = displayYear ? `(${displayYear})` : "";
-  if (seasonPickerValue) seasonPickerValue.textContent = selectedSeasonTitle;
+  if (seasonPickerValue) seasonPickerValue.textContent = `S${activeSeason?.seasonId || "1"}`;
   if (episodePickerValue) episodePickerValue.textContent = selectedEpisodeTitle;
-  if (translatorPickerValue) translatorPickerValue.textContent = selectedTranslatorTitle;
+  if (translatorPickerValue) translatorPickerValue.textContent = "♬";
 
   const qualities = getAvailableQualities();
   if (qualityPickerValue) {
@@ -2547,7 +2547,7 @@ function renderSeriesPanel() {
     const number = document.createElement("span");
     number.textContent = `S${episode?.seasonId || activeSeason?.seasonId || 1} E${index + 1}`;
     const duration = document.createElement("span");
-    duration.textContent = formatEpisodeDuration(episode);
+    duration.textContent = formatEpisodeDuration({ ...episode, runtime: episode?.runtime || tmdbEpisode?.runtime });
     meta.append(number, duration);
     overlay.append(title, meta);
     thumbnail.appendChild(overlay);
@@ -4233,6 +4233,7 @@ async function enrichSeriesEpisodes(roomState) {
         state.tmdbEpisodeCache.set(`${title.toLowerCase()}:${seasonNumber}:${episodeNumber}`, tmdbEpisode);
         episode.title = tmdbEpisode.title || episode.title;
         episode.thumbnail ||= tmdbEpisode.thumbnail;
+        episode.runtime ||= tmdbEpisode.runtime;
         matchedCount += 1;
       }
       console.log("[TMDB] Episodes matched", { title, season: seasonNumber, sourceCount: episodes.length, tmdbCount: byNumber.size, matchedCount });
