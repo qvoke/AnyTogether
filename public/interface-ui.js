@@ -1478,6 +1478,13 @@ function getEpisodesForSeason(season, seriesContext = getActiveSeriesContext()) 
     : seasonEpisodes;
 }
 
+function getEpisodeNumber(episode, index = 0) {
+  const explicitNumber = Number(episode?.episodeNumber ?? episode?.number);
+  return Number.isFinite(explicitNumber) && explicitNumber > 0
+    ? explicitNumber
+    : index + 1;
+}
+
 function sanitizeRoomUi(roomState) {
   const seriesContext = roomState?.currentMedia?.seriesContext || null;
   const seasons = Array.isArray(seriesContext?.seasons) ? seriesContext.seasons : [];
@@ -2514,7 +2521,7 @@ function renderSeriesPanel() {
 
     const thumbnail = document.createElement("span");
     thumbnail.className = "series-episode-thumb";
-    const episodeNumber = Number(episode?.episodeNumber ?? episode?.episodeId ?? episode?.number ?? index + 1);
+    const episodeNumber = getEpisodeNumber(episode, index);
     const tmdbEpisode = state.tmdbEpisodeCache.get(`${getTmdbSeriesTitle(currentMedia).toLowerCase()}:${episode?.seasonId ?? activeSeason?.seasonId ?? 1}:${episodeNumber}`);
     const thumbnailUrl = tmdbEpisode?.thumbnail || episode?.thumbnail || episode?.thumbnailUrl || episode?.image || episode?.poster || episode?.banner || seriesContext?.banner || seriesContext?.backdrop || "";
     if (thumbnailUrl) {
@@ -4215,7 +4222,7 @@ async function enrichSeriesEpisodes(roomState) {
       const episodes = getEpisodesForSeason(season, context);
       let matchedCount = 0;
       for (const [index, episode] of episodes.entries()) {
-        const episodeNumber = Number(episode.episodeNumber ?? episode.number ?? index + 1);
+        const episodeNumber = getEpisodeNumber(episode, index);
         const tmdbEpisode = byNumber.get(episodeNumber);
         if (!tmdbEpisode) continue;
         state.tmdbEpisodeCache.set(`${title.toLowerCase()}:${seasonNumber}:${episodeNumber}`, tmdbEpisode);
