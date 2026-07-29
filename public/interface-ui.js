@@ -210,6 +210,7 @@ const state = {
   extensionDetected: false,
   roomsDirectory: [],
   roomStates: new Map(),
+  tmdbEpisodeCache: new Map(),
   loadingRooms: false,
   authLoading: false
 };
@@ -2513,7 +2514,9 @@ function renderSeriesPanel() {
 
     const thumbnail = document.createElement("span");
     thumbnail.className = "series-episode-thumb";
-    const thumbnailUrl = episode?.thumbnail || episode?.thumbnailUrl || episode?.image || episode?.poster || episode?.banner || seriesContext?.banner || seriesContext?.backdrop || "";
+    const episodeNumber = Number(episode?.episodeNumber ?? episode?.episodeId ?? episode?.number ?? index + 1);
+    const tmdbEpisode = state.tmdbEpisodeCache.get(`${getTmdbSeriesTitle(currentMedia).toLowerCase()}:${episode?.seasonId ?? activeSeason?.seasonId ?? 1}:${episodeNumber}`);
+    const thumbnailUrl = tmdbEpisode?.thumbnail || episode?.thumbnail || episode?.thumbnailUrl || episode?.image || episode?.poster || episode?.banner || seriesContext?.banner || seriesContext?.backdrop || "";
     if (thumbnailUrl) {
       thumbnail.style.backgroundImage = `url("${String(thumbnailUrl).replaceAll('"', '%22')}")`;
       thumbnail.classList.add("has-image");
@@ -2526,7 +2529,7 @@ function renderSeriesPanel() {
 
     const title = document.createElement("strong");
     title.className = "series-episode-title";
-    title.textContent = episode?.title || episode?.name || episode?.episodeTitle || `Episode ${index + 1}`;
+    title.textContent = tmdbEpisode?.title || episode?.title || episode?.name || episode?.episodeTitle || `Episode ${index + 1}`;
 
     const meta = document.createElement("span");
     meta.className = "series-episode-meta";
@@ -4215,6 +4218,7 @@ async function enrichSeriesEpisodes(roomState) {
         const episodeNumber = Number(episode.episodeNumber ?? episode.number ?? index + 1);
         const tmdbEpisode = byNumber.get(episodeNumber);
         if (!tmdbEpisode) continue;
+        state.tmdbEpisodeCache.set(`${title.toLowerCase()}:${seasonNumber}:${episodeNumber}`, tmdbEpisode);
         episode.title = tmdbEpisode.title || episode.title;
         episode.thumbnail ||= tmdbEpisode.thumbnail;
         matchedCount += 1;
