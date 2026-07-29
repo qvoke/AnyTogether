@@ -211,6 +211,7 @@ const state = {
   roomsDirectory: [],
   roomStates: new Map(),
   tmdbEpisodeCache: new Map(),
+  tmdbSeasonCache: new Map(),
   loadingRooms: false,
   authLoading: false
 };
@@ -2522,7 +2523,10 @@ function renderSeriesPanel() {
     const thumbnail = document.createElement("span");
     thumbnail.className = "series-episode-thumb";
     const episodeNumber = getEpisodeNumber(episode, index);
-    const tmdbEpisode = state.tmdbEpisodeCache.get(`${getTmdbSeriesTitle(currentMedia).toLowerCase()}:${episode?.seasonId ?? activeSeason?.seasonId ?? 1}:${episodeNumber}`);
+    const seasonNumber = episode?.seasonId ?? activeSeason?.seasonId ?? 1;
+    const tmdbSeasonEpisodes = state.tmdbSeasonCache.get(`${getTmdbSeriesTitle(currentMedia).toLowerCase()}:${seasonNumber}`) || [];
+    const tmdbEpisode = tmdbSeasonEpisodes.find((item) => Number(item.episodeNumber) === episodeNumber) ||
+      state.tmdbEpisodeCache.get(`${getTmdbSeriesTitle(currentMedia).toLowerCase()}:${seasonNumber}:${episodeNumber}`);
     const thumbnailUrl = tmdbEpisode?.thumbnail || episode?.thumbnail || episode?.thumbnailUrl || episode?.image || episode?.poster || episode?.banner || seriesContext?.banner || seriesContext?.backdrop || "";
     if (thumbnailUrl) {
       thumbnail.style.backgroundImage = `url("${String(thumbnailUrl).replaceAll('"', '%22')}")`;
@@ -4218,6 +4222,7 @@ async function enrichSeriesEpisodes(roomState) {
       if (!response.ok) continue;
       if (roomState.currentMedia !== media) return;
       const result = await response.json();
+      state.tmdbSeasonCache.set(`${title.toLowerCase()}:${seasonNumber}`, Array.isArray(result.episodes) ? result.episodes : []);
       const byNumber = new Map((result.episodes || []).map((episode) => [Number(episode.episodeNumber), episode]));
       const episodes = getEpisodesForSeason(season, context);
       let matchedCount = 0;
