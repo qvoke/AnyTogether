@@ -4179,9 +4179,6 @@ function getTmdbSeriesTitle(media) {
   const mediaTitle = String(media?.title || "").trim();
   const isPlaceholder = /^(?:episode|сер(?:и|і)я)\s*\d+$/i.test(contextTitle) ||
     /^(?:episode|сер(?:и|і)я)\s*\d+$/i.test(mediaTitle);
-  if (contextTitle && !isPlaceholder) return contextTitle;
-  if (mediaTitle && !isPlaceholder) return mediaTitle;
-
   const sourceUrl = media?.sourcePageUrl || media?.pageUrl || media?.seriesContext?.resolver?.pageUrl;
   try {
     const pathname = new URL(sourceUrl).pathname;
@@ -4192,10 +4189,13 @@ function getTmdbSeriesTitle(media) {
       .replace(/[-_]+/g, " ")
       .replace(/\s+/g, " ")
       .trim();
-    return slug || "";
+    if (slug) return slug;
   } catch {
-    return "";
+    // Fall back to the extracted page title when the source URL is unavailable.
   }
+  if (contextTitle && !isPlaceholder) return contextTitle;
+  if (mediaTitle && !isPlaceholder) return mediaTitle;
+  return "";
 }
 
 async function enrichSeriesEpisodes(roomState) {
