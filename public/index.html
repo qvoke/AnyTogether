@@ -2188,7 +2188,7 @@
     /* Live room concept shell */
     .concept-room-shell {
       display: grid;
-      grid-template-columns: minmax(280px,1fr) minmax(0,3fr) minmax(280px,1fr);
+      grid-template-columns: minmax(230px,1fr) minmax(0,calc((100vh - 94px - 14px - 168px) * 1.7777778)) minmax(230px,1fr);
       gap: 17px;
       height: calc(100vh - 94px);
       min-height: 0;
@@ -2255,7 +2255,7 @@
     .concept-sidebar-panel.is-collapsed { flex:0 0 52px; }
     .concept-sidebar-panel.is-collapsed .concept-playlist-content { height:0; padding-top:0; padding-bottom:0; opacity:0; overflow:hidden; visibility:hidden; }
     .concept-sidebar-panel.is-collapsed .concept-panel-header > span:last-child { transform:rotate(-90deg); }
-    .concept-room-main { display:flex; flex-direction:column; gap:14px; overflow-y:auto; }
+    .concept-room-main { display:flex; flex-direction:column; gap:14px; overflow:hidden; }
     .concept-search-bar { display:flex; align-items:center; gap:8px; min-height:52px; }
     .concept-search-bar > button:first-child { display:flex; height:40px; align-items:center; gap:8px; padding:0 12px; border:1px solid rgba(255,255,255,.05); border-radius:11px; background:#171827; color:#bcb8cf; font-size:.75rem; font-weight:700; }
     .concept-search-bar > button:first-child span:first-child { color:var(--accent-2); font-size:1rem; }
@@ -2263,33 +2263,33 @@
     .concept-search-input svg { width:17px; height:17px; }
     .concept-search-input input { width:100%; border:0; outline:0; background:transparent; color:var(--text); }
     .concept-search-input input::placeholder { color:#6d6a7d; }
-    .concept-player { order:2; flex:0 0 auto; align-self:center; width:100%; aspect-ratio:16/9; min-height:0; overflow:hidden; border:1px solid rgba(255,255,255,.05); border-radius:14px; background:#05060c; }
-    .concept-player video { width:100%; height:100%; aspect-ratio:auto; object-fit:contain; }
+    .concept-player { order:2; flex:0 0 auto; align-self:center; width:min(100%, calc((100vh - 94px - 14px - 168px) * 1.7777778)); height:auto; aspect-ratio:16/9; min-height:0; overflow:hidden; border:1px solid rgba(255,255,255,.05); border-radius:14px; background:#05060c; }
+    .concept-player video { width:100%; height:100%; aspect-ratio:auto; object-fit:cover; }
     .concept-player .player-media-overlay { z-index:4; }
     .concept-player .player-media-overlay { display:none; }
     .concept-player.player-shell { border:1px solid rgba(255,255,255,.05); border-radius:14px; background:#05060c; }
-    .concept-player.player-shell video { border:0; border-radius:14px; }
+    .concept-player.player-shell video { position:absolute; inset:0; width:100%; height:100%; object-fit:contain; object-position:center; border:0; border-radius:14px; }
     .concept-player.player-shell .custom-player-controls { border-radius:0 0 14px 14px; }
-    .concept-up-next { order:3; padding:14px; }
+    .concept-up-next { order:3; flex:0 0 168px; min-height:168px; padding:14px; }
     #seriesPanel.concept-up-next { position:relative; display:block; align-self:center; width:100%; flex-direction:initial; gap:0; padding:14px; border:1px solid rgba(255,255,255,.05); border-radius:14px; background:#171827; box-shadow:none; }
     #seriesPanel.has-series-banner { background-image:linear-gradient(90deg,#171827 0%,rgba(23,24,39,.94) 48%,rgba(23,24,39,.76)),var(--series-banner); background-position:center; background-size:cover; }
     #seriesPanel.has-series-banner > * { position:relative; z-index:1; }
-    #seriesPanel.concept-up-next { display:grid; grid-template-columns:minmax(0,1fr) 34px; grid-template-areas:"episodes controls"; column-gap:8px; background-image:none !important; }
+    #seriesPanel.concept-up-next { display:grid; grid-template-columns:minmax(0,1fr) 30px; grid-template-areas:"episodes controls"; column-gap:12px; padding-bottom:16px; width:min(100%, calc((100vh - 94px - 14px - 168px) * 1.7777778)); background-image:none !important; }
     #seriesPanel .concept-up-next-header { display:contents; }
     #seriesPanel .concept-up-next-header h2 { display:none; }
-    #seriesPanel .concept-up-next-controls { grid-area:controls; flex-direction:column; align-items:stretch; justify-content:center; gap:5px; }
+    #seriesPanel .concept-up-next-controls { grid-area:controls; align-self:center; height:140px; flex-direction:column; align-items:stretch; justify-content:space-between; gap:0; }
     #seriesPanel .concept-up-next-controls details, #seriesPanel .concept-picker { width:30px; height:30px; box-sizing:border-box; justify-content:center; padding:0; }
     #seriesPanel .concept-picker span { overflow:hidden; max-width:18px; font-size:.64rem; text-align:center; white-space:nowrap; }
     #seriesPanel .concept-picker::after { display:block; width:4px; height:4px; margin-left:0; border-right:1px solid currentColor; border-bottom:1px solid currentColor; transform:rotate(45deg) translateY(-1px); }
     #seriesPanel .concept-autoplay-picker.is-active { border-color:rgba(152,124,255,.8); background:rgba(152,124,255,.2); color:#c8b8ff; }
-    #seriesPanel > #episodePicker { grid-area:episodes; min-width:0; }
-    #seriesPanel > #episodePicker, #seriesPanel .concept-episode-grid { height:124px; }
-    #seriesPanel .concept-episode-grid button { flex:0 0 220px; width:220px; height:124px; aspect-ratio:16/9; }
+    #seriesPanel > #episodePicker { grid-area:episodes; align-self:center; min-width:0; height:140px; }
+    #seriesPanel .concept-episode-grid { height:140px; }
+    #seriesPanel .concept-episode-grid button { flex:0 0 249px; width:249px; height:140px; aspect-ratio:16/9; }
     #seriesPanel .concept-up-next-controls .concept-add-playlist { width:30px; min-width:30px; height:30px; display:flex; align-items:center; justify-content:center; gap:2px; padding:0; font-size:.7rem; }
     #seriesPanel .concept-add-playlist-plus { font-size:.85rem; }
-    #seriesPanel.has-episode-overflow-left::before, #seriesPanel.has-episode-overflow-right::after { position:absolute; top:14px; bottom:14px; z-index:3; width:14px; pointer-events:none; content:""; }
+    #seriesPanel.has-episode-overflow-left::before, #seriesPanel.has-episode-overflow-right::after { display:block; position:absolute; top:14px; bottom:14px; z-index:4; width:18px; pointer-events:none; content:""; }
     #seriesPanel.has-episode-overflow-left::before { left:14px; background:linear-gradient(90deg,#171827,rgba(23,24,39,0)); }
-    #seriesPanel.has-episode-overflow-right::after { right:56px; background:linear-gradient(270deg,#171827,rgba(23,24,39,0)); }
+    #seriesPanel.has-episode-overflow-right::after { right:50px; background:linear-gradient(270deg,#171827,rgba(23,24,39,0)); }
     .concept-up-next-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
     .concept-up-next-header h2 { margin:0; font-size:1rem; }
     .concept-up-next-controls { display:flex; align-items:center; gap:8px; }
@@ -2341,7 +2341,11 @@
     .concept-participants-panel .pw-list { min-height:0; overflow:auto; padding:14px 0 0; }
     .concept-invite-button { width:100%; height:38px; margin-top:10px; border:1px solid rgba(124,93,250,.45); border-radius:9px; background:transparent; color:var(--accent-2); }
     @media (max-width: 1100px) { .concept-room-shell { grid-template-columns:260px minmax(0,1fr); } .concept-room-right { grid-column:1/-1; display:grid; grid-template-columns:1fr 1fr; overflow:visible; } }
-    @media (max-width: 760px) { .concept-room-shell { display:flex; height:auto; min-height:calc(100vh - 94px); flex-direction:column; } .concept-room-main { overflow:visible; } .concept-room-right { display:flex; } .concept-player { width:100%; } }
+    @media (max-width: 760px) { .concept-room-shell { display:flex; height:auto; min-height:calc(100vh - 94px); flex-direction:column; } .concept-room-main { overflow:visible; } .concept-room-right { display:flex; } .concept-player, #seriesPanel.concept-up-next { width:100%; } }
+    @media (min-width: 761px) and (max-aspect-ratio: 1/1) {
+      .concept-player, #seriesPanel.concept-up-next { width:min(100%, calc((100vh - 94px - 14px - 220px) * 1.7777778)); }
+      #seriesPanel.concept-up-next { box-sizing:border-box; height:170px; min-height:170px; }
+    }
 
     /* Auth card */
     .auth-card {
