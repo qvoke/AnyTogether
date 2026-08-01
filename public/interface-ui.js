@@ -1148,6 +1148,7 @@ function upsertRoomStateFromSnapshot(roomId, snapshot) {
   state.roomStates.set(roomId, existing);
 
   return {
+    autoplayEnabled: false,
     roomState: existing,
     previousMediaUrl,
     previousPlayback
@@ -1415,6 +1416,7 @@ function mergeUiFromSeriesContext(roomState, seriesContext, previousSeriesContex
           : (seriesContext?.selectedQualityLabel && qualities.some((quality) => quality.label === seriesContext.selectedQualityLabel)
             ? seriesContext.selectedQualityLabel
             : defaultUi.qualityLabel),
+      autoplayEnabled: currentUi.autoplayEnabled === true,
       codeHidden: Boolean(currentUi.codeHidden)
     };
   }
@@ -1461,6 +1463,7 @@ function mergeUiFromSeriesContext(roomState, seriesContext, previousSeriesContex
     episodeId,
     translatorId,
     qualityLabel,
+    autoplayEnabled: currentUi.autoplayEnabled === true,
     codeHidden: Boolean(currentUi.codeHidden)
   };
 }
@@ -1503,6 +1506,9 @@ function sanitizeRoomUi(roomState) {
 
   if (typeof roomState.ui.codeHidden !== "boolean") {
     roomState.ui.codeHidden = Boolean(loadRoomUiState(roomState.code)?.codeHidden);
+  }
+  if (typeof roomState.ui.autoplayEnabled !== "boolean") {
+    roomState.ui.autoplayEnabled = false;
   }
 
   if (pendingEpisode) {
@@ -2373,6 +2379,13 @@ function renderSeriesPanel() {
   if (seasonPickerValue) seasonPickerValue.textContent = `S${activeSeason?.seasonId || "1"}`;
   if (episodePickerValue) episodePickerValue.textContent = selectedEpisodeTitle;
   if (translatorPickerValue) translatorPickerValue.textContent = "♬";
+  const autoplayButton = document.getElementById("seriesAutoplayButton");
+  if (autoplayButton) {
+    const enabled = roomState.ui?.autoplayEnabled === true;
+    autoplayButton.classList.toggle("is-active", enabled);
+    autoplayButton.setAttribute("aria-pressed", String(enabled));
+    autoplayButton.title = enabled ? "Autoplay enabled" : "Autoplay disabled";
+  }
 
   const qualities = getAvailableQualities();
   if (qualityPickerValue) {
@@ -2876,11 +2889,11 @@ function refreshParticipantPlaybackIndicators() {
 function handleSeriesEpisodesWheel(event) {
   if (!seriesEpisodesEl || seriesEpisodesEl.scrollWidth <= seriesEpisodesEl.clientWidth) return;
 
-  const horizontalDelta = event.deltaX || event.deltaY;
+  const horizontalDelta = event.deltaY !== 0 ? event.deltaY : event.deltaX;
   if (!horizontalDelta) return;
 
   event.preventDefault();
-  seriesEpisodesEl.scrollLeft += horizontalDelta;
+  seriesEpisodesEl.scrollBy({ left: horizontalDelta, behavior: "auto" });
 }
 
 function updateSeriesEpisodeOverflow() {
@@ -4121,6 +4134,7 @@ function updateRoomFromMediaPayload(roomId, payload, shouldBroadcast) {
       sourcePageUrl: payload.sourcePageUrl || previousMedia?.sourcePageUrl || null,
       title: payload.title || nextSeriesContext?.title || null,
       seriesContext: nextSeriesContext,
+      autoplay: roomState.ui?.autoplayEnabled === true,
       originId: clientId
     });
   }
@@ -4151,6 +4165,7 @@ async function enrichCurrentMediaArt(roomState) {
   try {
     await enrichSeriesEpisodes(roomState);
     if (roomState.currentMedia !== media) return;
+    broadcastEnrichedSeriesContext(roomState);
     if (!needsArt) {
       if (state.activeRoomId === roomState.code) renderSeriesPanel();
       return;
@@ -4172,6 +4187,31 @@ async function enrichCurrentMediaArt(roomState) {
   } catch {
     media.artLookupKey = null;
   }
+}
+
+function broadcastEnrichedSeriesContext(roomState) {
+  const media = roomState?.currentMedia;
+  const context = media?.seriesContext;
+  if (!context || !canCurrentUserManageContent(roomState)) return;
+  const signature = JSON.stringify((context.episodes || []).map((episode) => ({
+    seasonId: episode.seasonId,
+    episodeId: episode.episodeId,
+    title: episode.title,
+    runtime: episode.runtime,
+    thumbnail: episode.thumbnail
+  })));
+  if (media.tmdbContextBroadcastSignature === signature) return;
+  media.tmdbContextBroadcastSignature = signature;
+  sendWs({
+    type: "series-context:set",
+    contextEventId: crypto.randomUUID(),
+    roomId: roomState.code,
+    pageUrl: media.pageUrl || null,
+    sourcePageUrl: media.sourcePageUrl || null,
+    title: context.title || media.title || null,
+    seriesContext: context,
+    originId: clientId
+  });
 }
 
 function getTmdbSeriesTitle(media) {
@@ -4345,6 +4385,27 @@ function requestEpisodeResolution(targetEpisode, overrides = {}) {
   );
 
   setSearchHint(`Loading episode: S${targetEpisode.seasonId} E${targetEpisode.episodeId}`);
+}
+
+function handleSeriesAutoplayEnded() {
+  const roomState = getActiveRoomState();
+  if (!roomState?.ui?.autoplayEnabled || !canCurrentUserManageContent(roomState)) return;
+
+  const seriesContext = roomState.currentMedia?.seriesContext;
+  const activeSeason = getActiveSeason();
+  const episodes = getEpisodesForSeason(activeSeason, seriesContext);
+  const currentIndex = episodes.findIndex((episode) => String(episode.episodeId) === String(roomState.ui.episodeId));
+  const nextEpisode = currentIndex >= 0 ? episodes[currentIndex + 1] : episodes[0];
+  if (!nextEpisode) return;
+
+  roomState.ui.seasonId = nextEpisode.seasonId || roomState.ui.seasonId;
+  roomState.ui.episodeId = nextEpisode.episodeId;
+  requestActiveRoomAutoplay(roomState.code);
+  renderSeriesPanel();
+  requestEpisodeResolution(nextEpisode, {
+    translatorId: roomState.ui.translatorId,
+    qualityLabel: roomState.ui.qualityLabel
+  });
 }
 
 function sendSearchToExtension(query) {
@@ -4703,6 +4764,10 @@ function connectWs() {
         : null;
       const prevUi = prevRoomState ? { ...prevRoomState.ui } : null;
 
+      if (msg.autoplay === true) {
+        requestActiveRoomAutoplay(roomId);
+      }
+
       updateRoomFromMediaPayload(roomId, msg, false);
 
       const newRoomState = getRoomState(roomId);
@@ -4791,6 +4856,15 @@ function bindUi() {
   seriesEpisodesEl?.addEventListener("wheel", handleSeriesEpisodesWheel, { passive: false });
   seriesEpisodesEl?.addEventListener("scroll", updateSeriesEpisodeOverflow, { passive: true });
   window.addEventListener("resize", updateSeriesEpisodeOverflow);
+  document.getElementById("player")?.addEventListener("ended", handleSeriesAutoplayEnded);
+
+  document.getElementById("seriesAutoplayButton")?.addEventListener("click", () => {
+    const roomState = getActiveRoomState();
+    if (!roomState) return;
+    roomState.ui = roomState.ui || createDefaultUi(roomState.currentMedia?.seriesContext || null);
+    roomState.ui.autoplayEnabled = !roomState.ui.autoplayEnabled;
+    renderSeriesPanel();
+  });
 
   document.querySelectorAll(".sidebar .playlist-header").forEach((toggle) => {
     toggle.addEventListener("click", () => {

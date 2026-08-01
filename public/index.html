@@ -2274,19 +2274,22 @@
     #seriesPanel.concept-up-next { position:relative; display:block; align-self:center; width:100%; flex-direction:initial; gap:0; padding:14px; border:1px solid rgba(255,255,255,.05); border-radius:14px; background:#171827; box-shadow:none; }
     #seriesPanel.has-series-banner { background-image:linear-gradient(90deg,#171827 0%,rgba(23,24,39,.94) 48%,rgba(23,24,39,.76)),var(--series-banner); background-position:center; background-size:cover; }
     #seriesPanel.has-series-banner > * { position:relative; z-index:1; }
-    #seriesPanel.concept-up-next { display:grid; grid-template-columns:minmax(0,1fr) 42px; grid-template-areas:"title controls" "episodes controls" "add add"; column-gap:12px; background-image:none !important; }
+    #seriesPanel.concept-up-next { display:grid; grid-template-columns:minmax(0,1fr) 34px; grid-template-areas:"episodes controls"; column-gap:8px; background-image:none !important; }
     #seriesPanel .concept-up-next-header { display:contents; }
-    #seriesPanel .concept-up-next-header h2 { grid-area:title; align-self:center; }
-    #seriesPanel .concept-up-next-controls { grid-area:controls; flex-direction:column; align-items:stretch; justify-content:center; gap:7px; }
-    #seriesPanel .concept-up-next-controls details, #seriesPanel .concept-picker { width:38px; height:38px; box-sizing:border-box; justify-content:center; padding:0; }
-    #seriesPanel .concept-picker span { overflow:hidden; max-width:24px; font-size:.72rem; text-align:center; white-space:nowrap; }
-    #seriesPanel .concept-picker::after { display:none; }
+    #seriesPanel .concept-up-next-header h2 { display:none; }
+    #seriesPanel .concept-up-next-controls { grid-area:controls; flex-direction:column; align-items:stretch; justify-content:center; gap:5px; }
+    #seriesPanel .concept-up-next-controls details, #seriesPanel .concept-picker { width:30px; height:30px; box-sizing:border-box; justify-content:center; padding:0; }
+    #seriesPanel .concept-picker span { overflow:hidden; max-width:18px; font-size:.64rem; text-align:center; white-space:nowrap; }
+    #seriesPanel .concept-picker::after { display:block; width:4px; height:4px; margin-left:0; border-right:1px solid currentColor; border-bottom:1px solid currentColor; transform:rotate(45deg) translateY(-1px); }
+    #seriesPanel .concept-autoplay-picker.is-active { border-color:rgba(152,124,255,.8); background:rgba(152,124,255,.2); color:#c8b8ff; }
     #seriesPanel > #episodePicker { grid-area:episodes; min-width:0; }
-    #seriesPanel > .concept-add-playlist { grid-area:add; justify-self:end; width:auto; min-width:38px; height:28px; display:flex; align-items:center; gap:4px; padding:0 7px; font-size:.75rem; }
+    #seriesPanel > #episodePicker, #seriesPanel .concept-episode-grid { height:124px; }
+    #seriesPanel .concept-episode-grid button { flex:0 0 220px; width:220px; height:124px; aspect-ratio:16/9; }
+    #seriesPanel .concept-up-next-controls .concept-add-playlist { width:30px; min-width:30px; height:30px; display:flex; align-items:center; justify-content:center; gap:2px; padding:0; font-size:.7rem; }
     #seriesPanel .concept-add-playlist-plus { font-size:.85rem; }
-    #seriesPanel.has-episode-overflow-left::before, #seriesPanel.has-episode-overflow-right::after { position:absolute; top:64px; bottom:14px; z-index:3; width:28px; pointer-events:none; content:""; }
+    #seriesPanel.has-episode-overflow-left::before, #seriesPanel.has-episode-overflow-right::after { position:absolute; top:14px; bottom:14px; z-index:3; width:14px; pointer-events:none; content:""; }
     #seriesPanel.has-episode-overflow-left::before { left:14px; background:linear-gradient(90deg,#171827,rgba(23,24,39,0)); }
-    #seriesPanel.has-episode-overflow-right::after { right:14px; background:linear-gradient(270deg,#171827,rgba(23,24,39,0)); }
+    #seriesPanel.has-episode-overflow-right::after { right:56px; background:linear-gradient(270deg,#171827,rgba(23,24,39,0)); }
     .concept-up-next-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
     .concept-up-next-header h2 { margin:0; font-size:1rem; }
     .concept-up-next-controls { display:flex; align-items:center; gap:8px; }
@@ -2312,7 +2315,7 @@
     .concept-picker-menu button { padding:7px; border-radius:6px; background:transparent; color:#d9d6e8; text-align:left; }
     .concept-picker-menu button:hover { background:rgba(152,124,255,.18); }
     .concept-add-playlist { display:grid; width:32px; height:32px; place-items:center; border-radius:8px; background:#1d1e2d; color:var(--accent-2); font-size:1.2rem; }
-    .concept-episode-grid { display:flex; gap:10px; overflow-x:auto; overflow-y:hidden; padding:0; scroll-snap-type:x proximity; scrollbar-width:none; scrollbar-color:transparent transparent; }
+    .concept-episode-grid { display:flex; gap:10px; overflow-x:auto; overflow-y:hidden; padding:0; scroll-snap-type:none; overscroll-behavior-x:contain; scrollbar-width:none; scrollbar-color:transparent transparent; }
     .concept-episode-grid::-webkit-scrollbar { width:0; height:0; }
     .concept-episode-grid button { position:relative; flex:0 0 187px; width:187px; height:104px; aspect-ratio:16/9; min-height:0; padding:0; overflow:hidden; border:2px solid transparent; border-radius:10px; background:#202537; color:#f2efff; text-align:left; scroll-snap-align:start; }
     .concept-episode-grid button:hover { border-color:rgba(176,150,255,.75); }
@@ -2325,7 +2328,7 @@
     .series-episode-thumb.tone-3 { background:linear-gradient(145deg,#3b3157,#171827); }
     .series-episode-overlay { position:absolute; right:10px; bottom:9px; left:10px; display:flex; flex-direction:column; gap:4px; }
     .series-episode-title { overflow:hidden; color:#fff; font-size:.79rem; line-height:1.2; text-overflow:ellipsis; white-space:nowrap; }
-    .series-episode-meta { display:flex; justify-content:space-between; gap:8px; color:#c9c5d8; font-size:.68rem; }
+    .series-episode-meta { display:flex; justify-content:flex-start; gap:10px; color:#c9c5d8; font-size:.68rem; }
     .concept-empty-episodes { grid-column:1/-1; min-height:84px; display:grid; place-items:center; border:1px dashed rgba(255,255,255,.1); border-radius:10px; color:var(--muted); font-size:.8rem; }
     .concept-room-action:disabled { cursor:not-allowed; opacity:.42; }
     .concept-room-right { overflow:hidden; }
@@ -4131,10 +4134,9 @@
         </div>
       </section>
       <section id="seriesPanel" class="concept-up-next">
-        <header class="concept-up-next-header"><h2>Up Next in Series</h2><div class="concept-up-next-controls"><details id="seasonPicker"><summary class="concept-picker"><span id="seasonPickerValue">S1</span></summary><div id="seasonButtons" class="concept-picker-menu"></div></details><details id="translatorPicker"><summary class="concept-picker" aria-label="Audio track"><span id="translatorPickerValue">♬</span></summary><div id="translatorButtons" class="concept-picker-menu"></div></details></div></header>
+        <header class="concept-up-next-header"><h2>Up Next in Series</h2><div class="concept-up-next-controls"><details id="seasonPicker"><summary class="concept-picker"><span id="seasonPickerValue">S1</span></summary><div id="seasonButtons" class="concept-picker-menu"></div></details><details id="translatorPicker"><summary class="concept-picker" aria-label="Audio track"><span id="translatorPickerValue">♬</span></summary><div id="translatorButtons" class="concept-picker-menu"></div></details><button id="seriesAutoplayButton" type="button" class="concept-picker concept-autoplay-picker" aria-label="Toggle autoplay">▶</button><button id="conceptAddPlaylistButton" type="button" class="concept-add-playlist"><span class="concept-playlist-icon" aria-hidden="true">☷</span><span class="concept-add-playlist-plus">+</span></button></div></header>
         <div id="seriesTitle" class="hidden"></div><div id="seriesMeta" class="hidden"></div>
         <details id="episodePicker" open><summary class="hidden"><span id="episodePickerValue"></span></summary><div id="seriesEpisodes" class="concept-episode-grid"></div></details>
-        <button id="conceptAddPlaylistButton" type="button" class="concept-add-playlist"><span class="concept-playlist-icon" aria-hidden="true">☷</span><span class="concept-add-playlist-plus">+</span></button>
       </section>
     </main>
 
