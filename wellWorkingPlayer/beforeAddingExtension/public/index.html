@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AnyTogether</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Synchronized media rooms</p>
+          <h1>AnyTogether</h1>
+          <p class="hero-copy">
+            A metasearch-ready player interface with host-driven playback sync,
+            plugin message bridging, and room state broadcasting over WebSocket.
+          </p>
+        </div>
+        <div class="hero-stats">
+          <div>
+            <span class="stat-label">Connection</span>
+            <strong id="connectionState">Disconnected</strong>
+          </div>
+          <div>
+            <span class="stat-label">Role</span>
+            <strong id="activeRole">Guest</strong>
+          </div>
+          <div>
+            <span class="stat-label">Room</span>
+            <strong id="activeRoom">lobby</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel controls">
+          <div class="panel-heading">
+            <h2>Room setup</h2>
+            <p>Connect first, then let the host drive the shared timeline.</p>
+          </div>
+
+          <div class="grid-two">
+            <label>
+              Display name
+              <input id="displayName" type="text" value="Host" autocomplete="nickname" />
+            </label>
+            <label>
+              Role
+              <select id="roleSelect">
+                <option value="host">Host</option>
+                <option value="guest">Guest</option>
+              </select>
+            </label>
+            <label>
+              Room
+              <input id="roomInput" type="text" value="lobby" />
+            </label>
+            <label>
+              Media URL
+              <input id="mediaUrl" type="url" placeholder="https://example.com/stream.m3u8" />
+            </label>
+          </div>
+
+          <div class="actions">
+            <button id="connectButton" class="primary">Connect</button>
+            <button id="syncButton" type="button">Request sync</button>
+          </div>
+
+          <div class="search-box">
+            <label>
+              Plugin search query
+              <input
+                id="searchQuery"
+                type="text"
+                placeholder="vimeo space station"
+              />
+            </label>
+            <button id="searchButton" type="button">Send to plugin</button>
+          </div>
+
+          <div class="bridge-card">
+            <div>
+              <span class="stat-label">Plugin bridge</span>
+              <strong id="bridgeState">Waiting for plugin response</strong>
+            </div>
+            <p id="bridgeDetails">
+              The page sends a search request through <code>window.postMessage</code>
+              and expects a media URL back from the extension.
+            </p>
+          </div>
+        </section>
+
+        <section class="panel player-panel">
+          <div class="panel-heading">
+            <h2>Shared player</h2>
+            <p>Host events are snapshotted and broadcast to all room members.</p>
+          </div>
+
+          <video id="player" controls playsinline></video>
+
+          <div class="transport">
+            <button id="loadMediaButton" type="button" class="primary">Load URL</button>
+            <label>
+              Jump to
+              <input id="seekInput" type="number" min="0" step="0.1" value="0" />
+            </label>
+            <button id="seekButton" type="button">Seek</button>
+          </div>
+
+          <div class="timeline">
+            <div>
+              <span class="stat-label">Current media</span>
+              <strong id="currentMediaLabel">No media loaded</strong>
+            </div>
+            <div>
+              <span class="stat-label">Playback state</span>
+              <strong id="playbackState">Idle</strong>
+            </div>
+            <div>
+              <span class="stat-label">Revision</span>
+              <strong id="revisionLabel">0</strong>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel sidebar">
+          <div class="panel-heading">
+            <h2>Room log</h2>
+            <p>Connection and sync events appear here for quick debugging.</p>
+          </div>
+
+          <div id="memberList" class="member-list"></div>
+          <div id="eventLog" class="event-log" aria-live="polite"></div>
+        </section>
+      </main>
+    </div>
+  </body>
+</html>
